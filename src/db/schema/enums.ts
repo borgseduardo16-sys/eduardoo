@@ -122,13 +122,52 @@ export const payoutAccountStatus = pgEnum('payout_account_status', [
   'disabled',
 ]);
 
+/** O que esta sendo denunciado. */
+export const reportTarget = pgEnum('report_target', ['space', 'user', 'message']);
+
+/**
+ * Motivos de denuncia.
+ *
+ * Cobrem os tres alvos. A severidade nao vem daqui: e derivada do motivo no
+ * servidor (ver src/lib/safety/reports.ts), para que assedio e fraude subam na
+ * fila de moderacao sem depender de quem denunciou marcar isso.
+ */
 export const reportReason = pgEnum('report_reason', [
-  'fraude',
-  'conteudo_inadequado',
-  'endereco_incorreto',
+  // --- Anuncio ---
   'anuncio_falso',
+  'endereco_incorreto',
+  'preco_enganoso',
+  'espaco_inexistente',
+  // --- Conduta ---
+  'fraude',
+  'golpe_pagamento',
+  'pagamento_fora_plataforma',
+  'assedio',
+  'discurso_odio',
+  'ameaca',
+  'identidade_falsa',
+  // --- Conteudo ---
+  'conteudo_inadequado',
+  'spam',
   'atividade_proibida',
+  // --- Execucao do contrato ---
+  'nao_compareceu',
+  'dano_ao_espaco',
+  'uso_indevido_do_espaco',
   'outro',
+]);
+
+/**
+ * Prioridade na fila de moderacao.
+ *
+ * `critical` e para o que envolve risco a pessoa (ameaca, assedio) ou dinheiro
+ * de terceiros — esses casos nao podem esperar o fim da fila.
+ */
+export const reportSeverity = pgEnum('report_severity', [
+  'low',
+  'normal',
+  'high',
+  'critical',
 ]);
 
 export const reportStatus = pgEnum('report_status', [

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { CircleCheck } from 'lucide-react';
+import { ChevronRight, CircleCheck, ShieldCheck } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -80,6 +80,25 @@ export default async function MinhaContaPage({
               </dd>
             </div>
           </dl>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="font-semibold">Segurança</h2>
+          <Link
+            href="/minha-conta/seguranca"
+            className="flex items-center justify-between gap-4 rounded-[var(--radius-card)] border p-4 hover:bg-[var(--surface-sunken)] transition-colors"
+          >
+            <span className="flex gap-3 items-start min-w-0">
+              <ShieldCheck className="size-4 mt-0.5 shrink-0 text-[var(--accent)]" aria-hidden />
+              <span className="min-w-0">
+                <span className="block font-medium text-[0.9375rem]">Centro de segurança</span>
+                <span className="block text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
+                  Gerencie bloqueios e veja como denunciar um problema.
+                </span>
+              </span>
+            </span>
+            <ChevronRight className="size-4 shrink-0 text-[var(--content-subtle)]" aria-hidden />
+          </Link>
         </section>
 
         <section className="space-y-3">

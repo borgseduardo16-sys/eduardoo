@@ -1,6 +1,6 @@
 # Banco de dados — o que cada tabela faz
 
-Explicação em linguagem simples de cada uma das 21 tabelas, por que existe e
+Explicação em linguagem simples de cada uma das 22 tabelas, por que existe e
 que regra ela protege. O modelo em código está em `src/db/schema/`.
 
 > Convenção que vale para tudo: **todo valor em dinheiro é inteiro, em
@@ -20,6 +20,11 @@ sem perfil.
 
 Papéis: `user` (locatário), `owner` (pode publicar), `admin`. "Visitante" é
 simplesmente não ter sessão.
+
+`upheld_report_count` conta as denúncias contra a pessoa que a moderação julgou
+procedentes. É mantido por trigger e alimenta a política de suspensão
+automática. Fica denormalizado porque essa consulta acontece a cada ação
+sensível, e varrer a tabela de denúncias toda vez sairia caro.
 
 **Protege:** um usuário comum não consegue se promover a admin. Existe
 permissão por coluna (só escreve em nome, telefone e foto) mais uma trigger que
@@ -145,6 +150,12 @@ A conversa entre interessado e proprietário, sempre no contexto de um anúncio.
 As mensagens. Mensagem vazia é recusada pelo banco, e há limite de 4.000
 caracteres. Moderação esconde sem apagar (o conteúdo fica para auditoria).
 
+`flagged_at` e `flag_reason` são preenchidos pelo detector de dados de contato
+quando a mensagem contém telefone, e-mail, chave Pix ou pedido de pagamento por
+fora. Sinalizar **não esconde** a mensagem: avisa quem está conversando e
+alimenta a fila de moderação. O `flag_reason` guarda só os **tipos**
+encontrados, nunca o número ou o e-mail em si.
+
 **É a única tabela que o navegador lê diretamente**, para o tempo real
 funcionar. Por isso as regras de RLS dela são a barreira de verdade: só
 participante da conversa lê, só o próprio remetente escreve, e só em conversa
@@ -169,13 +180,48 @@ recusado pelo banco. Testado.
 Uma trigger mantém a nota média do anúncio sempre coerente.
 
 ### `reports`
-Denúncias de anúncio, com os motivos que você pediu (fraude, conteúdo
-inadequado, endereço incorreto, anúncio falso, atividade proibida, outro).
+Denúncias. **Uma tabela para três alvos**: anúncio, usuário e mensagem
+específica.
 
-Um usuário logado não consegue abrir várias denúncias em aberto do mesmo
-anúncio.
+Poder denunciar uma mensagem isolada importa: sem isso, uma denúncia de assédio
+chega ao moderador sem nada que ele possa ler.
 
----
+`target_type` diz qual coluna de alvo está preenchida, e um `CHECK` garante que
+**exatamente uma** esteja — sem isso, uma denúncia poderia apontar para lugar
+nenhum ou para dois alvos ao mesmo tempo.
+
+`severity` é calculada no servidor a partir do motivo (ameaça e assédio entram
+como crítico; spam como baixo). **O formulário não envia a gravidade** — se
+enviasse, tudo chegaria marcado como crítico.
+
+`evidence_snapshot` guarda uma cópia do conteúdo denunciado, feita por trigger.
+Conteúdo denunciado é exatamente o que costuma ser editado ou apagado logo em
+seguida.
+
+**Protege:**
+- autodenúncia é recusada
+- uma denúncia em aberto por alvo, por pessoa
+- motivo tem que combinar com o alvo ("não compareceu" não serve para anúncio)
+- quem denunciou vê a própria denúncia; **ninguém vê denúncia feita contra si**
+
+### `user_blocks`
+Bloqueio entre usuários. A ferramenta que **não depende de moderação** — vale na
+hora.
+
+O efeito é **mútuo** de propósito: se A bloqueia B, nenhum dos dois consegue
+conversar ou negociar com o outro. Se valesse só em um sentido, o bloqueado
+descobriria o bloqueio ao tentar falar, e teria como contornar pelo outro lado.
+
+**Protege, por trigger no banco:**
+- não inicia conversa
+- não envia mensagem
+- não cria reserva (senão bastaria alugar para contornar o bloqueio)
+- a conversa existente entre os dois é encerrada automaticamente
+
+Trigger e não só código de aplicação porque o servidor usa conexão privilegiada
+e ignora RLS. Trigger pega os dois caminhos.
+
+Detalhes em [SEGURANCA.md](./SEGURANCA.md).
 
 ## Sistema
 
@@ -196,12 +242,16 @@ Configuração em tempo de execução. **As taxas moram aqui**, não no código:
 
 | Chave | Valor | O que é |
 |-------|-------|---------|
-| `fees.renter_fee_bps` | 200 | 2% cobrados de quem aluga |
-| `fees.owner_fee_bps` | 200 | 2% retidos de quem recebe |
-| `booking.min_rent_cents` | 5000 | aluguel mínimo R$ 50 (abaixo disso a tarifa do gateway supera a receita — ver PAGAMENTOS.md) |
+| `fees.renter_fee_bps` | 300 | 3% cobrados de quem aluga |
+| `fees.owner_fee_bps` | 300 | 3% retidos de quem recebe |
+| `booking.min_rent_cents` | 3500 | aluguel mínimo R$ 35 (ponto de equilíbrio é R$ 33,17 no Pix — ver PAGAMENTOS.md) |
 | `booking.billing_day_default` | 5 | dia padrão de vencimento |
 | `booking.max_failed_cycles` | 2 | falhas seguidas antes de suspender |
 | `privacy.approx_location_meters` | 300 | deslocamento do ponto público |
+| `safety.flag_contact_info` | true | sinalizar troca de contato no chat |
+| `safety.auto_review_upheld_threshold` | 3 | denúncias procedentes até revisão obrigatória |
+| `safety.auto_suspend_upheld_threshold` | 5 | denúncias procedentes até suspensão |
+| `safety.max_reports_per_day` | 10 | teto diário de denúncias por usuário |
 
 Mudar a taxa é um `UPDATE`, não um deploy — e fica registrado em `audit_logs`.
 
@@ -209,12 +259,12 @@ Mudar a taxa é um `UPDATE`, não um deploy — e fica registrado em `audit_logs
 
 ## Verificação
 
-Nada acima é promessa. `scripts/verify-schema.ts` roda **28 checagens contra um
-Postgres real**, provando que cada regra citada aqui bloqueia mesmo o dado
-inválido:
+Nada acima é promessa. Dois scripts rodam **85 checagens contra um Postgres
+real**, provando que cada regra citada aqui bloqueia mesmo o dado inválido:
 
 ```bash
-pnpm tsx scripts/verify-schema.ts
+pnpm tsx scripts/verify-schema.ts   # 29 — invariantes centrais
+pnpm tsx scripts/verify-safety.ts   # 56 — segurança entre usuários
 ```
 
 Ele cria dados, tenta violar cada invariante, confirma que o banco recusa, e

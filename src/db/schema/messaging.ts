@@ -64,6 +64,16 @@ export const messages = pgTable(
     /** Mensagem escondida por moderacao — o conteudo fica para auditoria. */
     hiddenAt: timestamp('hidden_at', { withTimezone: true }),
     hiddenReason: text('hidden_reason'),
+
+    /**
+     * Sinalizada automaticamente pelo detector de dados de contato
+     * (src/lib/safety/contact-detection.ts). Sinalizar NAO esconde a mensagem:
+     * serve para avisar quem esta conversando e para alimentar a fila de
+     * moderacao. Bloquear toda troca de contato quebraria conversas legitimas.
+     */
+    flaggedAt: timestamp('flagged_at', { withTimezone: true }),
+    /** Ex: 'contato:telefone,email' — o que o detector encontrou. */
+    flagReason: text('flag_reason'),
     /** Sinaliza que a mensagem foi gerada pelo sistema (ex.: "reserva aprovada"). */
     isSystem: boolean('is_system').notNull().default(false),
 
@@ -72,6 +82,10 @@ export const messages = pgTable(
   (t) => [
     index('messages_conversation_idx').on(t.conversationId, t.createdAt),
     index('messages_sender_idx').on(t.senderId),
+    /** Fila de revisao das mensagens sinalizadas e ainda visiveis. */
+    index('messages_flagged_idx')
+      .on(t.flaggedAt)
+      .where(sql`flagged_at IS NOT NULL AND hidden_at IS NULL`),
     check('messages_body_not_empty', sql`length(trim(${t.body})) > 0`),
     check('messages_body_max', sql`length(${t.body}) <= 4000`),
   ],

@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 16/09/2026 · **Fase concluída:** 1 de 12
+> **Atualizado em:** 16/09/2026 · **Fase concluída:** 1 de 12 + segurança interna
 
 Estados usados:
 
@@ -37,9 +37,38 @@ Estados usados:
 | Proteção contra open redirect | ✅ | Testado |
 | Página inicial | ✅ | Busca e geolocalização reais |
 | Geolocalização do navegador | ✅ | Trata recusa com mensagem clara e alternativa manual |
-| Verificação automatizada do banco | ✅ | 28 checagens — `pnpm tsx scripts/verify-schema.ts` |
+| Verificação automatizada do banco | ✅ | 29 checagens — `pnpm tsx scripts/verify-schema.ts` |
 | **Rate limiting** | ⚠️ | Em memória. **Não funciona em serverless.** Ver §Riscos |
 | Credenciais do Supabase | 🔑 | [SETUP.md §1](./SETUP.md#1-supabase--banco-autenticação-e-arquivos) |
+
+---
+
+## Segurança interna ✅ *(fora da numeração de fases)*
+
+Adicionada a pedido, fora da ordem original. Detalhada em
+[SEGURANCA.md](./SEGURANCA.md).
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Denúncia de anúncio | ✅ | 18 motivos, agrupados por alvo |
+| Denúncia de usuário | ✅ | |
+| Denúncia de mensagem específica | ✅ | sem isso, denúncia de assédio chega sem o que julgar |
+| Severidade automática | ✅ | calculada no servidor a partir do motivo, nunca enviada pelo formulário |
+| Evidência congelada | ✅ | trigger copia o conteúdo denunciado; sobrevive a edição — testado |
+| Limites anti-abuso na denúncia | ✅ | 10/dia, 3/minuto, uma em aberto por alvo |
+| Confidencialidade da denúncia | ✅ | ninguém vê denúncia feita contra si (RLS) |
+| Bloqueio entre usuários | ✅ | mútuo, imediato, garantido por trigger |
+| Bloqueio impede conversa, mensagem e reserva | ✅ | as três testadas |
+| Bloqueio encerra conversa existente | ✅ | |
+| Centro de segurança da conta | ✅ | `/minha-conta/seguranca` |
+| Componente de denúncia | ✅ | `<dialog>` nativo, acessível — aparece nas telas das Fases 2 e 6 |
+| Detector de dados de contato | ✅ | telefone, e-mail (inclusive ofuscado), CPF/CNPJ, chave Pix, redes, pedido de pagamento por fora |
+| Validação de CPF/CNPJ | ✅ | dígito verificador oficial |
+| Contagem de reincidência | ✅ | trigger mantém `upheld_report_count` |
+| Verificação automatizada | ✅ | 56 checagens — `pnpm tsx scripts/verify-safety.ts` |
+| Aplicação automática de suspensão | ⬜ | limites já configurados; a ação entra na Fase 11 |
+| Fila de moderação | ⬜ | índice pronto; painel é Fase 11 |
+| Detector ligado ao chat | ⬜ | depende do chat (Fase 6) |
 
 ---
 
@@ -73,6 +102,7 @@ que possa ser confundido com dado real.
 - ❌ Nenhuma localização inventada
 - ❌ Nenhum chat falso
 - ❌ Nenhuma avaliação fabricada
+- ❌ Nenhuma denúncia ou bloqueio de exemplo
 
 O banco começa vazio, exceto pelas taxas da plataforma e pelo catálogo de 20
 características — que são configuração, não conteúdo fictício.
@@ -90,14 +120,23 @@ instância tem o próprio mapa, então o limite real vira (limite × instâncias
 **Solução:** Upstash Redis ([SETUP.md §6](./SETUP.md#6-upstash--rate-limiting-antes-de-produção)).
 **Mitigação atual:** o Supabase Auth aplica limites próprios do lado dele.
 
-### ⚠️ 2. A margem do modelo 2%+2% não cobre cartão
+### ⚠️ 2. A margem é fina, mesmo a 3%+3%
 
-Em aluguel de R$ 180/mês sobram **R$ 1,22** no cartão de crédito (0,68%).
-Abaixo de ~R$ 50/mês a plataforma **perde dinheiro** em toda transação.
+**Resolvido em parte.** A taxa subiu de 2%+2% para **3%+3%**, e o mínimo caiu de
+R$ 50 para **R$ 35**. Em um aluguel de R$ 180 a margem no cartão foi de 0,68%
+para **2,65%**, e no Pix de 2,89% para **4,89%**.
 
-Está tudo calculado em [PAGAMENTOS.md §3](./PAGAMENTOS.md#3-a-economia-real-do-modelo-2--2).
-Já existe mínimo de R$ 50 configurado. **É decisão de negócio, não bug** — mas
-precisa ser decisão consciente.
+O que continua valendo:
+
+- No mínimo de R$ 35, sobram **R$ 0,11 no Pix**. Positivo, mas simbólico — não
+  paga um e-mail de suporte. É piso de produto, não de receita.
+- 6% no total ainda é baixo para um marketplace com custódia e mediação. Há
+  espaço para revisar quando houver volume.
+- Quanto maior a taxa, maior o incentivo para as duas partes saírem da
+  plataforma. A 6% sobre R$ 180 são R$ 129/ano que os dois economizam indo por
+  fora. As defesas estão em [SEGURANCA.md](./SEGURANCA.md).
+
+Contas completas em [PAGAMENTOS.md §3](./PAGAMENTOS.md#3-a-economia-real-do-modelo-3--3).
 
 ### ⚠️ 3. Split + Pix Automático não confirmado
 
@@ -110,7 +149,7 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 5. Sem testes de interface
 
-Há 28 checagens reais de banco, mas nenhum teste de UI (Playwright/Vitest).
+Há 85 checagens reais de banco, mas nenhum teste de UI (Playwright/Vitest).
 Fase 12.
 
 ### ⚠️ 6. Sem documentos jurídicos
@@ -130,13 +169,16 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm tsx scripts/verify-schema.ts    # 28 checagens contra o banco real
-pnpm typecheck                       # TypeScript strict
-pnpm lint
-pnpm build
+pnpm tsx scripts/verify-schema.ts    # 29 checagens — invariantes centrais
+pnpm tsx scripts/verify-safety.ts    # 56 checagens — segurança entre usuários
+pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```
 
-O `verify-schema.ts` não testa "se o código roda" — ele **tenta gravar dado
-inválido e confirma que o banco recusa**. É a diferença entre dizer que a regra
-existe e mostrar que ela funciona.
+Os scripts não testam "se o código roda" — eles **tentam gravar dado inválido e
+confirmam que o banco recusa**. É a diferença entre dizer que a regra existe e
+mostrar que ela funciona.
+
+O `verify-safety.ts` também cobre os **falsos positivos** do detector de
+contato: "R$ 1.500,00", "CEP 29700-000" e "posso pagar por Pix aqui pelo
+aplicativo?" não podem ser sinalizados.

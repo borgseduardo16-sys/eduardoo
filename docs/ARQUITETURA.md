@@ -126,6 +126,9 @@ Detalhado em [PAGAMENTOS.md](./PAGAMENTOS.md). O essencial:
   lançamento novo.
 - **Webhook idempotente** por chave única de evento — reentrega não cobra duas vezes.
 
+Taxas vigentes: **3% de quem aluga + 3% de quem recebe**, com aluguel mínimo de
+R$ 35,00. Ambos configuráveis em `platform_settings`, sem deploy.
+
 ---
 
 ## 6. Estrutura de pastas
@@ -145,18 +148,26 @@ src/
 │   ├── client.ts  migrate.ts
 ├── lib/
 │   ├── auth/                 dal.ts, actions.ts, schemas.ts, redirect.ts
+│   ├── safety/               denúncias, bloqueio, detector de contato, CPF/CNPJ
 │   ├── supabase/             server.ts, client.ts, admin.ts
 │   ├── env.ts  money.ts  rate-limit.ts  utils.ts
 └── proxy.ts
 
 drizzle/                      migrações SQL versionadas
-scripts/verify-schema.ts      verificação das invariantes contra Postgres real
+scripts/verify-schema.ts      invariantes centrais contra Postgres real
+scripts/verify-safety.ts      subsistema de segurança contra Postgres real
 docs/                         esta documentação
 ```
 
 ---
 
-## 7. O que ainda não está resolvido
+## 7. Segurança entre usuários
+
+Denúncia (anúncio, usuário e mensagem), bloqueio mútuo garantido por trigger,
+detector de troca de contato no chat e contagem de reincidência.
+Documentado em [SEGURANCA.md](./SEGURANCA.md).
+
+## 8. O que ainda não está resolvido
 
 Honestidade sobre os buracos conhecidos:
 
@@ -165,7 +176,7 @@ Honestidade sobre os buracos conhecidos:
    Produção exige Upstash Redis. Está declarado em `src/lib/rate-limit.ts`.
 2. **Sem monitoramento de erro.** Sentry ainda não integrado.
 3. **Sem testes automatizados de UI.** Há verificação real de banco
-   (`scripts/verify-schema.ts`, 28 checagens), mas não há Playwright/Vitest.
+   (85 checagens em dois scripts), mas não há Playwright/Vitest.
 4. **Split junto com Pix Automático não confirmado** com o Asaas.
 5. **Sem documentos jurídicos.** Termos de Uso e Política de Privacidade
    precisam de advogado, não de mim.

@@ -15,6 +15,20 @@
       "when": 1789587488214,
       "tag": "0001_integridade_indices_e_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789589651338,
+      "tag": "0002_great_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789589723620,
+      "tag": "0003_seguranca_e_taxas",
+      "breakpoints": true
     }
   ]
 }

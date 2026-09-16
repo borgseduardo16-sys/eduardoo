@@ -6,6 +6,9 @@ import {
   boolean,
   index,
   uniqueIndex,
+  primaryKey,
+  check,
+  integer,
   jsonb,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
@@ -51,6 +54,14 @@ export const profiles = pgTable(
 
     acceptedTermsAt: timestamp('accepted_terms_at', { withTimezone: true }),
     acceptedTermsVersion: text('accepted_terms_version'),
+
+    /**
+     * Denuncias contra esta pessoa que a moderacao julgou procedentes.
+     * Mantido por trigger quando uma denuncia e resolvida como `upheld`.
+     * Fica denormalizado porque a politica de suspensao precisa consultar isso
+     * a cada acao sensivel, e nao da para varrer a tabela de denuncias sempre.
+     */
+    upheldReportCount: integer('upheld_report_count').notNull().default(0),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -125,6 +136,42 @@ export const renterBillingProfiles = pgTable(
   (t) => [
     uniqueIndex('renter_billing_profiles_user_provider_key').on(t.userId, t.provider),
     uniqueIndex('renter_billing_profiles_customer_key').on(t.provider, t.providerCustomerId),
+  ],
+);
+
+
+/**
+ * Bloqueio entre usuarios.
+ *
+ * Bloquear e a ferramenta que a pessoa usa sozinha, sem depender de moderacao:
+ * quem incomoda para de conseguir falar com ela ou reservar o espaco dela, na
+ * hora, sem precisar provar nada a ninguem.
+ *
+ * O efeito e MUTUO de proposito. Se A bloqueia B, nenhum dos dois inicia
+ * conversa ou reserva com o outro — caso contrario o bloqueio viraria um
+ * aviso de que a pessoa te bloqueou, e uma forma de contornar por outro lado.
+ *
+ * Nao e apagado quando uma denuncia e resolvida: a decisao de quem a pessoa
+ * quer ou nao encontrar continua sendo dela.
+ */
+export const userBlocks = pgTable(
+  'user_blocks',
+  {
+    blockerId: uuid('blocker_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    blockedId: uuid('blocked_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    /** Anotacao privada de quem bloqueou. O bloqueado nunca ve. */
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.blockerId, t.blockedId] }),
+    index('user_blocks_blocked_idx').on(t.blockedId),
+    check('user_blocks_distinct', sql`${t.blockerId} <> ${t.blockedId}`),
+    check('user_blocks_reason_max', sql`${t.reason} IS NULL OR length(${t.reason}) <= 500`),
   ],
 );
 

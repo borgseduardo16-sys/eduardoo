@@ -64,34 +64,50 @@ async function main() {
   try {
     console.log('\n\x1b[1m1. Aritmetica de dinheiro (pura, sem banco)\x1b[0m');
     {
-      const a = computeBookingAmounts(10_000, { renterFeeBps: 200, ownerFeeBps: 200 });
+      // Taxas vigentes da plataforma: 3% de cada lado.
+      const a = computeBookingAmounts(10_000, { renterFeeBps: 300, ownerFeeBps: 300 });
       const expected = {
-        renterFeeCents: 200,
-        ownerFeeCents: 200,
-        totalChargedCents: 10_200,
-        ownerPayoutCents: 9_800,
-        platformGrossCents: 400,
+        renterFeeCents: 300,
+        ownerFeeCents: 300,
+        totalChargedCents: 10_300,
+        ownerPayoutCents: 9_700,
+        platformGrossCents: 600,
       };
       const mismatch = Object.entries(expected).filter(
         ([k, v]) => a[k as keyof typeof expected] !== v,
       );
       if (mismatch.length === 0) {
-        ok('R$100 a 2%+2%', 'paga R$102,00 · recebe R$98,00 · bruto R$4,00');
+        ok('R$100 a 3%+3%', 'paga R$103,00 · recebe R$97,00 · bruto R$6,00');
       } else {
-        bad('R$100 a 2%+2%', JSON.stringify(mismatch));
+        bad('R$100 a 3%+3%', JSON.stringify(mismatch));
       }
 
-      // Pix a R$1,99 de tarifa: sobra pouco. Cartao a 2,99%+R$0,49: sobra quase nada.
+      // A tarifa do gateway sai antes do split e e absorvida pela plataforma.
       const pix = platformNetCents(a, 199);
-      const card = platformNetCents(a, Math.round(10_200 * 0.0299) + 49);
+      const card = platformNetCents(a, Math.round(10_300 * 0.0299) + 49);
       ok('receita liquida calculada', `Pix ${formatBRL(pix)} · cartao ${formatBRL(card)}`);
 
-      const small = computeBookingAmounts(4_000, { renterFeeBps: 200, ownerFeeBps: 200 });
-      const smallCard = platformNetCents(small, Math.round(4_080 * 0.0299) + 49);
-      if (smallCard < 0) {
-        ok('aluguel baixo da prejuizo no cartao', `R$40,00/mes → ${formatBRL(smallCard)}`);
+      /*
+       * Abaixo do ponto de equilibrio a plataforma perde dinheiro. Isso nao e
+       * bug: e a razao de existir o aluguel minimo em platform_settings.
+       * A R$ 30,00 (abaixo do minimo de R$ 35,00) o Pix ja fica negativo.
+       */
+      const small = computeBookingAmounts(3_000, { renterFeeBps: 300, ownerFeeBps: 300 });
+      const smallPix = platformNetCents(small, 199);
+      if (smallPix < 0) {
+        ok('abaixo do minimo da prejuizo no Pix', `R$30,00/mes → ${formatBRL(smallPix)}`);
       } else {
-        bad('aluguel baixo', `esperava prejuizo, deu ${formatBRL(smallCard)}`);
+        bad('ponto de equilibrio', `esperava prejuizo a R$30, deu ${formatBRL(smallPix)}`);
+      }
+
+      // E no minimo configurado (R$ 35,00) ja e positivo nos dois meios.
+      const min = computeBookingAmounts(3_500, { renterFeeBps: 300, ownerFeeBps: 300 });
+      const minPix = platformNetCents(min, 199);
+      const minCard = platformNetCents(min, Math.round(min.totalChargedCents * 0.0299) + 49);
+      if (minPix >= 0 && minCard >= 0) {
+        ok('no minimo de R$35 nao ha prejuizo', `Pix ${formatBRL(minPix)} · cartao ${formatBRL(minCard)}`);
+      } else {
+        bad('minimo de R$35', `Pix ${formatBRL(minPix)} · cartao ${formatBRL(minCard)}`);
       }
 
       const parsed = ['1.500,50', '1500.50', 'R$ 1.500', '99,9'].map(parseBRLToCents);
@@ -184,7 +200,7 @@ async function main() {
     }
 
     console.log('\n\x1b[1m4. Invariantes de dinheiro na reserva\x1b[0m');
-    const amounts = computeBookingAmounts(18_000, { renterFeeBps: 200, ownerFeeBps: 200 });
+    const amounts = computeBookingAmounts(18_000, { renterFeeBps: 300, ownerFeeBps: 300 });
 
     await mustAccept('reserva com valores coerentes e aceita', async () => {
       const [b] = await sql<{ id: string }[]>`
@@ -207,7 +223,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-FRAUD-${tag.slice(-4)}`}, ${spaceId}, ${renterId}, ${ownerId},
-          'requested', CURRENT_DATE, 18000, 200, 200, 360, 360, 100, 17640)`,
+          'requested', CURRENT_DATE, 18000, 300, 300, 540, 540, 100, 17460)`,
       'bookings_total_matches',
     );
 
@@ -218,7 +234,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-SELF-${tag.slice(-4)}`}, ${spaceId}, ${ownerId}, ${ownerId},
-          'requested', CURRENT_DATE, 18000, 200, 200, 360, 360, 18360, 17640)`,
+          'requested', CURRENT_DATE, 18000, 300, 300, 540, 540, 18540, 17460)`,
       'bookings_distinct_parties',
     );
 
@@ -229,7 +245,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-DUP-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
-          'active', CURRENT_DATE, 18000, 200, 200, 360, 360, 18360, 17640)`,
+          'active', CURRENT_DATE, 18000, 300, 300, 540, 540, 18540, 17460)`,
       'bookings_one_active_per_space',
     );
 

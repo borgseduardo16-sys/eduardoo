@@ -4,14 +4,17 @@ import {
   text,
   integer,
   timestamp,
+  boolean,
+  jsonb,
   index,
   uniqueIndex,
   check,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
-import { reviewKind, reportReason, reportStatus } from './enums';
+import { reviewKind, reportReason, reportStatus, reportTarget, reportSeverity } from './enums';
 import { profiles } from './users';
 import { spaces } from './spaces';
+import { messages } from './messaging';
 import { bookings } from './bookings';
 
 /**
@@ -63,33 +66,90 @@ export const reviews = pgTable(
   ],
 );
 
-/** Denuncia de anuncio. Vai para a fila do painel administrativo. */
+/**
+ * Denuncia.
+ *
+ * Um registro serve aos tres alvos — anuncio, usuario e mensagem — porque a
+ * fila de moderacao e uma so, e o moderador precisa ver o caso inteiro junto.
+ * Tabelas separadas por alvo espalhariam a mesma decisao em tres lugares.
+ *
+ * `targetType` diz qual coluna de alvo esta preenchida, e um CHECK garante que
+ * exatamente uma esteja — sem isso, uma denuncia poderia ficar apontando para
+ * lugar nenhum ou para dois alvos ao mesmo tempo.
+ *
+ * `severity` e calculada no servidor a partir do motivo, nunca informada por
+ * quem denuncia. Caso contrario todo mundo marcaria "critico".
+ */
 export const reports = pgTable(
   'reports',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    spaceId: uuid('space_id')
-      .notNull()
-      .references(() => spaces.id, { onDelete: 'cascade' }),
+
+    targetType: reportTarget('target_type').notNull(),
+
+    /** Preenchido quando targetType = 'space'. */
+    spaceId: uuid('space_id').references(() => spaces.id, { onDelete: 'cascade' }),
+    /** Preenchido quando targetType = 'user'. */
+    targetUserId: uuid('target_user_id').references(() => profiles.id, { onDelete: 'cascade' }),
+    /** Preenchido quando targetType = 'message'. */
+    messageId: uuid('message_id').references(() => messages.id, { onDelete: 'cascade' }),
+
     /** NULL = denuncia de visitante sem conta. */
     reporterId: uuid('reporter_id').references(() => profiles.id, { onDelete: 'set null' }),
 
     reason: reportReason('reason').notNull(),
+    severity: reportSeverity('severity').notNull().default('normal'),
     details: text('details'),
     status: reportStatus('status').notNull().default('open'),
 
+    /**
+     * Copia do conteudo denunciado no momento da denuncia.
+     * Se o autor editar ou apagar depois, o moderador ainda ve o que motivou
+     * a denuncia — que e justamente o que costuma sumir.
+     */
+    evidenceSnapshot: jsonb('evidence_snapshot').$type<Record<string, unknown>>(),
+
     resolvedBy: uuid('resolved_by').references(() => profiles.id, { onDelete: 'set null' }),
     resolutionNote: text('resolution_note'),
+    /** true = a denuncia procedia. Alimenta a contagem de reincidencia. */
+    upheld: boolean('upheld'),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
 
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('reports_space_idx').on(t.spaceId),
-    index('reports_status_idx').on(t.status, t.createdAt),
-    /** Um usuario logado nao abre denuncias repetidas do mesmo anuncio em aberto. */
-    uniqueIndex('reports_one_open_per_reporter')
-      .on(t.spaceId, t.reporterId)
+    index('reports_target_user_idx').on(t.targetUserId),
+    index('reports_message_idx').on(t.messageId),
+    index('reports_reporter_idx').on(t.reporterId),
+    /** A fila do moderador: abertas primeiro, mais graves no topo. */
+    index('reports_queue_idx')
+      .on(t.status, t.severity, t.createdAt)
+      .where(sql`status IN ('open','reviewing')`),
+
+    /** Exatamente um alvo, coerente com targetType. */
+    check(
+      'reports_target_matches_type',
+      sql`(${t.targetType} = 'space'   AND ${t.spaceId} IS NOT NULL AND ${t.targetUserId} IS NULL AND ${t.messageId} IS NULL)
+          OR (${t.targetType} = 'user'    AND ${t.targetUserId} IS NOT NULL AND ${t.spaceId} IS NULL AND ${t.messageId} IS NULL)
+          OR (${t.targetType} = 'message' AND ${t.messageId} IS NOT NULL AND ${t.spaceId} IS NULL AND ${t.targetUserId} IS NULL)`,
+    ),
+    /** Ninguem denuncia a si mesmo — isso so poluiria a fila. */
+    check(
+      'reports_no_self_report',
+      sql`${t.targetUserId} IS NULL OR ${t.reporterId} IS NULL OR ${t.targetUserId} <> ${t.reporterId}`,
+    ),
+    check(
+      'reports_details_max',
+      sql`${t.details} IS NULL OR length(${t.details}) <= 2000`,
+    ),
+    /**
+     * Um usuario logado nao abre varias denuncias em aberto do mesmo alvo.
+     * COALESCE funciona porque o CHECK acima garante que so uma coluna de
+     * alvo esta preenchida.
+     */
+    uniqueIndex('reports_one_open_per_target')
+      .on(t.reporterId, t.targetType, sql`COALESCE(space_id, target_user_id, message_id)`)
       .where(sql`status IN ('open','reviewing') AND reporter_id IS NOT NULL`),
   ],
 );
@@ -102,5 +162,7 @@ export const reviewsRelations = relations(reviews, ({ one }) => ({
 
 export const reportsRelations = relations(reports, ({ one }) => ({
   space: one(spaces, { fields: [reports.spaceId], references: [spaces.id] }),
+  targetUser: one(profiles, { fields: [reports.targetUserId], references: [profiles.id] }),
+  message: one(messages, { fields: [reports.messageId], references: [messages.id] }),
   reporter: one(profiles, { fields: [reports.reporterId], references: [profiles.id] }),
 }));

@@ -1,6 +1,6 @@
 # Pagamentos — análise dos gateways e economia real do modelo
 
-> **Última revisão:** 16/09/2026
+> **Última revisão:** 16/09/2026 (taxas atualizadas para 3% + 3%)
 > Preços e recursos de gateway mudam. Antes de assinar contrato, confirme tudo
 > em [docs.asaas.com](https://docs.asaas.com) e com o gerente comercial.
 
@@ -94,26 +94,27 @@ chargeback, e com tarifa fixa baixa.
 
 ---
 
-## 3. A economia real do modelo 2% + 2%
+## 3. A economia real do modelo 3% + 3%
 
-Esta é a parte que precisa de atenção antes de qualquer linha de código de
-pagamento.
+> **Histórico:** o modelo começou em 2% + 2%. A conta abaixo mostrou que isso
+> não cobria o custo de cartão (0,68% de margem em um aluguel de R$ 180), e a
+> taxa foi elevada para 3% de cada lado, com aluguel mínimo de R$ 35,00.
 
 ### Como o dinheiro se move
 
 O split do Asaas é calculado sobre o **`netValue`** — o valor da cobrança
-**depois** de descontada a tarifa. Ou seja: a tarifa sai primeiro, e quem a
-absorve é a conta que emitiu a cobrança (a plataforma).
+**depois** de descontada a tarifa. A tarifa sai primeiro, e quem a absorve é a
+conta que emitiu a cobrança (a plataforma).
 
 ```
-Locatário paga        R$ 102,00   (aluguel 100 + 2% dele)
+Locatário paga        R$ 103,00   (aluguel 100 + 3% dele)
   − tarifa do Asaas   R$   1,99   (Pix)
-  = netValue          R$ 100,01
-  − split ao dono     R$  98,00   (fixedValue: aluguel − 2% dele)
-  = fica na plataforma R$  2,01
+  = netValue          R$ 101,01
+  − split ao dono     R$  97,00   (fixedValue: aluguel − 3% dele)
+  = fica na plataforma R$  4,01
 ```
 
-A plataforma **fatura** R$ 4,00 (2% + 2%), mas **embolsa** R$ 2,01.
+A plataforma **fatura** R$ 6,00 (3% + 3%), mas **embolsa** R$ 4,01.
 
 ### Tarifas de referência (tabela pública, após os 3 meses promocionais)
 
@@ -129,47 +130,66 @@ A plataforma **fatura** R$ 4,00 (2% + 2%), mas **embolsa** R$ 2,01.
 
 | Aluguel | Locatário paga | Dono recebe | Bruto | **Líquido Pix** | **Líquido cartão** |
 |--------:|---------------:|------------:|------:|----------------:|-------------------:|
-| R$ 40 | R$ 40,80 | R$ 39,20 | R$ 1,60 | **−R$ 0,39** | **−R$ 0,11** |
-| R$ 50 | R$ 51,00 | R$ 49,00 | R$ 2,00 | **R$ 0,01** | **−R$ 0,01** |
-| R$ 100 | R$ 102,00 | R$ 98,00 | R$ 4,00 | **R$ 2,01** | **R$ 0,46** |
-| R$ 180 | R$ 183,60 | R$ 176,40 | R$ 7,20 | **R$ 5,21** | **R$ 1,22** |
-| R$ 300 | R$ 306,00 | R$ 294,00 | R$ 12,00 | **R$ 10,01** | **R$ 2,36** |
-| R$ 600 | R$ 612,00 | R$ 588,00 | R$ 24,00 | **R$ 22,01** | **R$ 6,71** |
+| R$ 35 *(mínimo)* | R$ 36,05 | R$ 33,95 | R$ 2,10 | R$ 0,11 | R$ 0,53 |
+| R$ 50 | R$ 51,50 | R$ 48,50 | R$ 3,00 | R$ 1,01 | R$ 0,97 |
+| R$ 80 | R$ 82,40 | R$ 77,60 | R$ 4,80 | R$ 2,81 | R$ 1,85 |
+| R$ 100 | R$ 103,00 | R$ 97,00 | R$ 6,00 | **R$ 4,01** | **R$ 2,43** |
+| R$ 150 | R$ 154,50 | R$ 145,50 | R$ 9,00 | R$ 7,01 | R$ 3,89 |
+| R$ 180 | R$ 185,40 | R$ 174,60 | R$ 10,80 | **R$ 8,81** | **R$ 4,77** |
+| R$ 250 | R$ 257,50 | R$ 242,50 | R$ 15,00 | R$ 13,01 | R$ 6,81 |
+| R$ 300 | R$ 309,00 | R$ 291,00 | R$ 18,00 | R$ 16,01 | R$ 8,27 |
+| R$ 600 | R$ 618,00 | R$ 582,00 | R$ 36,00 | R$ 34,01 | R$ 17,03 |
 
-*(Estes números são calculados por `src/lib/money.ts` e conferidos em
-`scripts/verify-schema.ts`. Rode `pnpm tsx scripts/verify-schema.ts` para ver.)*
+*(Calculado por `src/lib/money.ts` e conferido em `scripts/verify-schema.ts`.)*
 
-### As três conclusões
+### Comparação com o modelo anterior
 
-**1. Abaixo de ~R$ 50/mês a plataforma perde dinheiro em toda transação.**
-Ponto de equilíbrio: R$ 49,75 no Pix, R$ 51,57 no cartão. Por isso existe
-`booking.min_rent_cents = 5000` (R$ 50,00) já configurado no banco.
+Em um aluguel de R$ 180 — o valor típico de uma vaga de garagem:
 
-**2. No cartão, a margem é praticamente zero.** Em R$ 180/mês sobram R$ 1,22 —
-0,68% do aluguel. Não sustenta operação, suporte, infraestrutura ou perdas com
-chargeback.
+| | 2% + 2% | **3% + 3%** | Ganho |
+|---|--------:|------------:|------:|
+| Líquido no Pix | R$ 5,21 | **R$ 8,81** | +69% |
+| Líquido no cartão | R$ 1,22 | **R$ 4,77** | +291% |
+| Margem no cartão | 0,68% | **2,65%** | — |
 
-**3. No Pix a margem existe, mas é apertada.** Em R$ 180/mês sobram R$ 5,21 —
-2,9% do aluguel. Funciona, e escala bem com aluguéis maiores.
+**O ganho principal não é o aluguel barato — é o cartão de crédito.** A 2%+2%
+o cartão era um meio oferecido no prejuízo; a 3%+3% ele se sustenta.
 
-### O que eu recomendo
+### Ponto de equilíbrio
 
-Você define o modelo de negócio — eu implementei exatamente os 2% + 2% que
-você pediu, e deixei **configurável no banco** (`platform_settings`), sem
-precisar de deploy para mudar. As opções, na minha ordem de preferência:
+| Meio | 2% + 2% | **3% + 3%** |
+|------|--------:|------------:|
+| Pix | R$ 49,75 | **R$ 33,17** |
+| Cartão | R$ 50,25 | **R$ 16,50** |
 
-1. **Pix Automático como meio principal.** Tarifa fixa baixa, recorrência
-   automática de verdade, sem chargeback. Cartão fica como alternativa.
-2. **Manter o mínimo de R$ 50/mês.** Já está valendo.
-3. **Revisar a taxa quando houver volume.** Marketplaces desta categoria
-   costumam trabalhar com percentuais bem acima de 4% somados. Começar baixo
-   para atrair os primeiros anunciantes é uma decisão legítima — só precisa ser
-   decisão consciente, não descoberta depois.
-4. **Se mantiver cartão com 2%+2%, repasse a tarifa.** Ou cobrando a tarifa do
-   cartão explicitamente de quem escolhe esse meio, ou descontando do repasse.
-   Qualquer das duas precisa estar clara nos Termos de Uso.
+Daí o mínimo de **R$ 35,00** (`booking.min_rent_cents = 3500`): acima do
+equilíbrio nos dois meios, com folga pequena mas positiva.
 
----
+> **Detalhe que vale saber:** abaixo de ~R$ 49 o **cartão fica mais barato que
+> o Pix** para a plataforma — os R$ 0,49 fixos do cartão perdem para os R$ 1,99
+> fixos do Pix. Acima disso o Pix ganha, e a diferença só cresce.
+
+### O que continua valendo
+
+1. **O Pix segue sendo o melhor meio** acima de R$ 49: quase o dobro da margem
+   do cartão, sem chargeback, e com recorrência automática via Pix Automático.
+2. **A taxa é configurável sem deploy** (`platform_settings`). Mudar é um
+   `UPDATE`, e fica registrado em `audit_logs`.
+3. **Mudança de taxa não afeta contrato vigente.** Cada reserva guarda as taxas
+   do momento do aceite (`bookings.renter_fee_bps` e `owner_fee_bps`).
+4. **6% no total ainda é baixo** para um marketplace com custódia de pagamento
+   e mediação. Há espaço para revisar quando houver volume.
+
+### O risco que cresce junto com a taxa
+
+Quanto maior a taxa, maior o incentivo para as duas partes se conhecerem pela
+plataforma e depois combinarem Pix direto entre elas. A 6% sobre R$ 180, são
+R$ 10,80/mês — R$ 129 por ano — que os dois economizam saindo da plataforma.
+
+Esse é o risco estrutural do modelo, maior que qualquer detalhe de gateway. As
+defesas estão descritas em [SEGURANCA.md](./SEGURANCA.md): endereço exato só
+liberado após reserva aceita, conversa dentro da plataforma, e detector que
+avisa quem está prestes a aceitar um pagamento por fora.
 
 ## 4. O que ainda precisa ser confirmado com o Asaas
 
@@ -196,7 +216,8 @@ perguntas para o suporte/gerente **antes** de começar a Fase 7:
 |------|--------|
 | Cálculo de valores no servidor | **IMPLEMENTADO** — `src/lib/money.ts`, testado |
 | Invariantes de valor no banco | **IMPLEMENTADO** — o banco recusa total adulterado |
-| Taxas configuráveis sem deploy | **IMPLEMENTADO** — `platform_settings` |
+| Taxas configuráveis sem deploy | **IMPLEMENTADO** — `platform_settings`, hoje em 3% + 3% |
+| Aluguel mínimo | **IMPLEMENTADO** — R$ 35,00, acima do equilíbrio nos dois meios |
 | Tabelas de pagamento, repasse e livro-razão | **IMPLEMENTADO** |
 | Idempotência de webhook | **IMPLEMENTADO** — chave única por evento |
 | Integração com o Asaas | **NÃO IMPLEMENTADO** — Fase 7 |
