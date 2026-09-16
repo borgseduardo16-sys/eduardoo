@@ -29,6 +29,20 @@
       "when": 1789589723620,
       "tag": "0003_seguranca_e_taxas",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789590971572,
+      "tag": "0004_wooden_newton_destine",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789590989707,
+      "tag": "0005_contagem_de_locacoes",
+      "breakpoints": true
     }
   ]
 }

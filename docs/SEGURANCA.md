@@ -156,7 +156,134 @@ intransponível.
 
 ---
 
-## 4. Reincidência
+## 4. Incentivo a fechar pela plataforma
+
+O pedido aqui foi direto: **incentivar visualmente a pessoa a fechar no app**,
+porque dentro dele existe a quem recorrer, e fora não.
+
+A implementação segue esse pedido — com uma ressalva importante logo abaixo.
+
+### Onde o incentivo aparece
+
+| Lugar | Formato |
+|-------|---------|
+| Home | Seção "Visite o espaço. E combine tudo por aqui." |
+| `/protecao` | Página completa: o que a plataforma garante, o que se perde por fora, checklist de visita e sinais de golpe |
+| Rodapé | Link permanente "Como protegemos você" |
+| Chat *(Fase 6)* | `ProtectionNotice variant="compact"` no rodapé da conversa |
+| Antes de reservar *(Fase 5)* | `ProtectionNotice variant="card"` |
+| Quando o detector dispara | `OffPlatformWarning`, escalonado |
+
+### O texto nunca promete o que não existe — e isso é estrutural
+
+**Esta é a parte que mais importa.** A tentação era escrever *"feche pelo app
+que a gente resolve qualquer problema"*. Convence muito mais. Mas hoje **não
+existe processo de mediação**: não há prazo, critério, quem decide, nem regra
+sobre o dinheiro durante a disputa.
+
+Prometer isso antes de existir é publicidade enganosa — com risco sob o Código
+de Defesa do Consumidor, e com um custo de confiança muito maior no dia em que
+alguém cobrar a promessa.
+
+Então cada proteção em `src/lib/safety/protection.ts` declara um `status`, e a
+interface renderiza **somente** os `live`:
+
+| Proteção | Status | Falta |
+|----------|--------|-------|
+| Conversa registrada | `live` | — |
+| Endereço protegido | `live` | — |
+| Canal de denúncia | `live` | — |
+| Bloqueio imediato | `live` | — |
+| Alerta de pagamento por fora | `live` | — |
+| Histórico visível | `live` | — |
+| Comprovante de pagamento | `pending_phase` | Fase 7 |
+| Estorno | `pending_phase` | Fase 7 |
+| **Mediação de conflito** | `needs_policy` | processo não definido — decisão de negócio + jurídico |
+| **Cobertura de danos** | `needs_policy` | exigiria seguro ou fundo de garantia |
+
+Quando a Fase 7 entregar pagamento real, basta mudar o status: os itens passam
+a aparecer sozinhos, sem caçar texto espalhado pelo código.
+
+*Testado: `liveProtections()` nunca devolve item não-live, e a página renderizada
+não contém as palavras "Mediação de conflito" nem "Cobertura de danos".*
+
+---
+
+## 5. Visita antes de fechar
+
+A visita é a única verificação que nenhum sistema substitui. Foto se copia da
+internet, endereço se inventa, conversa se finge — estar no lugar, não.
+
+O checklist (`src/lib/safety/visit-checklist.ts`) tem 4 grupos e muda conforme
+o tipo de espaço: "teste se seu veículo manobra" aparece em garagem e não em
+sala; "verifique se alaga quando chove" aparece em terreno e galpão.
+
+**7 itens são marcados como críticos**, e o primeiro da lista inteira é:
+
+> **Não pague nada durante a visita.** Nem sinal, nem caução, nem "taxa de
+> reserva". Quem pede dinheiro na visita está aplicando um golpe.
+
+Praticamente todo golpe deste tipo depende de conseguir um adiantamento antes
+de a pessoa conferir qualquer coisa.
+
+Outros críticos: confirmar que quem atende é quem anunciou, avisar alguém para
+onde você vai, conferir se o lugar é o das fotos, perguntar quem mais tem a
+chave, fotografar o estado atual, e escrever no chat tudo que foi combinado
+pessoalmente.
+
+As marcações ficam no navegador (`useLocalSet`, sobre `useSyncExternalStore`),
+porque a pessoa marca **durante** a visita — com o celular na mão e
+provavelmente sem sinal.
+
+---
+
+## 6. Sinais de confiança — a defesa que realmente funciona
+
+Aviso não segura ninguém. Quem quer combinar por fora combina, e um alerta a
+mais na tela não muda isso.
+
+**O que muda o cálculo é a pessoa ter algo a perder.**
+
+Um proprietário com 14 locações concluídas e documento conferido não troca esse
+histórico por economizar 3% em um mês — porque o histórico é o que faz o próximo
+locatário escolher o anúncio dele. Reputação construída aqui não acompanha
+ninguém para fora.
+
+Por isso `src/lib/safety/trust.ts` existe: não para enfeitar o perfil, mas para
+tornar a permanência economicamente racional.
+
+### Níveis
+
+| Nível | Critério |
+|-------|----------|
+| Conta nova | sem verificação e sem locação |
+| Construindo histórico | 1 verificação ou 1 locação |
+| Histórico consistente | 2+ locações e 2+ verificações |
+| Histórico consolidado | 5+ locações, 3 verificações e nota ≥ 4,5 |
+| **Conta em revisão** | 3+ denúncias procedentes — **domina todo o resto** |
+
+Aquele último é o caso que mais importa: **histórico longo não pode mascarar
+denúncias procedentes.** Um golpista com 20 locações e 3 denúncias confirmadas
+é mais perigoso, não menos. *Testado.*
+
+Não é nota de 0 a 100 de propósito: número único convida a comparar "87 contra
+84", o que passa uma precisão que o dado não tem.
+
+### Quando a visita ganha destaque
+
+`shouldEmphasizeVisit()` devolve `true` para conta nova, histórico em construção
+e conta em revisão. Nesses casos a recomendação de visitar vira destaque, em vez
+de rodapé.
+
+### `public_profiles`
+
+A view pública ganhou `phone_verified`, `document_verified` e
+`completed_bookings_count`. Continua **sem** CPF, telefone, motivo de bloqueio
+ou contagem de denúncias. *Testado: a view não expõe nenhuma coluna sensível.*
+
+---
+
+## 7. Reincidência
 
 Quando a moderação resolve uma denúncia como **procedente** (`upheld = true`),
 o contador do denunciado sobe, mantido por trigger.
@@ -174,7 +301,7 @@ senão bastaria republicar o mesmo anúncio com outro id para zerar o histórico
 
 ---
 
-## 5. Privacidade da localização
+## 8. Privacidade da localização
 
 Já descrito em [ARQUITETURA.md](./ARQUITETURA.md#4-privacidade-da-localização),
 mas é medida de segurança e vale repetir:
@@ -186,7 +313,7 @@ mas é medida de segurança e vale repetir:
 
 ---
 
-## 6. Validação de documentos
+## 9. Validação de documentos
 
 `src/lib/safety/documents.ts` valida CPF e CNPJ pelo dígito verificador oficial.
 Usado em dois lugares: no detector de contato, e no cadastro de recebimento
@@ -214,6 +341,11 @@ nunca apareça inteiro em log, tela de suporte ou mensagem de erro:
 | Contagem de reincidência | ✅ trigger | — | ⬜ Fase 11 |
 | Aplicação automática dos limites | — | ⬜ | ⬜ Fase 11 |
 | Fila de moderação | ✅ índice | ⬜ | ⬜ Fase 11 |
+| Incentivo a fechar no app | — | ✅ | ✅ home, `/protecao`, rodapé |
+| Checklist de visita | — | ✅ | ✅ interativo, salvo no navegador |
+| Aviso escalonado de pagamento por fora | — | ✅ | ⬜ Fase 6 (depende do chat) |
+| Níveis de confiança | ✅ | ✅ | ✅ componente pronto |
+| Contagem de locações concluídas | ✅ trigger | — | ⬜ aparece com os anúncios (Fase 2) |
 
 O componente de denúncia (`ReportDialog`) está pronto e funcional, mas só
 aparece na tela quando existirem anúncios e mensagens para denunciar — Fases 2 e 6.
@@ -226,7 +358,7 @@ aparece na tela quando existirem anúncios e mensagens para denunciar — Fases 
 pnpm tsx scripts/verify-safety.ts
 ```
 
-**56 checagens**, entre funções puras e invariantes do banco. Inclui os casos
+**72 checagens**, entre funções puras e invariantes do banco. Inclui os casos
 que não podem dar falso positivo:
 
 ```
@@ -245,4 +377,15 @@ E os que precisam pegar:
 ✓ telefone + pix na mesma mensagem vira alerta forte
 ✓ bloqueado nao reserva o espaco     bloqueado: bloqueio entre os usuarios
 ✓ evidencia sobrevive a edicao do conteudo denunciado
+```
+
+E as que protegem a honestidade do texto e o julgamento de confiança:
+
+```
+✓ mediacao e cobertura de danos ficam fora da interface   ainda nao existem
+✓ todo item pendente declara o que falta
+✓ "nao pague nada na visita" e item critico               7 criticos
+✓ checklist muda conforme o tipo de espaco                manobra so em garagem
+✓ denuncias procedentes dominam o historico               20 locacoes + 3 denuncias = sob revisao
+✓ view publica de perfil nao expoe dado sensivel
 ```

@@ -15,6 +15,9 @@ import postgres from 'postgres';
 import { isValidCpf, isValidCnpj, isBrazilianPhone, maskDocument } from '../src/lib/safety/documents';
 import { detectContactInfo, buildFlagReason } from '../src/lib/safety/contact-detection';
 import { severityFor, isReasonValidForTarget, reasonsForTarget } from '../src/lib/safety/report-config';
+import { computeTrustProfile, shouldEmphasizeVisit } from '../src/lib/safety/trust';
+import { liveProtections, pendingProtections, PROTECTIONS } from '../src/lib/safety/protection';
+import { checklistFor, criticalItems, checklistCount } from '../src/lib/safety/visit-checklist';
 import { computeBookingAmounts, platformNetCents, formatBRL } from '../src/lib/money';
 
 const url = process.env.DATABASE_URL;
@@ -322,7 +325,109 @@ async function main() {
     }
 
     // =====================================================================
-    console.log('\n\x1b[1m9. Reincidencia\x1b[0m');
+    console.log('\n\x1b[1m9. Proteção: textos nunca prometem o que nao existe\x1b[0m');
+    {
+      const live = liveProtections();
+      const pending = pendingProtections();
+
+      if (live.every((p) => p.status === 'live')) {
+        ok('so itens live sao exibiveis', `${live.length} exibidos, ${pending.length} ocultos`);
+      } else {
+        bad('itens exibiveis', 'um item nao-live passou pelo filtro');
+      }
+
+      // As garantias que dependem de processo ou de fase NAO podem vazar para a tela.
+      const proibidos = ['mediacao', 'garantia_danos', 'comprovante_pagamento', 'estorno'];
+      const vazou = live.filter((p) => proibidos.includes(p.key));
+      if (vazou.length === 0) {
+        ok('mediacao e cobertura de danos ficam fora da interface', 'ainda nao existem');
+      } else {
+        bad('promessa indevida', vazou.map((p) => p.key).join(', '));
+      }
+
+      // Todo item nao-live precisa dizer o que falta, senao vira promessa esquecida.
+      const semMotivo = PROTECTIONS.filter((p) => p.status !== 'live' && !p.blockedBy);
+      if (semMotivo.length === 0) ok('todo item pendente declara o que falta');
+      else bad('item pendente sem motivo', semMotivo.map((p) => p.key).join(', '));
+    }
+
+    console.log('\n\x1b[1m10. Checklist de visita\x1b[0m');
+    {
+      const garagem = checklistFor('garagem');
+      const sala = checklistFor('sala');
+      const temManobra = (gs: ReturnType<typeof checklistFor>) =>
+        gs.some((g) => g.items.some((i) => i.key === 'manobra'));
+
+      if (temManobra(garagem) && !temManobra(sala)) {
+        ok('checklist muda conforme o tipo de espaco', 'manobra de veiculo so em garagem');
+      } else {
+        bad('checklist por tipo', `garagem=${temManobra(garagem)} sala=${temManobra(sala)}`);
+      }
+
+      const criticos = criticalItems('garagem').map((i) => i.key);
+      if (criticos.includes('nao_pagar')) {
+        ok('"nao pague nada na visita" e item critico', `${criticos.length} criticos`);
+      } else {
+        bad('item critico', 'o aviso de nao pagar nao esta marcado como critico');
+      }
+
+      if (checklistCount('terreno') > 0 && checklistCount('outro') > 0) {
+        ok('todo tipo de espaco recebe checklist', `terreno: ${checklistCount('terreno')} itens`);
+      } else {
+        bad('checklist vazio', 'algum tipo de espaco ficou sem itens');
+      }
+    }
+
+    console.log('\n\x1b[1m11. Sinais de confianca\x1b[0m');
+    {
+      const agora = new Date();
+      const anoPassado = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
+
+      const novo = computeTrustProfile({
+        createdAt: agora,
+        emailVerified: false,
+        phoneVerified: false,
+        documentVerified: false,
+        completedBookings: 0,
+        upheldReports: 0,
+      });
+      expect('conta recem-criada e "novo"', novo.level, 'novo');
+      expect('conta nova destaca a visita', shouldEmphasizeVisit(novo), true);
+      expect('conta nova lista as 3 verificacoes pendentes', novo.missing.length, 3);
+
+      const consolidado = computeTrustProfile({
+        createdAt: anoPassado,
+        emailVerified: true,
+        phoneVerified: true,
+        documentVerified: true,
+        completedBookings: 8,
+        upheldReports: 0,
+        ratingAvg: 4.8,
+        ratingCount: 6,
+      });
+      expect('perfil completo e "consolidado"', consolidado.level, 'consolidado');
+      expect('perfil consolidado nao destaca visita', shouldEmphasizeVisit(consolidado), false);
+
+      /*
+       * O caso que mais importa: historico longo NAO pode mascarar denuncias
+       * procedentes. Um golpista com muitas locacoes e mais perigoso, nao menos.
+       */
+      const suspeito = computeTrustProfile({
+        createdAt: anoPassado,
+        emailVerified: true,
+        phoneVerified: true,
+        documentVerified: true,
+        completedBookings: 20,
+        upheldReports: 3,
+        ratingAvg: 4.9,
+        ratingCount: 18,
+      });
+      expect('denuncias procedentes dominam o historico', suspeito.level, 'sob_revisao');
+      expect('perfil sob revisao destaca a visita', shouldEmphasizeVisit(suspeito), true);
+    }
+
+    // =====================================================================
+    console.log('\n\x1b[1m12. Reincidencia\x1b[0m');
     const antes = await sql<{ upheld_report_count: number }[]>`
       SELECT upheld_report_count FROM profiles WHERE id=${ana}`;
     await sql`UPDATE reports SET upheld = true, status='resolved', resolved_at=now()
@@ -337,6 +442,56 @@ async function main() {
       );
     } else {
       bad('reincidencia', `contagem nao mudou (${depois[0]!.upheld_report_count})`);
+    }
+
+    console.log('\n\x1b[1m13. Historico de locacoes concluidas\x1b[0m');
+    {
+      // Desfaz o bloqueio para poder criar a reserva do teste.
+      await sql`DELETE FROM user_blocks WHERE blocker_id=${ana} AND blocked_id=${bruno}`;
+
+      const [bk] = await sql<{ id: string }[]>`
+        INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+          monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+          owner_fee_cents, total_charged_cents, owner_payout_cents)
+        VALUES (${`MP-HIST-${tag.slice(-4)}`}, ${spaceId}, ${bruno}, ${ana}, 'active',
+          CURRENT_DATE, 25000, 300, 300, 750, 750, 25750, 24250)
+        RETURNING id`;
+
+      const antesFim = await sql<{ c: number }[]>`
+        SELECT completed_bookings_count AS c FROM profiles WHERE id=${ana}`;
+
+      await sql`UPDATE bookings SET status='ended', ended_at=now() WHERE id=${bk.id}`;
+
+      const depoisFim = await sql<{ c: number }[]>`
+        SELECT completed_bookings_count AS c FROM profiles WHERE id=${ana}`;
+      const doLocatario = await sql<{ c: number }[]>`
+        SELECT completed_bookings_count AS c FROM profiles WHERE id=${bruno}`;
+
+      if (depoisFim[0]!.c === antesFim[0]!.c + 1) {
+        ok('locacao encerrada conta para o proprietario', `${antesFim[0]!.c} → ${depoisFim[0]!.c}`);
+      } else {
+        bad('contagem do proprietario', `${antesFim[0]!.c} → ${depoisFim[0]!.c}`);
+      }
+
+      if (doLocatario[0]!.c >= 1) {
+        ok('e conta tambem para o locatario', `${doLocatario[0]!.c}`);
+      } else {
+        bad('contagem do locatario', 'nao subiu');
+      }
+
+      // A view publica nao pode expor documento nem telefone.
+      const cols = await sql<{ column_name: string }[]>`
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name='public_profiles'`;
+      const nomes = cols.map((c) => c.column_name);
+      const sensiveis = nomes.filter((n) =>
+        ['cpf_cnpj', 'phone', 'status_reason', 'upheld_report_count'].includes(n),
+      );
+      if (sensiveis.length === 0) {
+        ok('view publica de perfil nao expoe dado sensivel', nomes.join(', '));
+      } else {
+        bad('vazamento na view publica', sensiveis.join(', '));
+      }
     }
   } finally {
     await sql`DELETE FROM reports WHERE reporter_id IN (${ana}, ${bruno}, ${carla})`;

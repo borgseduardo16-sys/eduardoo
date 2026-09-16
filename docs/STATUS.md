@@ -65,7 +65,14 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Detector de dados de contato | ✅ | telefone, e-mail (inclusive ofuscado), CPF/CNPJ, chave Pix, redes, pedido de pagamento por fora |
 | Validação de CPF/CNPJ | ✅ | dígito verificador oficial |
 | Contagem de reincidência | ✅ | trigger mantém `upheld_report_count` |
-| Verificação automatizada | ✅ | 56 checagens — `pnpm tsx scripts/verify-safety.ts` |
+| Verificação automatizada | ✅ | 72 checagens — `pnpm tsx scripts/verify-safety.ts` |
+| Incentivo visual a fechar no app | ✅ | home, `/protecao`, rodapé |
+| Página pública de proteção | ✅ | `/protecao` |
+| Checklist de visita | ✅ | 4 grupos, muda por tipo de espaço, salvo no navegador |
+| Aviso escalonado de pagamento por fora | ✅ | componente pronto; liga no chat (Fase 6) |
+| Níveis de confiança do perfil | ✅ | denúncia procedente domina histórico longo |
+| Contagem de locações concluídas | ✅ | trigger; conta os dois lados |
+| Verificação de documento no perfil | ✅ banco | preenchido pelo KYC na Fase 8 |
 | Aplicação automática de suspensão | ⬜ | limites já configurados; a ação entra na Fase 11 |
 | Fila de moderação | ⬜ | índice pronto; painel é Fase 11 |
 | Detector ligado ao chat | ⬜ | depende do chat (Fase 6) |
@@ -138,21 +145,40 @@ O que continua valendo:
 
 Contas completas em [PAGAMENTOS.md §3](./PAGAMENTOS.md#3-a-economia-real-do-modelo-3--3).
 
-### ⚠️ 3. Split + Pix Automático não confirmado
+### ⚠️ 3. Não existe mediação de conflito
+
+O produto **incentiva** fechar pela plataforma, e com razão: dentro dela há
+registro, denúncia e bloqueio. Mas quando duas pessoas discordarem sobre um
+dano, um atraso ou uma devolução, **hoje não há processo para resolver**.
+
+Não existe prazo de contestação, critério de decisão, quem decide, nem regra
+sobre o que acontece com o dinheiro durante a disputa.
+
+Por isso a palavra "mediação" **não aparece em lugar nenhum da interface** — o
+filtro é estrutural, em `src/lib/safety/protection.ts`, e está testado.
+
+**O que falta:** uma decisão sua sobre a política de disputa (prazos, quem
+decide, o que a plataforma banca), depois revisão jurídica, e só então o texto
+pode prometer isso. Antes disso, prometer seria publicidade enganosa.
+
+**O mesmo vale para cobertura de danos**, que exigiria seguro ou fundo de
+garantia — decisão de negócio, não de engenharia.
+
+### ⚠️ 4. Split + Pix Automático não confirmado
 
 Os dois recursos são documentados pelo Asaas separadamente; não achei
 confirmação de que funcionam **juntos**. É a primeira pergunta para o gerente.
 
-### ⚠️ 4. Sem monitoramento de erro
+### ⚠️ 5. Sem monitoramento de erro
 
 Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
-### ⚠️ 5. Sem testes de interface
+### ⚠️ 6. Sem testes de interface
 
-Há 85 checagens reais de banco, mas nenhum teste de UI (Playwright/Vitest).
+Há 101 checagens reais de banco, mas nenhum teste de UI (Playwright/Vitest).
 Fase 12.
 
-### ⚠️ 6. Sem documentos jurídicos
+### ⚠️ 7. Sem documentos jurídicos
 
 Termos de Uso, Política de Privacidade, LGPD, regras de cancelamento,
 reembolso e disputa **não existem** e **não devem ser escritos por mim**.
@@ -170,7 +196,7 @@ pessoas que se conheceram pela sua plataforma.
 pnpm install
 pnpm db:migrate                      # aplica o schema
 pnpm tsx scripts/verify-schema.ts    # 29 checagens — invariantes centrais
-pnpm tsx scripts/verify-safety.ts    # 56 checagens — segurança entre usuários
+pnpm tsx scripts/verify-safety.ts    # 72 checagens — segurança entre usuários
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```

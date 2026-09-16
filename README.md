@@ -30,11 +30,11 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Verificar que as regras do banco realmente funcionam (85 checagens):
+Verificar que as regras do banco realmente funcionam (101 checagens):
 
 ```bash
 pnpm tsx scripts/verify-schema.ts   # 29 — invariantes centrais
-pnpm tsx scripts/verify-safety.ts   # 56 — segurança entre usuários
+pnpm tsx scripts/verify-safety.ts   # 72 — segurança entre usuários
 ```
 
 ## Comandos
@@ -87,3 +87,6 @@ R$ 35,00 — configuráveis sem deploy.
 - Denúncia de anúncio, usuário e mensagem, com evidência congelada
 - Bloqueio mútuo e imediato, garantido por trigger no banco
 - Detector de troca de contato e de pedido de pagamento por fora
+- Checklist de visita antes de fechar, com "não pague nada na visita" em destaque
+- Níveis de confiança do perfil — denúncia procedente domina histórico longo
+- Textos de proteção que **só exibem garantias que existem de verdade**

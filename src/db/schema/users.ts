@@ -63,6 +63,23 @@ export const profiles = pgTable(
      */
     upheldReportCount: integer('upheld_report_count').notNull().default(0),
 
+    /**
+     * Documento conferido (CPF/CNPJ validado pelo gateway no KYC).
+     * Diferente de `cpfCnpj`, que e so o numero informado: aqui significa que
+     * alguem de fora confirmou que o documento pertence a esta pessoa.
+     */
+    documentVerifiedAt: timestamp('document_verified_at', { withTimezone: true }),
+
+    /**
+     * Locacoes concluidas, contando os dois lados (alugou e foi alugado).
+     * Mantido por trigger quando uma reserva chega a 'ended'.
+     *
+     * Este numero e a razao economica para ficar na plataforma: reputacao
+     * construida aqui nao acompanha ninguem para fora. Denormalizado porque
+     * aparece em toda listagem de anuncio.
+     */
+    completedBookingsCount: integer('completed_bookings_count').notNull().default(0),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),

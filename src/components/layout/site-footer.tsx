@@ -37,6 +37,7 @@ export function SiteFooter() {
           <nav className="space-y-3" aria-label="Institucional">
             <h2 className="text-[0.8125rem] font-semibold">Institucional</h2>
             <ul className="space-y-2 text-[0.875rem] text-[var(--content-muted)]">
+              <li><Link href="/protecao" className="hover:text-[var(--content)]">Como protegemos você</Link></li>
               <li><Link href="/termos" className="hover:text-[var(--content)]">Termos de Uso</Link></li>
               <li><Link href="/privacidade" className="hover:text-[var(--content)]">Privacidade</Link></li>
               <li><Link href="/suporte" className="hover:text-[var(--content)]">Suporte</Link></li>

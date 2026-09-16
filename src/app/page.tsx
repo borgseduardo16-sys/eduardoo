@@ -1,5 +1,13 @@
 import Link from 'next/link';
-import { ArrowRight, Banknote, MapPin, ShieldCheck } from 'lucide-react';
+import {
+  ArrowRight,
+  Banknote,
+  Eye,
+  MapPin,
+  MessagesSquare,
+  OctagonAlert,
+  ShieldCheck,
+} from 'lucide-react';
 import { SearchBar } from '@/components/search/search-bar';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -134,6 +142,72 @@ export default function Home() {
                   </p>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Combinar pela plataforma: dito uma vez, com peso, e não repetido
+            em toda tela — aviso que aparece demais deixa de ser lido. */}
+        <section className="px-4 sm:px-6 pb-16 sm:pb-24">
+          <div className="mx-auto max-w-6xl">
+            <div className="rounded-[var(--radius-card)] border p-6 sm:p-10 grid gap-8 lg:grid-cols-[1.1fr_1fr] lg:items-center">
+              <div className="space-y-4">
+                <p className="text-[0.8125rem] font-medium uppercase tracking-wide text-[var(--accent)]">
+                  Antes de fechar
+                </p>
+                <h2 className="text-[1.625rem] sm:text-[1.875rem] leading-[1.15] font-semibold">
+                  Visite o espaço. E combine tudo por aqui.
+                </h2>
+                <p className="text-[var(--content-muted)] leading-relaxed">
+                  Vá ver o lugar antes de fechar — é a única verificação que nenhum sistema
+                  substitui. E mantenha a conversa e o pagamento na plataforma: é o que deixa
+                  registro de tudo que foi combinado.
+                </p>
+                <p className="text-[var(--content-muted)] leading-relaxed">
+                  Pix direto para um desconhecido não volta, e combinação feita por fora não
+                  deixa rastro nenhum no nosso sistema.
+                </p>
+                <Link
+                  href="/protecao"
+                  className="inline-flex items-center gap-2 h-11 px-5 font-medium rounded-[var(--radius-field)] border hover:bg-[var(--surface-sunken)] transition-colors"
+                >
+                  Como protegemos você
+                  <ArrowRight className="size-4" aria-hidden />
+                </Link>
+              </div>
+
+              <ul className="space-y-4">
+                {[
+                  {
+                    icon: Eye,
+                    t: 'Visite antes de pagar',
+                    d: 'Confira se o espaço é o das fotos e se quem atende é quem anunciou.',
+                  },
+                  {
+                    icon: MessagesSquare,
+                    t: 'Combine no chat',
+                    d: 'O que for acertado pessoalmente, escreva aqui. Fica com data e hora.',
+                  },
+                  {
+                    icon: OctagonAlert,
+                    t: 'Nunca pague adiantado por fora',
+                    d: 'Pedido de sinal antes da visita é o golpe mais comum neste tipo de anúncio.',
+                  },
+                ].map((item) => (
+                  <li key={item.t} className="flex gap-3">
+                    <item.icon
+                      className="size-4 mt-1 shrink-0 text-[var(--accent)]"
+                      aria-hidden
+                    />
+                    <div className="space-y-0.5">
+                      <h3 className="text-[0.9375rem] font-medium">{item.t}</h3>
+                      <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
+                        {item.d}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </section>
