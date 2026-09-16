@@ -1,0 +1,238 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   MyPlace — design tokens
+
+   Identidade propria, construida do zero. As decisoes:
+
+   - Cor de marca em verde-petroleo profundo. Deliberadamente longe do
+     vermelho/coral e do azul-corporativo dos marketplaces conhecidos, e
+     serio o bastante para uma tela onde se move dinheiro.
+   - Neutros QUENTES (matiz ~70) em vez de cinza puro. Cinza frio deixa
+     interface com cara de painel administrativo; quente parece produto.
+   - Tudo em OKLCH: claro/escuro previsivel e contraste que nao quebra ao
+     mudar de tema.
+   - Uma familia tipografica so, com variacao de peso. Duas fontes e o atalho
+     mais rapido para parecer template.
+   ========================================================================== */
+
+@theme {
+  /* --- Neutros quentes --- */
+  --color-sand-50:  oklch(0.986 0.003 70);
+  --color-sand-100: oklch(0.969 0.005 70);
+  --color-sand-200: oklch(0.930 0.007 70);
+  --color-sand-300: oklch(0.868 0.009 70);
+  --color-sand-400: oklch(0.715 0.011 70);
+  --color-sand-500: oklch(0.576 0.012 70);
+  --color-sand-600: oklch(0.468 0.012 70);
+  --color-sand-700: oklch(0.386 0.011 70);
+  --color-sand-800: oklch(0.275 0.010 70);
+  --color-sand-900: oklch(0.196 0.009 70);
+  --color-sand-950: oklch(0.135 0.008 70);
+
+  /* --- Marca: verde-petroleo --- */
+  --color-brand-50:  oklch(0.972 0.018 175);
+  --color-brand-100: oklch(0.938 0.037 176);
+  --color-brand-200: oklch(0.878 0.065 177);
+  --color-brand-300: oklch(0.795 0.093 178);
+  --color-brand-400: oklch(0.706 0.103 180);
+  --color-brand-500: oklch(0.618 0.099 182);
+  --color-brand-600: oklch(0.524 0.086 184);
+  --color-brand-700: oklch(0.438 0.071 186);
+  --color-brand-800: oklch(0.362 0.056 187);
+  --color-brand-900: oklch(0.302 0.044 188);
+  --color-brand-950: oklch(0.212 0.032 190);
+
+  /* --- Acento: ambar queimado, so para destaque pontual --- */
+  --color-ember-400: oklch(0.795 0.145 62);
+  --color-ember-500: oklch(0.724 0.161 55);
+  --color-ember-600: oklch(0.638 0.158 48);
+
+  /* --- Semanticos --- */
+  --color-positive: oklch(0.596 0.118 155);
+  --color-caution:  oklch(0.742 0.148 78);
+  --color-critical: oklch(0.583 0.194 26);
+
+  /* --- Tipografia --- */
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Escala tipografica: passos amplos o suficiente para criar hierarquia
+     sem precisar de peso 900 em tudo. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  /* --- Raios --- */
+  --radius-card: 1rem;
+  --radius-field: 0.625rem;
+  --radius-pill: 999px;
+
+  /* --- Sombras: baixas e difusas. Sombra forte envelhece interface. --- */
+  --shadow-subtle: 0 1px 2px oklch(0.196 0.009 70 / 0.05),
+                   0 1px 3px oklch(0.196 0.009 70 / 0.04);
+  --shadow-raised: 0 2px 4px oklch(0.196 0.009 70 / 0.04),
+                   0 8px 20px -6px oklch(0.196 0.009 70 / 0.10);
+  --shadow-overlay: 0 12px 32px -8px oklch(0.196 0.009 70 / 0.18),
+                    0 4px 12px -4px oklch(0.196 0.009 70 / 0.10);
+
+  /* --- Movimento: curto e discreto. --- */
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* --------------------------------------------------------------------------
+   Papeis semanticos de cor. Componentes referenciam ESTES nomes, nunca a
+   escala crua — trocar o tema vira uma edicao de dez linhas.
+   -------------------------------------------------------------------------- */
+@layer base {
+  :root {
+    --surface: var(--color-white);
+    --surface-sunken: var(--color-sand-50);
+    --surface-raised: var(--color-white);
+    --surface-inverse: var(--color-sand-900);
+
+    --content: var(--color-sand-900);
+    --content-muted: var(--color-sand-600);
+    --content-subtle: var(--color-sand-500);
+    --content-inverse: var(--color-sand-50);
+
+    --border: var(--color-sand-200);
+    --border-strong: var(--color-sand-300);
+
+    --accent: var(--color-brand-700);
+    --accent-hover: var(--color-brand-800);
+    --accent-content: var(--color-white);
+    --accent-subtle: var(--color-brand-50);
+
+    --ring: var(--color-brand-600);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --surface: var(--color-sand-950);
+      --surface-sunken: oklch(0.108 0.007 70);
+      --surface-raised: var(--color-sand-900);
+      --surface-inverse: var(--color-sand-50);
+
+      --content: var(--color-sand-100);
+      --content-muted: var(--color-sand-400);
+      --content-subtle: var(--color-sand-500);
+      --content-inverse: var(--color-sand-950);
+
+      --border: oklch(0.262 0.009 70);
+      --border-strong: oklch(0.330 0.010 70);
+
+      --accent: var(--color-brand-400);
+      --accent-hover: var(--color-brand-300);
+      --accent-content: var(--color-sand-950);
+      --accent-subtle: oklch(0.252 0.032 186);
+
+      --ring: var(--color-brand-400);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --surface: var(--color-sand-950);
+    --surface-sunken: oklch(0.108 0.007 70);
+    --surface-raised: var(--color-sand-900);
+    --surface-inverse: var(--color-sand-50);
+
+    --content: var(--color-sand-100);
+    --content-muted: var(--color-sand-400);
+    --content-subtle: var(--color-sand-500);
+    --content-inverse: var(--color-sand-950);
+
+    --border: oklch(0.262 0.009 70);
+    --border-strong: oklch(0.330 0.010 70);
+
+    --accent: var(--color-brand-400);
+    --accent-hover: var(--color-brand-300);
+    --accent-content: var(--color-sand-950);
+    --accent-subtle: oklch(0.252 0.032 186);
+
+    --ring: var(--color-brand-400);
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    /* Evita pulo de layout quando a barra de rolagem aparece. */
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    background-color: var(--surface);
+    color: var(--content);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Foco visivel so quando navegando por teclado, e sempre visivel quando e. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-field);
+  }
+
+  /* Titulos com tracking negativo: em peso alto, o espacamento padrao
+     deixa a palavra frouxa. */
+  h1, h2, h3, h4 {
+    letter-spacing: -0.021em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  /* Alvos de toque no minimo recomendado para uso com o polegar. */
+  @media (pointer: coarse) {
+    button, a[role="button"], input[type="submit"] {
+      min-height: 44px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer utilities {
+  .surface { background-color: var(--surface); }
+  .surface-sunken { background-color: var(--surface-sunken); }
+  .surface-raised { background-color: var(--surface-raised); }
+  .text-content { color: var(--content); }
+  .text-muted { color: var(--content-muted); }
+  .text-subtle { color: var(--content-subtle); }
+
+  /* Skeleton de carregamento: pulso lento, sem brilho deslizante. */
+  .skeleton {
+    background-color: var(--color-sand-200);
+    animation: skeleton-pulse 1.8s var(--ease-out-soft) infinite;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .skeleton { background-color: oklch(0.262 0.009 70); }
+  }
+  @keyframes skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+
+  .animate-rise {
+    animation: rise 0.4s var(--ease-out-soft) both;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+}

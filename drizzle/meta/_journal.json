@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789587473103,
+      "tag": "0000_young_big_bertha",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789587488214,
+      "tag": "0001_integridade_indices_e_rls",
+      "breakpoints": true
+    }
+  ]
+}
