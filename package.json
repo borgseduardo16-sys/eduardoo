@@ -2,7 +2,7 @@
   "name": "myplace",
   "version": "0.1.0",
   "private": true,
-  "description": "MyPlace — marketplace de espacos ociosos",
+  "description": "MyPlace \u2014 marketplace de espacos ociosos",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,7 +16,9 @@
     "db:seed-features": "tsx src/db/seed-features.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm build",
     "db:supabase-sql": "tsx scripts/build-supabase-setup.ts",
-    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts && tsx scripts/verify-images.ts"
+    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts && tsx scripts/verify-images.ts",
+    "verify:integracoes": "tsx scripts/verify-integracoes.ts",
+    "verify:tudo": "pnpm verify && pnpm verify:integracoes"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -46,6 +48,7 @@
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "playwright": "^1.63.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5"

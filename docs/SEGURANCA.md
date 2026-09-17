@@ -253,6 +253,37 @@ processa, e varre os bytes finais atrás de qualquer vestígio:
 O teste não depende de fixture no repositório nem de ferramenta externa: cria
 e confere tudo sozinho.
 
+E não fica só na unidade: `scripts/verify-integracoes.ts` faz o mesmo caminho
+**pelo navegador**, subindo uma foto com GPS pela interface e varrendo os bytes
+que chegaram ao Storage. Se um dia alguém reintroduzir o `withMetadata()`, os
+dois testes acusam.
+
+---
+
+## 4c. Fotos no Storage — quem pode tocar em quê
+
+O caminho de cada arquivo é `<id-do-dono>/<id-do-anúncio>/<uuid>.<ext>`, e
+existem **três** travas independentes:
+
+| Camada | O que garante | Onde |
+|--------|---------------|------|
+| Autorização na aplicação | toda action de foto começa por `getOwnedSpace(spaceId, userId)`, que lança se quem pede não é o dono | `src/lib/storage/actions.ts` |
+| Escopo no `DELETE`/`UPDATE` | a consulta casa `imageId` **e** `spaceId`, então um id solto de outro anúncio não alcança nada | idem |
+| Política do Storage | quatro políticas em `storage.objects` comparam a primeira pasta do caminho com `auth.uid()` | migração `0009` |
+
+A aplicação fala com o Storage pela chave de serviço, que ignora RLS — a
+autorização real é a primeira camada. As políticas existem porque a primeira é
+código: se um dia alguém escrever uma tela que fale com o Storage direto do
+navegador, é a política que continua segurando. Para o papel `anon` não existe
+política nenhuma: visitante não lê, não lista e não escreve no bucket. Foto de
+anúncio público é servida por **URL assinada de 1 hora**, gerada no servidor.
+
+**Testado** (`verify-integracoes.ts`, seção "TESTE D"): o usuário B tenta
+enviar, apagar e reordenar foto do anúncio de A pelas actions reais, com a
+identidade de B. As três recusam, a foto de A continua no banco e o arquivo
+continua no bucket. Pela interface, B recebe 404 nas páginas de edição de A —
+404 e não 403, para nem confirmar que o anúncio existe.
+
 ---
 
 ## 5. Visita antes de fechar

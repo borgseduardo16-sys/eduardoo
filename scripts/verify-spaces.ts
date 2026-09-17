@@ -130,6 +130,24 @@ async function main() {
     spaceId = draft.id;
     ok('rascunho criado com preco placeholder');
 
+    /*
+     * Duas regras diferentes barram a publicacao, e o teste tem que provar
+     * cada uma isoladamente — senao passa pelo motivo errado. Primeiro a
+     * regra das fotos, com o cadastro ainda vazio; depois a de completude,
+     * com as fotos ja no lugar.
+     */
+    await mustReject(
+      'rascunho sem foto NAO vira publicado',
+      () => sql`UPDATE spaces SET status='published' WHERE id=${spaceId}`,
+      'pelo menos 3 fotos',
+    );
+
+    for (const n of [0, 1, 2]) {
+      await sql`INSERT INTO space_images (space_id, storage_path, content_type, width, height, position)
+                VALUES (${spaceId}, ${`${dono}/${spaceId}/foto-${n}.jpg`}, 'image/jpeg', 1600, 1200, ${n})`;
+    }
+    ok('3 fotos adicionadas ao rascunho');
+
     await mustReject(
       'rascunho incompleto NAO vira publicado',
       () => sql`UPDATE spaces SET status='published' WHERE id=${spaceId}`,
@@ -143,8 +161,6 @@ async function main() {
       location = ST_SetSRID(ST_MakePoint(-40.6295,-19.5386),4326),
       draft_step=3 WHERE id=${spaceId}`;
     await sql`UPDATE spaces SET size_m2=200, ceiling_height_m=5.5, draft_step=4 WHERE id=${spaceId}`;
-    await sql`INSERT INTO space_images (space_id, storage_path, content_type, width, height, position)
-              VALUES (${spaceId}, ${`${dono}/${spaceId}/capa.jpg`}, 'image/jpeg', 1600, 1200, 0)`;
     await sql`UPDATE spaces SET
       title='Galpao 200 m2 com entrada para caminhao',
       description='Galpao amplo, piso de concreto, portao alto para caminhao truck. Energia trifasica e banheiro.',
@@ -180,8 +196,10 @@ async function main() {
 
     // =====================================================================
     console.log('\n\x1b[1m6. Permissoes — o teste central\x1b[0m');
-    const { getOwnedSpace, getPublicSpaceBySlug, listPublishedSpaces, NotSpaceOwnerError } =
-      await import('../src/lib/spaces/queries');
+    const {
+      getOwnedSpace, getPublicSpaceBySlug, listPublishedSpaces, listOwnerSpaces,
+      NotSpaceOwnerError,
+    } = await import('../src/lib/spaces/queries');
 
     try {
       await getOwnedSpace(spaceId, dono);
@@ -252,8 +270,31 @@ async function main() {
     console.log('\n\x1b[1m8. Marketplace mostra so o que deve\x1b[0m');
     {
       const lista = await listPublishedSpaces({ limit: 50 });
-      if (lista.some((s) => s.id === spaceId)) ok('anuncio publicado aparece na listagem');
+      const naVitrine = lista.find((s) => s.id === spaceId);
+      if (naVitrine) ok('anuncio publicado aparece na listagem');
       else bad('listagem', 'anuncio publicado nao apareceu');
+
+      /*
+       * A capa e a contagem saem de subconsulta correlacionada, e ja
+       * estiveram silenciosamente quebradas: interpolar a coluna gerava `"id"`
+       * sem o nome da tabela, o Postgres resolvia para `space_images.id`, e
+       * toda capa vinha NULL sem nenhum erro. Por isso a checagem e por valor,
+       * e nao so "a consulta rodou".
+       */
+      if (naVitrine?.coverPath === `${dono}/${spaceId}/foto-0.jpg`) {
+        ok('capa da listagem e a foto de posicao 0', naVitrine.coverPath);
+      } else {
+        bad('capa da listagem', `veio ${JSON.stringify(naVitrine?.coverPath)}`);
+      }
+      expect('contagem de fotos da listagem', naVitrine?.photoCount, 3);
+
+      const doDono = await listOwnerSpaces(dono);
+      const meu = doDono.find((s) => s.id === spaceId);
+      if (meu?.coverPath && meu.photoCount === 3) {
+        ok('painel do dono tambem traz capa e contagem', `${meu.photoCount} fotos`);
+      } else {
+        bad('painel do dono', `capa=${JSON.stringify(meu?.coverPath)} n=${meu?.photoCount}`);
+      }
 
       await sql`UPDATE spaces SET status='paused' WHERE id=${spaceId}`;
       const pausado = await listPublishedSpaces({ limit: 50 });

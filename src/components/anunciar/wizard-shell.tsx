@@ -67,7 +67,7 @@ export function WizardShell({
               <li key={step.key} className="flex-1">
                 {reachable && !active ? (
                   <Link
-                    href={`/anunciar/${spaceId}/${step.key}`}
+                    href={hrefDaEtapa(spaceId, step.key)}
                     className="block group"
                     aria-label={`Etapa ${step.n}: ${step.label}${done ? ' (concluída)' : ''}`}
                   >
@@ -114,4 +114,16 @@ export function WizardShell({
       {children}
     </div>
   );
+}
+
+/**
+ * Endereco de cada etapa.
+ *
+ * A etapa 1 e a escolha do tipo, que acontece em `/anunciar` — nao existe
+ * rota `/anunciar/[id]/tipo`. Sem este desvio, a primeira barra do progresso
+ * aponta para uma pagina que nao existe (e o Next ainda tenta pre-carregar,
+ * o que gera um 404 silencioso em toda visita).
+ */
+function hrefDaEtapa(spaceId: string, key: string): string {
+  return key === 'tipo' ? '/anunciar' : `/anunciar/${spaceId}/${key}`;
 }

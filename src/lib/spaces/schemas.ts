@@ -103,8 +103,20 @@ export function validateMeasurements(
 // Etapa 4 — Fotos (validada no upload; aqui so o minimo para publicar)
 // ---------------------------------------------------------------------------
 
-export const MIN_PHOTOS_TO_PUBLISH = 1;
+/**
+ * Minimo de fotos para PUBLICAR.
+ *
+ * Tres, e nao uma: com uma foto so nao da para saber se o espaco serve, e
+ * anuncio com foto unica gera visita perdida dos dois lados. Tambem nao sao
+ * cinco — cinco e a recomendacao (ver `photos.ts`), e transformar recomendacao
+ * em obrigacao empurraria a pessoa a subir foto repetida so para liberar o
+ * botao. Rascunho pode ter zero: a regra vale na publicacao, e esta garantida
+ * tambem por trigger no banco.
+ */
+export const MIN_PHOTOS_TO_PUBLISH = 3;
 export const MAX_PHOTOS = 15;
+
+export { RECOMMENDED_PHOTOS, PHOTO_SUGGESTIONS } from './photos';
 
 // ---------------------------------------------------------------------------
 // Etapa 5 — Titulo e descricao

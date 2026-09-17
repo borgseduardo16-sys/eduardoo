@@ -68,6 +68,26 @@ As fotos. Guardamos o **caminho no bucket**, nunca uma URL pública fixa — a U
 é assinada na hora, com validade. Foto de garagem de alguém não deve ficar
 acessível para sempre por link solto.
 
+O caminho tem forma fixa: `<id-do-dono>/<id-do-anúncio>/<uuid>.<ext>`. Começar
+pelo id do dono não é enfeite — é o que permite escrever a política do Storage
+comparando a primeira pasta com `auth.uid()`, de modo que ninguém alcance
+arquivo de outro dono nem conhecendo o caminho.
+
+`position` define a ordem, e a posição `0` é a **capa**. Há `CHECK` garantindo
+que não seja negativa.
+
+**Protege:** duas regras vivem em trigger, e não só no código da aplicação:
+
+- `spaces_publish_requires_photos` — anúncio só vira `published` com no mínimo
+  o número de fotos em `platform_settings['space.min_photos_to_publish']`
+  (hoje 3). Consequência disso: **não é possível inserir um anúncio já
+  publicado**, porque foto precisa de anúncio existente. Todo caminho passa por
+  rascunho → fotos → publicar, inclusive importação de dados.
+- `space_images_keep_minimum` — apagar foto de anúncio publicado é recusado se
+  isso o deixaria abaixo do mínimo. Sem isso, um anúncio ficaria no ar cada vez
+  mais pobre sem ninguém perceber. Apagar o anúncio inteiro continua
+  funcionando (a cascata é liberada).
+
 ### `features` e `space_features`
 `features` é o catálogo de características (coberto, câmera, acesso 24 h,
 acesso para caminhão…). É tabela e não lista fixa no código para o admin poder
@@ -259,12 +279,15 @@ Mudar a taxa é um `UPDATE`, não um deploy — e fica registrado em `audit_logs
 
 ## Verificação
 
-Nada acima é promessa. Dois scripts rodam **85 checagens contra um Postgres
+Nada acima é promessa. Os scripts rodam **232 checagens contra um Postgres
 real**, provando que cada regra citada aqui bloqueia mesmo o dado inválido:
 
 ```bash
-pnpm tsx scripts/verify-schema.ts   # 29 — invariantes centrais
-pnpm tsx scripts/verify-safety.ts   # 56 — segurança entre usuários
+pnpm tsx scripts/verify-schema.ts        # 29 — invariantes centrais
+pnpm tsx scripts/verify-safety.ts        # 72 — segurança entre usuários
+pnpm tsx scripts/verify-spaces.ts        # 34 — anúncios e permissões
+pnpm tsx scripts/verify-images.ts        # 14 — EXIF e processamento
+pnpm tsx scripts/verify-integracoes.ts   # 83 — Storage, mapa e CEP em navegador real
 ```
 
 Ele cria dados, tenta violar cada invariante, confirma que o banco recusa, e

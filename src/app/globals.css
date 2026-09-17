@@ -261,6 +261,38 @@
 }
 .myplace-pin:active { cursor: grabbing; }
 
+/* --------------------------------------------------------------------------
+   Marcador do mapa do marketplace: mostra o preco direto, como fazem os
+   grandes sites de aluguel. Le-se o valor sem precisar tocar em nada.
+   -------------------------------------------------------------------------- */
+.myplace-map-pin {
+  padding: 5px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 1px 3px oklch(0.196 0.009 70 / 0.18);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: var(--content);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms, color 120ms, border-color 120ms;
+}
+.myplace-map-pin:hover,
+.myplace-map-pin:focus-visible {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-content);
+}
+
+.myplace-popup .maplibregl-popup-content {
+  border-radius: var(--radius-field);
+  padding: 12px 14px;
+  box-shadow: 0 4px 16px oklch(0.196 0.009 70 / 0.18);
+}
+
 /* O MapLibre traz o proprio CSS; estes ajustes so encaixam na identidade. */
 .maplibregl-ctrl-attrib { font-size: 10px; }
 .maplibregl-ctrl-group { border-radius: var(--radius-field) !important; }

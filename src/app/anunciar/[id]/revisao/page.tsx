@@ -34,7 +34,12 @@ export default async function RevisaoPage({ params }: { params: Promise<{ id: st
   if (!space.city?.trim() || !space.district?.trim()) pendencias.push('completar o endereço');
   if ((space.title?.trim().length ?? 0) < 10) pendencias.push('escrever um título');
   if ((space.description?.trim().length ?? 0) < 20) pendencias.push('escrever a descrição');
-  if (space.images.length < MIN_PHOTOS_TO_PUBLISH) pendencias.push('adicionar pelo menos uma foto');
+  if (space.images.length < MIN_PHOTOS_TO_PUBLISH) {
+    const faltam = MIN_PHOTOS_TO_PUBLISH - space.images.length;
+    pendencias.push(
+      `adicionar ${faltam === 1 ? 'mais 1 foto' : `mais ${faltam} fotos`} (mínimo de ${MIN_PHOTOS_TO_PUBLISH})`,
+    );
+  }
   if (!space.availableFrom) pendencias.push('informar a data de disponibilidade');
   if (!space.priceMonthlyCents || space.priceMonthlyCents <= 1) pendencias.push('definir o preço');
 

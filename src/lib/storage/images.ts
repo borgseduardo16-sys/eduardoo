@@ -94,8 +94,7 @@ export async function validateImage(file: File): Promise<ValidatedImage> {
     throw new ImageValidationError('Arquivo vazio ou inválido.');
   }
   if (file.size > MAX_IMAGE_BYTES) {
-    const mb = (MAX_IMAGE_BYTES / 1024 / 1024).toFixed(0);
-    throw new ImageValidationError(`A foto passa de ${mb} MB. Envie uma imagem menor.`);
+    throw new ImageValidationError('Essa foto é muito grande. Escolha uma imagem menor.');
   }
   if (file.size < MIN_IMAGE_BYTES) {
     throw new ImageValidationError('O arquivo parece estar corrompido ou incompleto.');

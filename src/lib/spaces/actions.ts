@@ -8,6 +8,8 @@ import { spaces, spaceFeatures, features, platformSettings, auditLogs, bookings 
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { parseBRLToCents, formatBRL } from '@/lib/money';
 import { rateLimit } from '@/lib/rate-limit';
+import { lookupCep } from '@/lib/maps/cep-lookup';
+import { CepError, normalizeCep } from '@/lib/maps/cep';
 import { getOwnedSpace, NotSpaceOwnerError, SpaceNotFoundError } from './queries';
 import { buildSlug } from './slug';
 import { SPACE_TYPES, type SpaceTypeKey } from './types';
@@ -201,10 +203,46 @@ export async function saveStepAction(
       if (!parsed.success) return { ok: false, fieldErrors: fieldErrors(parsed.error) };
 
       const d = parsed.data;
+
+      /*
+       * Confirmacao do CEP NO SERVIDOR.
+       *
+       * O navegador manda estado e cidade porque a pessoa ve os campos, mas
+       * um POST forjado mandaria qualquer coisa. Quando ha CEP, quem decide
+       * estado e cidade e a consulta feita aqui — nao o formulario.
+       *
+       * Bairro e rua continuam sendo o que a pessoa digitou: a base dos
+       * Correios erra em loteamento novo, e o dono sabe o endereco dele.
+       */
+      let uf = d.state;
+      let cidade = d.city;
+
+      if (d.postalCode) {
+        try {
+          const oficial = await lookupCep(d.postalCode);
+          uf = oficial.state as typeof uf;
+          cidade = oficial.city;
+        } catch (err) {
+          // CEP inexistente e erro de dado: nao grava.
+          if (err instanceof CepError && err.reason === 'nao_encontrado') {
+            return { ok: false, fieldErrors: { postalCode: ['CEP não encontrado.'] } };
+          }
+          /*
+           * Servico fora do ar. O CEP e opcional no formulario, entao travar o
+           * rascunho por causa de um servico gratuito indisponivel seria pior
+           * que salvar o que a pessoa digitou. Fica registrado.
+           */
+          console.warn(
+            `[localizacao] nao foi possivel confirmar o CEP ${d.postalCode} no servidor:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+
       Object.assign(patch, {
-        postalCode: d.postalCode || null,
-        state: d.state,
-        city: d.city,
+        postalCode: d.postalCode ? normalizeCep(d.postalCode) : null,
+        state: uf,
+        city: cidade,
         district: d.district,
         street: d.street,
         number: d.number,
@@ -404,7 +442,9 @@ export async function publishSpaceAction(
   if ((space.description?.trim().length ?? 0) < 20) faltando.push('descrição');
   if (!space.availableFrom) faltando.push('data de disponibilidade');
   if (space.images.length < MIN_PHOTOS_TO_PUBLISH) {
-    faltando.push(MIN_PHOTOS_TO_PUBLISH === 1 ? 'pelo menos 1 foto' : `${MIN_PHOTOS_TO_PUBLISH} fotos`);
+    faltando.push(
+      `pelo menos ${MIN_PHOTOS_TO_PUBLISH} fotos (você tem ${space.images.length})`,
+    );
   }
 
   const measureErrors = validateMeasurements(space.type as SpaceTypeKey, {

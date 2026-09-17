@@ -6,6 +6,7 @@ import { listPublishedSpaces } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
 import { spaceTypeLabel, spaceTypeOptions, type SpaceTypeKey } from '@/lib/spaces/types';
+import { SpacesMap, type MapSpace } from '@/components/map/spaces-map';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { cn } from '@/lib/utils';
@@ -29,6 +30,25 @@ export default async function EspacosPage({
   const urls = await signImagePaths(spaces.map((s) => s.coverPath).filter(Boolean) as string[]);
 
   const tipos = spaceTypeOptions();
+
+  /*
+   * Marcadores do mapa. Sai da MESMA consulta da lista, entao o mapa nunca
+   * mostra um anuncio que a lista nao mostra. A coordenada e a aproximada:
+   * `listPublishedSpaces` nao seleciona a exata.
+   */
+  const noMapa: MapSpace[] = spaces
+    .filter((s) => s.approxLat != null && s.approxLng != null)
+    .map((s) => ({
+      id: s.id,
+      slug: s.slug,
+      title: s.title,
+      typeLabel: spaceTypeLabel(s.type as SpaceTypeKey),
+      priceMonthlyCents: s.priceMonthlyCents,
+      district: s.district,
+      city: s.city,
+      lat: s.approxLat as number,
+      lng: s.approxLng as number,
+    }));
 
   return (
     <>
@@ -76,6 +96,8 @@ export default async function EspacosPage({
             </Link>
           ))}
         </nav>
+
+        {noMapa.length > 0 && <SpacesMap spaces={noMapa} />}
 
         {spaces.length === 0 ? (
           <div className="rounded-[var(--radius-card)] border border-dashed p-12 sm:p-16 text-center space-y-3">

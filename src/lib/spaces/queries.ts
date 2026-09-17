@@ -115,14 +115,23 @@ export async function listPublishedSpaces(options?: {
       priceMonthlyCents: spaces.priceMonthlyCents,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
-      /* COALESCE: fotos enviadas antes da miniatura existir caem na principal. */
+      /*
+       * COALESCE: fotos enviadas antes da miniatura existir caem na principal.
+       *
+       * A correlacao esta escrita como `spaces.id` LITERAL, e nao interpolada.
+       * Interpolar a coluna aqui gera `"id"` sem o nome da tabela — e
+       * `space_images` tambem tem uma coluna `id`, entao o Postgres resolve
+       * para `si.id` e a condicao vira `si.space_id = si.id`: nunca verdadeira.
+       * O resultado era capa NULL e contagem 0 em todo anuncio, sem erro
+       * nenhum. Ver a checagem "capa e contagem de fotos" em verify-spaces.ts.
+       */
       coverPath: sql<string | null>`(
         SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
-        WHERE si.space_id = ${spaces.id}
+        WHERE si.space_id = spaces.id
         ORDER BY si.position ASC LIMIT 1
       )`,
       photoCount: sql<number>`(
-        SELECT count(*)::int FROM space_images si WHERE si.space_id = ${spaces.id}
+        SELECT count(*)::int FROM space_images si WHERE si.space_id = spaces.id
       )`,
     })
     .from(spaces)
@@ -272,12 +281,13 @@ export async function listOwnerSpaces(userId: string, status?: string[]) {
       draftStep: spaces.draftStep,
       publishedAt: spaces.publishedAt,
       updatedAt: spaces.updatedAt,
+      // `spaces.id` literal de proposito — ver a nota em listPublishedSpaces.
       coverPath: sql<string | null>`(
         SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
-        WHERE si.space_id = ${spaces.id} ORDER BY si.position ASC LIMIT 1
+        WHERE si.space_id = spaces.id ORDER BY si.position ASC LIMIT 1
       )`,
       photoCount: sql<number>`(
-        SELECT count(*)::int FROM space_images si WHERE si.space_id = ${spaces.id}
+        SELECT count(*)::int FROM space_images si WHERE si.space_id = spaces.id
       )`,
     })
     .from(spaces)

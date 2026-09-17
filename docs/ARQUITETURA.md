@@ -84,6 +84,22 @@ a própria documentação do Next.js recomenda.
 Anúncios, reservas, pagamentos, repasses e livro-razão **não têm nenhuma
 permissão** para o cliente — só o servidor os lê.
 
+### Serviço externo nunca é chamado do navegador
+
+Vale para tudo que tenha custo, cota ou regra de negócio:
+
+| Serviço | Onde a chamada acontece | Por quê |
+|---------|------------------------|---------|
+| Supabase Storage | servidor (`src/lib/storage/actions.ts`) | a foto passa por validação de bytes e remoção de EXIF antes de existir no bucket |
+| Busca de CEP | servidor (`src/app/api/cep/[cep]/route.ts`) | o servidor precisa **reconferir** o endereço ao salvar, e o cache reduz o uso de serviço gratuito |
+| Tiles de mapa | navegador | é a única exceção legítima — é o navegador que desenha o mapa, e a chave de tiles é pública por natureza (protegida por restrição de origem) |
+
+A consequência prática da segunda linha: ao salvar a etapa de localização, o
+servidor consulta o CEP de novo e **sobrepõe** cidade e estado com o que a
+fonte oficial respondeu. O que o navegador mandou nesses dois campos é
+descartado. Bairro e rua continuam sendo o que a pessoa digitou, porque a base
+dos Correios erra em loteamento novo e o dono conhece o endereço dele.
+
 ### Os dois caminhos até o banco
 
 ```
@@ -175,8 +191,10 @@ Honestidade sobre os buracos conhecidos:
    funciona em serverless**, onde cada instância tem o próprio contador.
    Produção exige Upstash Redis. Está declarado em `src/lib/rate-limit.ts`.
 2. **Sem monitoramento de erro.** Sentry ainda não integrado.
-3. **Sem testes automatizados de UI.** Há verificação real de banco
-   (85 checagens em dois scripts), mas não há Playwright/Vitest.
+3. **Cobertura de teste desigual.** São 232 checagens contra Postgres real,
+   e as três integrações (Storage, mapa, CEP) rodam num Chromium de verdade
+   via Playwright (`pnpm verify:tudo`). Ainda falta teste de unidade de
+   componente (Vitest) e cobertura de UI além dessas telas.
 4. **Split junto com Pix Automático não confirmado** com o Asaas.
 5. **Sem documentos jurídicos.** Termos de Uso e Política de Privacidade
    precisam de advogado, não de mim.

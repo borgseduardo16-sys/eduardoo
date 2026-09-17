@@ -183,6 +183,8 @@ export const spaceImages = pgTable(
   (t) => [
     index('space_images_space_idx').on(t.spaceId, t.position),
     uniqueIndex('space_images_path_key').on(t.storagePath),
+    /** Posicao 0 e a capa; negativo nao significa nada e quebraria a ordem. */
+    check('space_images_position_positive', sql`${t.position} >= 0`),
   ],
 );
 

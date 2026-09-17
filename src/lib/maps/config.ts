@@ -26,8 +26,25 @@ export type MapTileSource = {
   /** Estilo no formato do MapLibre. */
   style: string | Record<string, unknown>;
   attribution: string;
-  provider: 'openstreetmap' | 'maptiler';
+  provider: 'openstreetmap' | 'maptiler' | 'personalizado';
 };
+
+/** Monta um estilo MapLibre de tiles raster a partir de um template de URL. */
+function rasterStyle(template: string, attribution: string): Record<string, unknown> {
+  return {
+    version: 8,
+    sources: {
+      base: {
+        type: 'raster',
+        tiles: [template],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution,
+      },
+    },
+    layers: [{ id: 'base', type: 'raster', source: 'base', minzoom: 0, maxzoom: 22 }],
+  };
+}
 
 /** Colatina/ES. Serve de centro quando ainda nao ha coordenada. */
 export const DEFAULT_CENTER = { lat: -19.5386, lng: -40.6295 };
@@ -36,6 +53,19 @@ export const DEFAULT_ZOOM = 13;
 export const PIN_ZOOM = 16;
 
 export function getTileSource(): MapTileSource {
+  /*
+   * Fonte propria, informada como template `{z}/{x}/{y}`. Tem prioridade
+   * porque e a escolha mais explicita: serve para apontar o mapa a um
+   * servidor de tiles nosso (self-host) sem mexer no codigo, e e o que os
+   * testes automatizados usam para exercitar o mapa de verdade sem depender
+   * de um servico de terceiro.
+   */
+  const proprio = process.env.NEXT_PUBLIC_TILE_URL;
+  if (proprio) {
+    const attribution = process.env.NEXT_PUBLIC_TILE_ATTRIBUTION ?? '';
+    return { provider: 'personalizado', attribution, style: rasterStyle(proprio, attribution) };
+  }
+
   const key = process.env.NEXT_PUBLIC_MAPTILER_KEY;
 
   if (key) {
@@ -49,23 +79,15 @@ export function getTileSource(): MapTileSource {
   return {
     provider: 'openstreetmap',
     attribution: '© OpenStreetMap',
-    style: {
-      version: 8,
-      sources: {
-        osm: {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          maxzoom: 19,
-          attribution: '© OpenStreetMap',
-        },
-      },
-      layers: [{ id: 'osm', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 22 }],
-    },
+    style: rasterStyle('https://tile.openstreetmap.org/{z}/{x}/{y}.png', '© OpenStreetMap'),
   };
 }
 
-/** true quando o mapa esta na fonte gratuita, que nao serve para producao. */
+/**
+ * true quando o mapa esta nos tiles publicos do OpenStreetMap, que a politica
+ * de uso deles nao cobre para volume de produto. A pagina de status usa isto
+ * para dizer a verdade sobre em que pe o mapa esta.
+ */
 export function isUsingFreeTiles(): boolean {
-  return !process.env.NEXT_PUBLIC_MAPTILER_KEY;
+  return !process.env.NEXT_PUBLIC_MAPTILER_KEY && !process.env.NEXT_PUBLIC_TILE_URL;
 }

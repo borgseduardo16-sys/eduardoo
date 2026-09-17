@@ -64,6 +64,13 @@
       "when": 1789662093309,
       "tag": "0008_late_zeigeist",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1789677839915,
+      "tag": "0009_fotos_e_storage",
+      "breakpoints": true
     }
   ]
 }

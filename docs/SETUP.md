@@ -80,11 +80,23 @@ Use a porta **5432** (conexão direta), não a 6543.
 
 **Authentication → Providers → Email:** deixe **Confirm email** ligado.
 
-### 1.5 Criar o bucket de fotos (pode deixar para a Fase 2)
+### 1.5 Criar o bucket de fotos
 
 **Storage → New bucket:**
 - **Name:** `space-images`
-- **Public bucket:** **desmarcado**. As fotos são servidas por URL assinada.
+- **Public bucket:** **desmarcado**. As fotos são servidas por URL assinada,
+  com validade de 1 hora, gerada no servidor. Não existe link permanente.
+
+**O resto da configuração é feita pelo SQL do passo 1.6** — você não precisa
+mexer em política no painel. A migração `0009` deixa o bucket privado, com
+limite de 8 MB e apenas `image/jpeg`, `image/png` e `image/webp`, e cria
+quatro políticas em `storage.objects` amarrando cada usuário à **própria
+pasta**: o caminho do arquivo é `<id-do-dono>/<id-do-anúncio>/<arquivo>`, e a
+política compara a primeira pasta com `auth.uid()`.
+
+Se você já criou políticas à mão nesse bucket antes, confira depois em
+**Storage → Policies** se sobrou alguma coisa mais permissiva — o SQL cria as
+dele com nome próprio (`space_images_dono_*`) e não apaga política de terceiro.
 
 ### 1.6 Criar o schema — cole um SQL, não mande senha para ninguém
 
@@ -98,7 +110,8 @@ Nenhuma credencial sai das suas mãos.
 2. Abra `supabase/setup.sql` deste repositório
 3. Cole o arquivo **inteiro** e clique em **Run**
 
-Pronto: 22 tabelas, índices geoespaciais, triggers, RLS e as taxas iniciais.
+Pronto: 22 tabelas, índices geoespaciais, triggers, RLS, as políticas do
+bucket de fotos e as taxas iniciais.
 
 **É seguro rodar mais de uma vez.** Cada migração só é aplicada se ainda não
 estiver registrada em `drizzle.__drizzle_migrations`. Projeto novo recebe tudo;
@@ -108,9 +121,11 @@ seguidas não faz nada na segunda.
 Ao terminar, a saída mostra o que foi feito:
 
 ```
-NOTICE:  Migracao 5 (0005_contagem_de_locacoes) ja aplicada — pulando.
-NOTICE:  Migracao 6 (0006_uneven_quasimodo) aplicada.
-NOTICE:  Pronto: 8 de 8 migracoes registradas no banco.
+NOTICE:  Migracao 8 (0008_late_zeigeist) ja aplicada — pulando.
+NOTICE:  Migracao 9 (0009_fotos_e_storage) aplicada.
+NOTICE:  Bucket space-images configurado: privado, 8 MB, jpeg/png/webp.
+NOTICE:  Politicas do bucket space-images aplicadas (4 politicas, por pasta do dono).
+NOTICE:  Pronto: 10 de 10 migracoes registradas no banco.
 ```
 
 > Quando houver migração nova, basta rodar o arquivo atualizado de novo.
@@ -157,8 +172,8 @@ Já está resolvido em `src/db/connection.ts`, que define
 `search_path = 'public, extensions'` para toda conexão. Schema inexistente é
 ignorado pelo Postgres, então a mesma configuração serve aos dois ambientes.
 
-*Verificado: as 101 checagens passam tanto com o PostGIS em `public` quanto em
-`extensions`.*
+*Verificado: as checagens de banco passam tanto com o PostGIS em `public`
+quanto em `extensions`.*
 
 ---
 
@@ -173,31 +188,101 @@ trabalho (e-mails, links, marca).
 
 ---
 
-## 3. Mapas e geocodificação — Fase 3
+## 3. Mapas — o que está valendo e quando vira obrigação
 
-### 3.1 MapTiler (mapa na tela)
+A biblioteca é o **MapLibre GL** (código aberto, sem conta e sem chave). Ela
+desenha o mapa; quem entrega as imagens é o **provedor de tiles**, e é ali que
+existe custo e política de uso.
 
-1. [maptiler.com](https://www.maptiler.com) → conta grátis
-2. **Keys** → copie para `NEXT_PUBLIC_MAPTILER_KEY`
-3. **Restrinja a chave ao seu domínio** — ela é pública por natureza; a
-   restrição de origem é o que impede alguém de gastar sua cota.
+O código aceita três fontes, nesta ordem de prioridade
+(`src/lib/maps/config.ts`):
 
-### 3.2 Google Geocoding (endereço → coordenada)
+| Prioridade | Variável | Quando usar |
+|-----------|----------|-------------|
+| 1 | `NEXT_PUBLIC_TILE_URL` | servidor de tiles próprio ou de terceiro, no formato `https://.../{z}/{x}/{y}.png` |
+| 2 | `NEXT_PUBLIC_MAPTILER_KEY` | MapTiler (recomendado quando o produto abrir ao público) |
+| 3 | nenhuma | tiles públicos do OpenStreetMap — **só desenvolvimento** |
 
-Melhor cobertura no Brasil, e isso importa: coordenada errada põe o anúncio no
-lugar errado.
+### 3.1 Por que não ficar no OpenStreetMap público
+
+O mapa funciona sem configurar nada, e é assim que está hoje. Mas a
+[Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/) da
+OSM Foundation é explícita: a infraestrutura deles é doada, o uso é para
+"tráfego modesto", e aplicação com volume deve usar provedor próprio. Não é
+proibição técnica — é pedido de quem paga a conta. Com anúncio de verdade e
+gente de verdade navegando, trocar é o certo.
+
+### 3.2 MapTiler — o que você precisa fazer
+
+**Serviço:** MapTiler Cloud (tiles vetoriais).
+**Onde criar:** [cloud.maptiler.com](https://cloud.maptiler.com) → conta grátis.
+**Tem plano grátis?** Sim: 100.000 carregamentos de mapa por mês, sem cartão.
+**Limites:** acima disso o mapa para de carregar no plano gratuito (não gera
+fatura surpresa). Um carregamento = uma inicialização do mapa, não um tile.
+**Custo quando passar:** plano Flex, a partir de ~US$ 25/mês (≈ R$ 135) por
+500.000 carregamentos. Preço atual em
+[maptiler.com/cloud/pricing](https://www.maptiler.com/cloud/pricing/).
+**Qual API ativar:** nenhuma — a chave já dá acesso aos estilos de mapa. Se
+quiser geocodificação depois, é o mesmo painel.
+
+**Onde colocar a chave:** em `.env.local` (desenvolvimento) e nas variáveis de
+ambiente da Vercel (produção):
+
+```
+NEXT_PUBLIC_MAPTILER_KEY=sua_chave_aqui
+```
+
+**Atenção ao `NEXT_PUBLIC_`:** essa chave **vai para o navegador** — é assim
+que funciona qualquer chave de tiles, porque é o navegador que pede a imagem.
+Não é um segredo vazado; é uma chave pública. O que a protege é a **restrição
+de origem** no painel do MapTiler:
+
+1. MapTiler Cloud → **Keys** → sua chave
+2. **Allowed origins** → adicione só o seu domínio (e `http://localhost:3000`
+   para desenvolver)
+3. Sem isso, qualquer site pode embutir sua chave e gastar sua cota.
+
+> Nada disso é urgente. Sem a chave, o mapa continua funcionando com o
+> OpenStreetMap — o que muda é de quem é a infraestrutura.
+
+### 3.3 Busca de CEP — não precisa de chave
+
+A consulta roda **no servidor** (`/api/cep/[cep]`), nunca direto do navegador,
+e usa dois serviços gratuitos e sem cadastro:
+
+1. **[BrasilAPI](https://brasilapi.com.br)** (`/api/cep/v2`) — principal.
+   Agrega Correios, ViaCEP e Open CEP. Também é a única fonte gratuita que
+   devolve coordenada aproximada do CEP, usada só para centralizar o mapa.
+2. **[ViaCEP](https://viacep.com.br)** — reserva, se a primeira falhar.
+
+**Você não precisa criar nada.** Se um dia quiser apontar para um proxy
+interno ou um serviço pago, as bases são configuráveis:
+
+```
+CEP_BRASILAPI_BASE=https://brasilapi.com.br
+CEP_VIACEP_BASE=https://viacep.com.br
+```
+
+Há cache de 24 h em memória e limite de 40 consultas por minuto por IP na
+nossa rota, para não abusar de serviço doado.
+
+### 3.4 Geocodificação de endereço (Fase 3, opcional)
+
+Converter endereço escrito em coordenada é diferente de consultar CEP, e para
+isso o gratuito não basta. Quando chegar a hora:
 
 1. [console.cloud.google.com](https://console.cloud.google.com) → novo projeto
 2. Ative **Geocoding API**
 3. **Credentials** → **Create credentials** → **API key**
 4. **Restrinja:** *Application restrictions* → **IP addresses** (é chamada de
-   servidor); *API restrictions* → somente **Geocoding API**
+   servidor, não do navegador); *API restrictions* → somente **Geocoding API**
 5. **Defina um teto de gastos** em Billing → Budgets & alerts. Sem teto, um bug
    em laço vira fatura alta.
 6. Copie para `GOOGLE_GEOCODING_API_KEY` e ponha `GEOCODING_PROVIDER=google`
 
-> Busca de CEP usa [BrasilAPI](https://brasilapi.com.br), que é gratuita e não
-> precisa de chave.
+Hoje **não é usado**: o ponto do anúncio vem do GPS do navegador ou do pino que
+o proprietário arrasta, que é mais confiável do que geocodificar endereço
+digitado à mão.
 
 ---
 
@@ -294,6 +379,36 @@ Sem isso, você fica sabendo dos erros pelo cliente reclamando.
 
 Depois de publicar, volte ao Supabase (§1.4) e troque as URLs de
 `localhost:3000` para o domínio real.
+
+---
+
+## 9. Rodar os testes contra os serviços reais
+
+Os testes de integração (`pnpm verify:integracoes`) exercitam o app inteiro
+num Chromium de verdade. Nesta máquina eles falam com um servidor local que
+implementa o contrato REST do Supabase, porque a rede externa é bloqueada.
+
+**Na sua máquina, com suas credenciais, o mesmo comando fala com o Supabase de
+verdade.** É isso que fecha a única lacuna que sobrou. Para isso:
+
+1. Tenha o `.env.local` preenchido com `NEXT_PUBLIC_SUPABASE_URL`,
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` e
+   `DATABASE_URL` apontando para o seu projeto.
+2. Rode:
+
+```bash
+pnpm verify:integracoes
+```
+
+3. O script cria dois usuários de teste, envia fotos de verdade para o bucket
+   `space-images`, confere que a referência chegou ao banco, que a foto
+   aparece por URL assinada, e apaga tudo no final.
+
+Se o bucket não existir, a mensagem é explícita ("Crie o bucket
+'space-images'"), não um erro genérico.
+
+> Ele grava e apaga dados no banco que o `DATABASE_URL` aponta. Use o projeto
+> de desenvolvimento, não o que já tiver usuário real.
 
 ---
 

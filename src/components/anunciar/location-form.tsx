@@ -1,9 +1,10 @@
 'use client';
 
-import { useActionState, useState } from 'react';
-import { Search } from 'lucide-react';
+import { useActionState, useCallback, useState } from 'react';
+import { LoaderCircle, Search } from 'lucide-react';
 import { saveStepAction, type SpaceActionState } from '@/lib/spaces/actions';
-import { lookupCep, formatCep, CepError } from '@/lib/maps/cep';
+import { formatCep, isCepComplete, type CepResult } from '@/lib/maps/cep';
+import { useCepLookup } from '@/lib/maps/use-cep';
 import { UFS } from '@/lib/spaces/types';
 import { LocationPicker, type LatLng } from '@/components/map/location-picker';
 import { Field } from '@/components/ui/field';
@@ -35,33 +36,28 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
     initial.lat != null && initial.lng != null ? { lat: initial.lat, lng: initial.lng } : null,
   );
 
-  const [cepStatus, setCepStatus] = useState<'idle' | 'buscando' | 'erro'>('idle');
-  const [cepError, setCepError] = useState<string | null>(null);
+  /** Centro sugerido pelo CEP. Recentraliza o mapa; não mexe no pino. */
+  const [centerHint, setCenterHint] = useState<{ lat: number; lng: number } | null>(null);
 
   useAdvanceOnSave(state?.ok, `/anunciar/${spaceId}/caracteristicas`);
 
   /*
-   * Busca sozinho assim que os 8 dígitos são completados — padrão de todo
-   * checkout brasileiro. O botão continua ali para quem quiser repetir a
-   * consulta depois de uma falha de rede.
+   * O que fazer com o endereço que voltou do servidor.
+   *
+   * Estado e cidade são do CEP: eles não têm ambiguidade. Bairro e rua só
+   * preenchem campo vazio — se a pessoa já corrigiu, ela sabe do endereço dela
+   * mais do que a base dos Correios, que erra em loteamento novo.
    */
-  async function buscarCep(valor = cep) {
-    setCepStatus('buscando');
-    setCepError(null);
-    try {
-      const r = await lookupCep(valor);
-      setUf(r.state);
-      setCity(r.city);
-      if (r.district) setDistrict(r.district);
-      if (r.street) setStreet(r.street);
-      setCepStatus('idle');
-    } catch (err) {
-      setCepStatus('erro');
-      setCepError(
-        err instanceof CepError ? err.message : 'Não foi possível consultar o CEP agora.',
-      );
-    }
-  }
+  const aplicarEndereco = useCallback((r: CepResult) => {
+    setUf(r.state);
+    setCity(r.city);
+    setDistrict((atual) => (atual.trim() ? atual : r.district));
+    setStreet((atual) => (atual.trim() ? atual : r.street));
+    if (r.approx) setCenterHint(r.approx);
+  }, []);
+
+  const { status: cepStatus, message: cepError, aoDigitar, buscarAgora } =
+    useCepLookup(aplicarEndereco);
 
   const err = (k: string) => state?.fieldErrors?.[k]?.[0];
 
@@ -90,8 +86,7 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
               onChange={(e) => {
                 const novo = formatCep(e.target.value);
                 setCep(novo);
-                setCepError(null);
-                if (novo.replace(/\D/g, '').length === 8) void buscarCep(novo);
+                aoDigitar(novo);
               }}
               placeholder="29700-000"
               inputMode="numeric"
@@ -102,18 +97,31 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
             <Button
               type="button"
               variant="secondary"
-              onClick={() => buscarCep()}
+              onClick={() => void buscarAgora(cep)}
               loading={cepStatus === 'buscando'}
-              disabled={cep.replace(/\D/g, '').length !== 8}
+              disabled={!isCepComplete(cep)}
               className="shrink-0"
             >
               {cepStatus !== 'buscando' && <Search className="size-4" aria-hidden />}
               Buscar
             </Button>
           </div>
-          {cepError ? (
+
+          {cepStatus === 'buscando' && (
+            <p aria-live="polite" className="flex items-center gap-1.5 text-[0.8125rem] text-[var(--content-muted)]">
+              <LoaderCircle className="size-3.5 animate-spin" aria-hidden />
+              Consultando o CEP…
+            </p>
+          )}
+          {cepStatus === 'erro' && cepError && (
             <p role="alert" className="text-[0.8125rem] text-[var(--color-caution)]">{cepError}</p>
-          ) : (
+          )}
+          {cepStatus === 'ok' && (
+            <p aria-live="polite" className="text-[0.8125rem] text-[var(--content-muted)]">
+              Endereço preenchido pelo CEP. Confira e corrija o que estiver diferente.
+            </p>
+          )}
+          {cepStatus === 'idle' && (
             <p className="text-[0.8125rem] text-[var(--content-muted)]">
               Preenche o endereço automaticamente. Você pode digitar tudo à mão também.
             </p>
@@ -170,12 +178,17 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
         {/* Mapa */}
         <div className="space-y-2 pt-2">
           <h2 className="text-sm font-medium">Marque o local no mapa</h2>
+          <p className="text-[0.8125rem] text-[var(--content-muted)]">
+            {centerHint
+              ? 'Centralizamos o mapa pelo CEP. Arraste o pino até o ponto exato do espaço — um CEP pode cobrir a rua inteira.'
+              : 'Toque no mapa ou use sua localização para marcar o ponto.'}
+          </p>
           {(err('lat') || err('lng')) && (
             <p role="alert" className="text-[0.8125rem] text-[var(--color-critical)]">
               {err('lat') ?? err('lng')}
             </p>
           )}
-          <LocationPicker value={pin} onChange={setPin} />
+          <LocationPicker value={pin} onChange={setPin} centerHint={centerHint} />
         </div>
       </div>
 

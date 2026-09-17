@@ -142,18 +142,29 @@ async function main() {
     // Centro de Colatina/ES.
     // Publicado exige anuncio completo (spaces_published_requires_complete):
     // bairro, titulo com 10+ caracteres, descricao e data de disponibilidade.
+    /*
+     * Publicar acontece em duas etapas de proposito: o trigger
+     * `spaces_publish_requires_photos` exige as fotos, e foto so existe
+     * depois que o anuncio existe. Inserir um anuncio ja publicado, sem
+     * passar por rascunho, e impossivel — e e assim que tem que ser.
+     */
     const [space] = await sql<{ id: string }[]>`
       INSERT INTO spaces (owner_id, slug, type, status, title, description,
                           district, city, state, available_from,
-                          price_monthly_cents, location, published_at)
-      VALUES (${ownerId}, ${`garagem-${tag}`}, 'garagem', 'published',
+                          price_monthly_cents, location)
+      VALUES (${ownerId}, ${`garagem-${tag}`}, 'garagem', 'draft',
               'Garagem coberta perto do centro',
               'Garagem fechada com portao automatico, cabe um carro medio.',
               'Centro', 'Colatina', 'ES', CURRENT_DATE, 18000,
-              ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326),
-              now())
+              ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
       RETURNING id`;
     spaceId = space.id;
+
+    for (const n of [0, 1, 2]) {
+      await sql`INSERT INTO space_images (space_id, storage_path, position)
+                VALUES (${spaceId}, ${`${ownerId}/${spaceId}/f${n}.jpg`}, ${n})`;
+    }
+    await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${spaceId}`;
     ok('anuncio publicado com coordenada');
 
     /*
@@ -162,15 +173,22 @@ async function main() {
      * localizacao existe por si: com campos faltando, a constraint de
      * completude dispararia antes e o teste passaria pelo motivo errado.
      */
+    const [semGeo] = await sql<{ id: string }[]>`
+      INSERT INTO spaces (owner_id, slug, type, status, title, description,
+                          district, city, state, available_from, price_monthly_cents)
+      VALUES (${ownerId}, ${`sem-geo-${tag}`}, 'deposito', 'draft',
+              'Deposito sem coordenada',
+              'Deposito completo em tudo, menos o ponto no mapa.',
+              'Centro', 'Colatina', 'ES', CURRENT_DATE, 10000)
+      RETURNING id`;
+    for (const n of [0, 1, 2]) {
+      await sql`INSERT INTO space_images (space_id, storage_path, position)
+                VALUES (${semGeo.id}, ${`${ownerId}/${semGeo.id}/f${n}.jpg`}, ${n})`;
+    }
+
     await mustReject(
       'publicar sem coordenada e bloqueado',
-      () => sql`
-        INSERT INTO spaces (owner_id, slug, type, status, title, description,
-                            district, city, state, available_from, price_monthly_cents)
-        VALUES (${ownerId}, ${`sem-geo-${tag}`}, 'deposito', 'published',
-                'Deposito sem coordenada',
-                'Deposito completo em tudo, menos o ponto no mapa.',
-                'Centro', 'Colatina', 'ES', CURRENT_DATE, 10000)`,
+      () => sql`UPDATE spaces SET status='published' WHERE id=${semGeo.id}`,
       'spaces_published_requires_location',
     );
 

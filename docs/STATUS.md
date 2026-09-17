@@ -89,17 +89,17 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Formulário em 8 etapas | ✅ | volta sem perder dado; cada etapa grava no rascunho |
 | Rascunho retomável | ✅ | `/anunciar` lista onde você parou |
 | Tipo define o formulário | ✅ | galpão pede altura, vaga de moto não |
-| Busca de endereço por CEP | ⚠️ | código pronto (BrasilAPI + ViaCEP); **não testado ao vivo** — rede bloqueada nesta sessão |
-| Mapa com pino arrastável | ⚠️ | MapLibre + OpenStreetMap; **não testado ao vivo** — rede bloqueada |
+| Busca de endereço por CEP | ✅ | **no servidor** (`/api/cep/[cep]`), BrasilAPI + ViaCEP de reserva, cache e limite por IP — testado em navegador real |
+| Mapa com pino arrastável | ✅ | MapLibre; tiles, zoom, arrastar e marcadores testados em navegador real |
 | Geolocalização do navegador | ✅ | trata recusa com alternativa manual |
 | Localização aproximada automática | ✅ | trigger no banco, deslocamento determinístico ~250 m |
-| Upload de fotos | ⚠️ | validação testada com arquivos reais; **envio ao Storage não testado** — rede bloqueada |
+| Upload de fotos | ✅ | fluxo completo testado: prévia, progresso, envio, URL assinada, foto na tela e depois de recarregar |
 | Validação por magic bytes | ✅ | PHP disfarçado de JPEG é recusado — testado |
 | **Remoção de EXIF/GPS das fotos** | ✅ | **corrige falha que vazava o endereço exato** — testado |
 | Miniatura automática | ✅ | grade de anúncios carrega ~1 KB por foto em vez de centenas |
 | Redimensionamento no navegador | ✅ | foto de iPhone acima de 8 MB deixa de ser recusada |
-| Mapa de área na página pública | ⚠️ | círculo, não pino (padrão Airbnb); **tiles não testados** — rede bloqueada |
-| CEP busca sozinho | ⚠️ | ao completar 8 dígitos; **não testado ao vivo** — rede bloqueada |
+| Mapa de área na página pública | ✅ | círculo, não pino (padrão Airbnb) |
+| CEP busca sozinho | ✅ | 8 dígitos + 600 ms de espera = **uma** consulta; testado contando as requisições |
 | Reordenar e escolher capa | ✅ | |
 | Preço em centavos | ✅ | mínimo lido de `platform_settings` |
 | Prévia do repasse | ✅ | mostra quanto cai na conta antes de publicar |
@@ -114,7 +114,12 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Página do anúncio `/espacos/[slug]` | ✅ | |
 | **Outro usuário não edita anúncio alheio** | ✅ | **testado** |
 | **Endereço exato não vaza** | ✅ | **testado, inclusive serializando o objeto inteiro** |
-| Verificação automatizada | ✅ | 32 checagens — `pnpm tsx scripts/verify-spaces.ts` |
+| Mapa na listagem com marcadores | ✅ | marcadores vêm do banco, mostram o preço, abrem o anúncio — testado |
+| Recomendação de 5 fotos | ✅ | orienta sem travar rascunho |
+| Mínimo de 3 fotos para publicar | ✅ | dito na interface, cobrado na action e **garantido por trigger no banco** |
+| Servidor não confia na cidade que o navegador manda | ✅ | confirma o CEP ao salvar — testado com cidade forjada |
+| Políticas do Storage por pasta do dono | ⚠️ | escritas na migração 0009; aplicam quando o SQL roda no Supabase (schema `storage`) |
+| Verificação automatizada | ✅ | 34 + 83 checagens — `pnpm verify:tudo` |
 | Conversa com proprietário | ⬜ | Fase 6 |
 | Reservar / alugar | ⬜ | Fase 5 |
 
@@ -152,7 +157,7 @@ Consequência prática, e ela é boa:
   diferença é o schema onde o PostGIS mora).
 - O schema chega ao Supabase por um **SQL que você cola no painel**, então
   nenhuma senha ou chave secreta precisa ser transmitida.
-- As 101 checagens rodam **nos dois layouts de PostGIS** (`public` e
+- As checagens de banco rodam **nos dois layouts de PostGIS** (`public` e
   `extensions`), o que já pegou um bug real: os scripts de verificação abriam
   conexão sem o `search_path` correto e quebravam como quebrariam em produção.
 
@@ -203,21 +208,30 @@ O que continua valendo:
 
 Contas completas em [PAGAMENTOS.md §3](./PAGAMENTOS.md#3-a-economia-real-do-modelo-3--3).
 
-### ⚠️ 3. Três integrações não foram testadas ao vivo
+### ⚠️ 3. O que foi testado de verdade, e o que ainda depende de você
 
-A política de rede desta sessão bloqueia **toda** saída externa — BrasilAPI,
-ViaCEP, tiles de mapa e Supabase Storage retornam `000`. O código foi escrito
-conforme a documentação de cada serviço, mas **não houve uma única chamada real**:
+A política de rede desta máquina bloqueia **toda** saída externa (BrasilAPI,
+ViaCEP, tiles do OpenStreetMap e `*.supabase.co` devolvem `000`). Para não
+cair no teste de mentirinha — "clicou, então funciona" — os testes sobem, na
+própria máquina, um servidor que implementa o **contrato REST** desses
+serviços, e exercitam o app inteiro contra ele **em um Chromium de verdade**
+(`scripts/verify-integracoes.ts`, 83 checagens).
 
-| O que | Estado | Como você confirma |
-|-------|--------|--------------------|
-| Busca de CEP | código pronto, não exercitado | digite um CEP e clique em Buscar |
-| Tiles do mapa | código pronto, não exercitado | a etapa de localização deve mostrar o mapa |
-| Upload ao Storage | código pronto, não exercitado | envie uma foto na etapa 4 |
+| O que | Testado assim | O que isso prova | O que não prova |
+|-------|---------------|------------------|-----------------|
+| Upload de foto | fluxo completo no navegador: escolher, prévia, progresso, envio, URL assinada, foto na tela, sobreviver ao recarregar | nosso código monta a requisição certa, grava a referência no banco e mostra a imagem | que o servidor do Supabase responde igual ao contrato dele |
+| Tiles do mapa | PNG gerados aqui, servidos por HTTP, consumidos pelo MapLibre com zoom e arrasto | o mapa pede `{z}/{x}/{y}`, desenha, reage e mostra marcadores do banco | que o CDN do OpenStreetMap/MapTiler está no ar |
+| CEP | servidor local respondendo nos formatos da BrasilAPI e do ViaCEP, incluindo 404 e queda da fonte primária | debounce, normalização, mensagens, queda para a reserva e confirmação no servidor | que a BrasilAPI/ViaCEP estão no ar e com esses dados |
 
-O **processamento** das fotos (remoção de EXIF, redimensionamento, miniatura)
-roda antes do envio e **foi testado de verdade**, com uma foto contendo GPS.
-O que não foi exercitado é a chamada ao bucket.
+**O mesmo teste roda contra os serviços reais**: com `NEXT_PUBLIC_SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY` e as bases de CEP apontando para a produção, nada
+no script muda. É o que fecha essa lacuna na sua máquina — veja
+[SETUP.md](./SETUP.md#9-rodar-os-testes-contra-os-servicos-reais).
+
+O **processamento** das fotos (remoção de EXIF/GPS, redimensionamento,
+miniatura) e a **validação** por magic bytes rodam localmente e sempre foram
+testados de verdade, com foto contendo GPS e com arquivo falso renomeado
+para `.jpg`.
 
 A **validação** das fotos foi testada de verdade, com arquivos reais — inclusive
 um PHP renomeado para `.jpg`, que é recusado. O que não foi testado é o envio
@@ -254,10 +268,11 @@ confirmação de que funcionam **juntos**. É a primeira pergunta para o gerente
 
 Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
-### ⚠️ 7. Sem testes de interface
+### ⚠️ 7. Teste de interface só nas telas das integrações
 
-Há 147 checagens reais, mas nenhum teste de UI (Playwright/Vitest).
-Fase 12.
+São 232 checagens reais. As telas de foto, mapa e CEP rodam em Chromium de
+verdade (`pnpm verify:integracoes`), mas o resto da interface — cadastro,
+login, painel, marketplace — ainda não tem teste automatizado. Fase 12.
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -276,10 +291,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm tsx scripts/verify-schema.ts    # 29 checagens — invariantes centrais
-pnpm tsx scripts/verify-safety.ts    # 72 checagens — segurança entre usuários
-pnpm tsx scripts/verify-spaces.ts    # 32 checagens — anúncios e permissões
-pnpm tsx scripts/verify-images.ts    # 14 checagens — remoção de metadado das fotos
+pnpm verify                          # 149 checagens contra o Postgres real
+pnpm verify:integracoes              # 83 checagens em Chromium real (fotos, mapa, CEP)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```
@@ -287,6 +300,12 @@ pnpm dev                             # http://localhost:3000
 Os scripts não testam "se o código roda" — eles **tentam gravar dado inválido e
 confirmam que o banco recusa**. É a diferença entre dizer que a regra existe e
 mostrar que ela funciona.
+
+O `verify:integracoes` vai além: compila o app em modo produção, sobe o
+servidor, abre um Chromium de verdade e usa a interface — escolhe arquivo,
+confere a prévia, espera o envio, confirma a foto na tela, arrasta o mapa,
+digita CEP. Nenhuma etapa é simulada; o que ele conta são requisições HTTP
+reais e linhas no banco.
 
 O `verify-safety.ts` também cobre os **falsos positivos** do detector de
 contato: "R$ 1.500,00", "CEP 29700-000" e "posso pagar por Pix aqui pelo

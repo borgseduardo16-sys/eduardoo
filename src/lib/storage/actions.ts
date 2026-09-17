@@ -7,7 +7,7 @@ import { spaceImages, auditLogs } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getOwnedSpace, NotSpaceOwnerError } from '@/lib/spaces/queries';
-import { MAX_PHOTOS } from '@/lib/spaces/schemas';
+import { MAX_PHOTOS, MIN_PHOTOS_TO_PUBLISH } from '@/lib/spaces/schemas';
 import {
   validateImage,
   buildImagePath,
@@ -153,10 +153,25 @@ export async function deleteSpaceImageAction(formData: FormData): Promise<Upload
   const spaceId = String(formData.get('spaceId') ?? '');
   const imageId = String(formData.get('imageId') ?? '');
 
+  let space;
   try {
-    await getOwnedSpace(spaceId, user.id);
+    space = await getOwnedSpace(spaceId, user.id);
   } catch {
     return { ok: false, message: 'Este anúncio não é seu.' };
+  }
+
+  /*
+   * Anuncio no ar nao pode cair abaixo do minimo de fotos: ficaria publicado
+   * e mais pobre sem ninguem notar. O banco tambem barra (trigger
+   * space_images_keep_minimum) — aqui a mensagem diz o que fazer.
+   */
+  if (space.status === 'published' && space.images.length <= MIN_PHOTOS_TO_PUBLISH) {
+    return {
+      ok: false,
+      message:
+        `Seu anúncio está publicado e precisa de pelo menos ${MIN_PHOTOS_TO_PUBLISH} fotos. ` +
+        'Envie outra foto antes de remover esta, ou pause o anúncio.',
+    };
   }
 
   // O `and` com spaceId impede apagar foto de outro anuncio passando um id solto.

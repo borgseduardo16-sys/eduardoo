@@ -186,16 +186,23 @@ async function main() {
       (${carla}, ${`carla-${tag}@example.com`})`;
     await sql`UPDATE profiles SET role='owner' WHERE id=${ana}`;
 
+    // Rascunho -> fotos -> publicado. Anuncio publicado precisa de foto, e
+    // foto precisa de anuncio: nao da para inserir publicado de uma vez.
     const [space] = await sql<{ id: string }[]>`
       INSERT INTO spaces (owner_id, slug, type, status, title, description,
                           district, city, state, available_from,
-                          price_monthly_cents, location, published_at)
-      VALUES (${ana}, ${`box-${tag}`}, 'deposito', 'published', 'Deposito seco no centro',
+                          price_monthly_cents, location)
+      VALUES (${ana}, ${`box-${tag}`}, 'deposito', 'draft', 'Deposito seco no centro',
               'Deposito fechado e ventilado, bom para movel e caixa.',
               'Centro', 'Colatina', 'ES', CURRENT_DATE, 25000,
-              ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326), now())
+              ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
       RETURNING id`;
     spaceId = space.id;
+    for (const n of [0, 1, 2]) {
+      await sql`INSERT INTO space_images (space_id, storage_path, position)
+                VALUES (${spaceId}, ${`${ana}/${spaceId}/f${n}.jpg`}, ${n})`;
+    }
+    await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${spaceId}`;
 
     const [conv] = await sql<{ id: string }[]>`
       INSERT INTO conversations (space_id, renter_id, owner_id)
