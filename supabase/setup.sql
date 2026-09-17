@@ -13,7 +13,7 @@
 -- Ao terminar, a saida mostra quantas migracoes foram aplicadas agora e
 -- quantas ja estavam no banco.
 --
--- Gerado por scripts/build-supabase-setup.ts a partir de 8 migracoes
+-- Gerado por scripts/build-supabase-setup.ts a partir de 9 migracoes
 -- testadas contra um Postgres real. Nao edite a mao: altere src/db/schema/,
 -- gere a migracao e rode este script de novo.
 -- ============================================================================
@@ -1790,6 +1790,27 @@ END
 $mp_bloco_7$;
 
 
+-- ----------------------------------------------------------------------------
+-- Migracao 8: 0008_late_zeigeist  (1 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_8$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '49ab5242cf89c4ca47e902ad1870f1349a6ad1966d94fd267ebc52fc1e2d0178'
+  ) THEN
+    RAISE NOTICE 'Migracao 8 (0008_late_zeigeist) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_8_0$ALTER TABLE "space_images" ADD COLUMN "thumb_path" text;$mp_8_0$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('49ab5242cf89c4ca47e902ad1870f1349a6ad1966d94fd267ebc52fc1e2d0178', 1789662093309);
+
+    RAISE NOTICE 'Migracao 8 (0008_late_zeigeist) aplicada.';
+  END IF;
+END
+$mp_bloco_8$;
+
+
 -- ============================================================================
 -- Resumo
 -- ============================================================================
@@ -1798,7 +1819,7 @@ DECLARE aplicadas integer;
 BEGIN
   SELECT count(*) INTO aplicadas FROM drizzle.__drizzle_migrations;
   RAISE NOTICE '---';
-  RAISE NOTICE 'Pronto: % de 8 migracoes registradas no banco.', aplicadas;
+  RAISE NOTICE 'Pronto: % de 9 migracoes registradas no banco.', aplicadas;
 END
 $mp_resumo$;
 

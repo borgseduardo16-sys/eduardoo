@@ -115,8 +115,9 @@ export async function listPublishedSpaces(options?: {
       priceMonthlyCents: spaces.priceMonthlyCents,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
+      /* COALESCE: fotos enviadas antes da miniatura existir caem na principal. */
       coverPath: sql<string | null>`(
-        SELECT si.storage_path FROM space_images si
+        SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
         WHERE si.space_id = ${spaces.id}
         ORDER BY si.position ASC LIMIT 1
       )`,
@@ -148,6 +149,7 @@ export const getPublicSpaceBySlug = cache(async (slug: string) => {
       .select({
         id: spaceImages.id,
         storagePath: spaceImages.storagePath,
+        thumbPath: spaceImages.thumbPath,
         alt: spaceImages.alt,
         position: spaceImages.position,
         width: spaceImages.width,
@@ -231,6 +233,7 @@ export async function getOwnedSpace(spaceId: string, userId: string) {
       .select({
         id: spaceImages.id,
         storagePath: spaceImages.storagePath,
+        thumbPath: spaceImages.thumbPath,
         alt: spaceImages.alt,
         position: spaceImages.position,
         width: spaceImages.width,
@@ -270,7 +273,7 @@ export async function listOwnerSpaces(userId: string, status?: string[]) {
       publishedAt: spaces.publishedAt,
       updatedAt: spaces.updatedAt,
       coverPath: sql<string | null>`(
-        SELECT si.storage_path FROM space_images si
+        SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
         WHERE si.space_id = ${spaces.id} ORDER BY si.position ASC LIMIT 1
       )`,
       photoCount: sql<number>`(

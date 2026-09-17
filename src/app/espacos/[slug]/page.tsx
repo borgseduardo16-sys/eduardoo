@@ -10,6 +10,7 @@ import type { SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SpacePreview } from '@/components/anunciar/space-preview';
+import { AreaMap } from '@/components/map/area-map';
 import { TrustBadges } from '@/components/safety/trust-badges';
 import { ReportDialog } from '@/components/safety/report-dialog';
 import { ProtectionNotice } from '@/components/safety/protection-notice';
@@ -46,7 +47,9 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
 
   if (!space) notFound();
 
-  const urls = await signImagePaths(space.images.map((i) => i.storagePath));
+  const urls = await signImagePaths(
+    space.images.flatMap((i) => [i.storagePath, i.thumbPath].filter(Boolean) as string[]),
+  );
   const isOwner = viewer?.id === space.ownerId;
 
   const trust = space.owner
@@ -101,11 +104,25 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
             forbiddenItems: space.forbiddenItems,
             rulesText: space.rulesText,
             photos: space.images.map((i) => ({
-              id: i.id, url: urls.get(i.storagePath) ?? null, alt: i.alt,
+              id: i.id,
+              url: urls.get(i.storagePath) ?? null,
+              thumbUrl: i.thumbPath ? (urls.get(i.thumbPath) ?? null) : null,
+              alt: i.alt,
             })),
             features: space.features,
           }}
         />
+
+        {/* Onde fica — área, não ponto */}
+        {space.approxLat != null && space.approxLng != null && (
+          <section className="space-y-3">
+            <h2 className="font-semibold">Onde fica</h2>
+            <p className="text-[var(--content-muted)]">
+              {[space.district, space.city, space.state].filter(Boolean).join(', ')}
+            </p>
+            <AreaMap lat={space.approxLat} lng={space.approxLng} />
+          </section>
+        )}
 
         {/* Quem anuncia */}
         {space.owner && trust && (

@@ -40,11 +40,16 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
 
   useAdvanceOnSave(state?.ok, `/anunciar/${spaceId}/caracteristicas`);
 
-  async function buscarCep() {
+  /*
+   * Busca sozinho assim que os 8 dígitos são completados — padrão de todo
+   * checkout brasileiro. O botão continua ali para quem quiser repetir a
+   * consulta depois de uma falha de rede.
+   */
+  async function buscarCep(valor = cep) {
     setCepStatus('buscando');
     setCepError(null);
     try {
-      const r = await lookupCep(cep);
+      const r = await lookupCep(valor);
       setUf(r.state);
       setCity(r.city);
       if (r.district) setDistrict(r.district);
@@ -82,7 +87,12 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
               id="cep"
               name="postalCode"
               value={cep}
-              onChange={(e) => setCep(formatCep(e.target.value))}
+              onChange={(e) => {
+                const novo = formatCep(e.target.value);
+                setCep(novo);
+                setCepError(null);
+                if (novo.replace(/\D/g, '').length === 8) void buscarCep(novo);
+              }}
               placeholder="29700-000"
               inputMode="numeric"
               autoComplete="postal-code"
@@ -92,7 +102,7 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
             <Button
               type="button"
               variant="secondary"
-              onClick={buscarCep}
+              onClick={() => buscarCep()}
               loading={cepStatus === 'buscando'}
               disabled={cep.replace(/\D/g, '').length !== 8}
               className="shrink-0"

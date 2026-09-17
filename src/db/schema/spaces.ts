@@ -166,6 +166,11 @@ export const spaceImages = pgTable(
       .notNull()
       .references(() => spaces.id, { onDelete: 'cascade' }),
     storagePath: text('storage_path').notNull(),
+    /**
+     * Miniatura (lado maior 640px), usada nas grades de listagem.
+     * Uma grade de 24 anuncios com a imagem cheia passaria de 10 MB no celular.
+     */
+    thumbPath: text('thumb_path'),
     width: integer('width'),
     height: integer('height'),
     sizeBytes: integer('size_bytes'),

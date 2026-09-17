@@ -57,6 +57,13 @@
       "when": 1789606885331,
       "tag": "0007_localizacao_aproximada",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789662093309,
+      "tag": "0008_late_zeigeist",
+      "breakpoints": true
     }
   ]
 }

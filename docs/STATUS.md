@@ -95,6 +95,11 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Localização aproximada automática | ✅ | trigger no banco, deslocamento determinístico ~250 m |
 | Upload de fotos | ⚠️ | validação testada com arquivos reais; **envio ao Storage não testado** — rede bloqueada |
 | Validação por magic bytes | ✅ | PHP disfarçado de JPEG é recusado — testado |
+| **Remoção de EXIF/GPS das fotos** | ✅ | **corrige falha que vazava o endereço exato** — testado |
+| Miniatura automática | ✅ | grade de anúncios carrega ~1 KB por foto em vez de centenas |
+| Redimensionamento no navegador | ✅ | foto de iPhone acima de 8 MB deixa de ser recusada |
+| Mapa de área na página pública | ⚠️ | círculo, não pino (padrão Airbnb); **tiles não testados** — rede bloqueada |
+| CEP busca sozinho | ⚠️ | ao completar 8 dígitos; **não testado ao vivo** — rede bloqueada |
 | Reordenar e escolher capa | ✅ | |
 | Preço em centavos | ✅ | mínimo lido de `platform_settings` |
 | Prévia do repasse | ✅ | mostra quanto cai na conta antes de publicar |
@@ -210,6 +215,10 @@ conforme a documentação de cada serviço, mas **não houve uma única chamada 
 | Tiles do mapa | código pronto, não exercitado | a etapa de localização deve mostrar o mapa |
 | Upload ao Storage | código pronto, não exercitado | envie uma foto na etapa 4 |
 
+O **processamento** das fotos (remoção de EXIF, redimensionamento, miniatura)
+roda antes do envio e **foi testado de verdade**, com uma foto contendo GPS.
+O que não foi exercitado é a chamada ao bucket.
+
 A **validação** das fotos foi testada de verdade, com arquivos reais — inclusive
 um PHP renomeado para `.jpg`, que é recusado. O que não foi testado é o envio
 ao bucket.
@@ -247,7 +256,7 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Sem testes de interface
 
-Há 133 checagens reais de banco, mas nenhum teste de UI (Playwright/Vitest).
+Há 147 checagens reais, mas nenhum teste de UI (Playwright/Vitest).
 Fase 12.
 
 ### ⚠️ 8. Sem documentos jurídicos
@@ -270,6 +279,7 @@ pnpm db:migrate                      # aplica o schema
 pnpm tsx scripts/verify-schema.ts    # 29 checagens — invariantes centrais
 pnpm tsx scripts/verify-safety.ts    # 72 checagens — segurança entre usuários
 pnpm tsx scripts/verify-spaces.ts    # 32 checagens — anúncios e permissões
+pnpm tsx scripts/verify-images.ts    # 14 checagens — remoção de metadado das fotos
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```

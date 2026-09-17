@@ -10,7 +10,8 @@ import {
   uploadSpaceImageAction, deleteSpaceImageAction, reorderSpaceImagesAction,
 } from '@/lib/storage/actions';
 import { MAX_PHOTOS, MIN_PHOTOS_TO_PUBLISH } from '@/lib/spaces/schemas';
-import { ACCEPT_ATTRIBUTE, MAX_IMAGE_BYTES, sniffImageType } from '@/lib/storage/images';
+import { ACCEPT_ATTRIBUTE, sniffImageType } from '@/lib/storage/images';
+import { resizeBeforeUpload, excedeLimite } from '@/lib/storage/client-resize';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -54,16 +55,24 @@ export function PhotosForm({
 
     setUploading(lote.length);
 
-    for (const file of lote) {
-      // Pré-checagem: não gasta upload com arquivo que será recusado.
-      if (file.size > MAX_IMAGE_BYTES) {
-        setError(`"${file.name}" passa de 8 MB e não foi enviada.`);
+    for (const original of lote) {
+      // Pré-checagem de formato: não gasta upload com arquivo que será recusado.
+      const head = new Uint8Array(await original.slice(0, 16).arrayBuffer());
+      if (!sniffImageType(head)) {
+        setError(`"${original.name}" não é uma imagem JPG, PNG ou WEBP.`);
         setUploading((n) => n - 1);
         continue;
       }
-      const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
-      if (!sniffImageType(head)) {
-        setError(`"${file.name}" não é uma imagem JPG, PNG ou WEBP.`);
+
+      /*
+       * Reduz antes de enviar. Foto de celular recente passa de 8 MB e seria
+       * recusada pelo servidor — reduzir aqui é o que deixa uma foto legítima
+       * passar, além de encurtar bastante o envio em rede móvel.
+       */
+      const file = await resizeBeforeUpload(original);
+
+      if (excedeLimite(file)) {
+        setError(`"${original.name}" continua acima de 8 MB mesmo reduzida. Tente outra foto.`);
         setUploading((n) => n - 1);
         continue;
       }

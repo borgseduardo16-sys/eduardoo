@@ -4,6 +4,15 @@ import { formatBRL } from '@/lib/money';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { Icon } from '@/components/safety/icon';
 
+export type PreviewPhoto = {
+  id: string;
+  /** Tamanho cheio — usado na capa. */
+  url: string | null;
+  /** Miniatura — usada nas imagens pequenas abaixo da capa. */
+  thumbUrl?: string | null;
+  alt: string | null;
+};
+
 export type PreviewData = {
   type: string;
   title: string | null;
@@ -19,7 +28,7 @@ export type PreviewData = {
   allowedItems: string | null;
   forbiddenItems: string | null;
   rulesText: string | null;
-  photos: { id: string; url: string | null; alt: string | null }[];
+  photos: PreviewPhoto[];
   features: { key: string; label: string; icon: string | null }[];
 };
 
@@ -62,8 +71,12 @@ export function SpacePreview({ data }: { data: PreviewData }) {
             <div className="grid grid-cols-4 gap-2">
               {resto.map((p, i) => (
                 <div key={p.id} className="relative aspect-square rounded-[var(--radius-field)] overflow-hidden bg-[var(--surface-sunken)] border">
-                  {p.url && (
-                    <Image src={p.url} alt={p.alt ?? `Foto ${i + 2}`} fill sizes="160px" className="object-cover" unoptimized />
+                  {(p.thumbUrl ?? p.url) && (
+                    <Image
+                      src={(p.thumbUrl ?? p.url)!}
+                      alt={p.alt ?? `Foto ${i + 2}`}
+                      fill sizes="160px" className="object-cover" unoptimized
+                    />
                   )}
                 </div>
               ))}

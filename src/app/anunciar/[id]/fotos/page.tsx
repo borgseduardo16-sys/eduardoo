@@ -10,11 +10,16 @@ export default async function FotosPage({ params }: { params: Promise<{ id: stri
   const { id } = await params;
   const { space } = await loadDraftStep(id);
 
-  // As fotos ficam em bucket privado: a URL é assinada na hora, com validade.
-  const urls = await signImagePaths(space.images.map((i) => i.storagePath));
+  /*
+   * Bucket privado: a URL é assinada na hora, com validade.
+   * A grade usa a MINIATURA — abrir a etapa com 15 fotos em tamanho cheio
+   * custaria vários megabytes no celular sem nenhum ganho visual.
+   */
+  const paths = space.images.map((i) => i.thumbPath ?? i.storagePath);
+  const urls = await signImagePaths(paths);
   const photos: PhotoItem[] = space.images.map((i) => ({
     id: i.id,
-    url: urls.get(i.storagePath) ?? null,
+    url: urls.get(i.thumbPath ?? i.storagePath) ?? null,
     alt: i.alt,
   }));
 

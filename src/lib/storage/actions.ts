@@ -14,6 +14,7 @@ import {
   ImageValidationError,
   SPACE_IMAGES_BUCKET,
 } from './images';
+import { processUploadedImage, ImageProcessingError } from './process';
 
 export type UploadState = {
   ok: boolean;
@@ -66,19 +67,47 @@ export async function uploadSpaceImageAction(formData: FormData): Promise<Upload
     throw err;
   }
 
-  const path = buildImagePath(user.id, spaceId, image.extension);
+  /*
+   * Reencode obrigatorio ANTES de guardar.
+   *
+   * Foto de celular carrega a coordenada GPS do lugar onde foi tirada. Guardar
+   * o arquivo original entregaria o endereco exato do espaco para qualquer
+   * pessoa que baixasse a imagem — anulando a localizacao aproximada do mapa.
+   * Ver src/lib/storage/process.ts e scripts/verify-images.ts.
+   */
+  let processed;
+  try {
+    processed = await processUploadedImage(image.bytes, image.mime);
+  } catch (err) {
+    if (err instanceof ImageProcessingError) return { ok: false, message: err.message };
+    console.error('[storage] processamento falhou:', err);
+    return { ok: false, message: 'Não foi possível processar a foto. Tente outro arquivo.' };
+  }
+
+  const path = buildImagePath(user.id, spaceId, processed.extension);
+  const thumbPath = path.replace(/\.(\w+)$/, '.thumb.$1');
   const supabase = createAdminClient();
 
-  const { error: uploadError } = await supabase.storage
-    .from(SPACE_IMAGES_BUCKET)
-    .upload(path, image.bytes, {
-      contentType: image.mime,
+  const [principal, miniatura] = await Promise.all([
+    supabase.storage.from(SPACE_IMAGES_BUCKET).upload(path, processed.main.bytes, {
+      contentType: processed.mime,
       // O caminho ja tem um uuid: colisao seria bug nosso, nao concorrencia.
       upsert: false,
       cacheControl: '3600',
-    });
+    }),
+    supabase.storage.from(SPACE_IMAGES_BUCKET).upload(thumbPath, processed.thumb.bytes, {
+      contentType: processed.mime,
+      upsert: false,
+      cacheControl: '3600',
+    }),
+  ]);
 
+  const uploadError = principal.error ?? miniatura.error;
   if (uploadError) {
+    // Se so uma das duas subiu, a outra vira arquivo orfao no bucket. Limpamos
+    // as duas para nao deixar a foto pela metade.
+    await supabase.storage.from(SPACE_IMAGES_BUCKET).remove([path, thumbPath]).catch(() => {});
+
     const msg = uploadError.message.toLowerCase();
     if (msg.includes('bucket not found')) {
       return {
@@ -100,10 +129,11 @@ export async function uploadSpaceImageAction(formData: FormData): Promise<Upload
   await db.insert(spaceImages).values({
     spaceId,
     storagePath: path,
-    contentType: image.mime,
-    sizeBytes: image.sizeBytes,
-    width: image.width,
-    height: image.height,
+    thumbPath,
+    contentType: processed.mime,
+    sizeBytes: processed.main.sizeBytes,
+    width: processed.main.width,
+    height: processed.main.height,
     position: proxima,
   });
 
@@ -133,16 +163,17 @@ export async function deleteSpaceImageAction(formData: FormData): Promise<Upload
   const [removida] = await db
     .delete(spaceImages)
     .where(and(eq(spaceImages.id, imageId), eq(spaceImages.spaceId, spaceId)))
-    .returning({ path: spaceImages.storagePath });
+    .returning({ path: spaceImages.storagePath, thumb: spaceImages.thumbPath });
 
   if (!removida) return { ok: false, message: 'Foto não encontrada.' };
 
   const supabase = createAdminClient();
-  const { error } = await supabase.storage.from(SPACE_IMAGES_BUCKET).remove([removida.path]);
+  const alvos = [removida.path, removida.thumb].filter(Boolean) as string[];
+  const { error } = await supabase.storage.from(SPACE_IMAGES_BUCKET).remove(alvos);
   if (error) {
     // A linha ja saiu do banco, entao a foto sumiu da interface. Um arquivo
     // orfao no bucket e problema de custo, nao de correcao — registramos.
-    console.error('[storage] arquivo orfao:', removida.path, error.message);
+    console.error('[storage] arquivo orfao:', alvos.join(', '), error.message);
   }
 
   await renumberPositions(spaceId);

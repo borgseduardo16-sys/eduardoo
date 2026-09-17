@@ -209,6 +209,52 @@ não contém as palavras "Mediação de conflito" nem "Cobertura de danos".*
 
 ---
 
+## 4b. Metadado das fotos — a falha que quase anulou tudo
+
+Foto tirada de celular carrega **EXIF**, e o EXIF carrega a **coordenada GPS
+do lugar onde a foto foi tirada**, com precisão de poucos metros. Também
+carrega modelo do aparelho, número de série e horário.
+
+A primeira versão guardava o arquivo original. O efeito prático: o mapa
+mostrava um ponto deslocado ~250 m, a página pública não trazia rua nem
+número — e **a primeira foto tirada dentro da garagem entregava o endereço
+exato** para qualquer pessoa que baixasse a imagem e abrisse os metadados.
+
+Toda a proteção de localização descrita acima era anulada por isso.
+
+### Como foi corrigido
+
+A remoção acontece por **reencode**, não por "apagar a tag EXIF". Reencodar
+gera um arquivo novo a partir dos pixels, então não sobra metadado algum — nem
+os campos proprietários que cada fabricante inventa e que uma lista de exclusão
+sempre acabaria deixando passar.
+
+Duas armadilhas encontradas no caminho:
+
+1. **`withMetadata({})` no sharp PRESERVA o metadado**, não remove. O nome
+   sugere o contrário para quem lê rápido. A primeira correção usava isso e
+   não removia nada — o teste é que pegou.
+2. **A orientação vive no EXIF.** Remover o metadado sem antes aplicar a
+   rotação aos pixels deixaria fotos tiradas de lado deitadas no anúncio.
+
+### Verificação
+
+`scripts/verify-images.ts` gera uma foto **com GPS de Colatina embutido**,
+processa, e varre os bytes finais atrás de qualquer vestígio:
+
+```
+✓ coordenada e aparelho estao embutidos   Apple, iPhone, iOS 18, Exif + bloco GPS
+✓ EXIF removido da imagem principal
+✓ EXIF removido tambem da miniatura
+✓ nenhum vestigio nos bytes crus          varrido por Apple, iPhone, Exif, GPS, data
+✓ foto marcada como girada sai em pe      900x1200
+```
+
+O teste não depende de fixture no repositório nem de ferramenta externa: cria
+e confere tudo sozinho.
+
+---
+
 ## 5. Visita antes de fechar
 
 A visita é a única verificação que nenhum sistema substitui. Foto se copia da

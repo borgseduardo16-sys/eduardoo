@@ -1,0 +1,1 @@
+ALTER TABLE "space_images" ADD COLUMN "thumb_path" text;

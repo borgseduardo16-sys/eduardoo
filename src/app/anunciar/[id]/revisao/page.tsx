@@ -17,7 +17,7 @@ export default async function RevisaoPage({ params }: { params: Promise<{ id: st
   const { space } = await loadDraftStep(id);
 
   const [urls, feats] = await Promise.all([
-    signImagePaths(space.images.map((i) => i.storagePath)),
+    signImagePaths(space.images.flatMap((i) => [i.storagePath, i.thumbPath].filter(Boolean) as string[])),
     space.featureKeys.length
       ? db
           .select({ key: featuresTable.key, label: featuresTable.label, icon: featuresTable.icon })
@@ -71,7 +71,10 @@ export default async function RevisaoPage({ params }: { params: Promise<{ id: st
             forbiddenItems: space.forbiddenItems,
             rulesText: space.rulesText,
             photos: space.images.map((i) => ({
-              id: i.id, url: urls.get(i.storagePath) ?? null, alt: i.alt,
+              id: i.id,
+              url: urls.get(i.storagePath) ?? null,
+              thumbUrl: i.thumbPath ? (urls.get(i.thumbPath) ?? null) : null,
+              alt: i.alt,
             })),
             features: feats,
           }}
