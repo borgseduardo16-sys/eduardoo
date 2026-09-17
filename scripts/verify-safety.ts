@@ -12,6 +12,7 @@ import { config as loadEnv } from 'dotenv';
 loadEnv({ path: ['.env.local', '.env'], quiet: true });
 
 import postgres from 'postgres';
+import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { isValidCpf, isValidCnpj, isBrazilianPhone, maskDocument } from '../src/lib/safety/documents';
 import { detectContactInfo, buildFlagReason } from '../src/lib/safety/contact-detection';
 import { severityFor, isReasonValidForTarget, reasonsForTarget } from '../src/lib/safety/report-config';
@@ -22,7 +23,7 @@ import { computeBookingAmounts, platformNetCents, formatBRL } from '../src/lib/m
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
-const sql = postgres(url, { max: 1, onnotice: () => {} });
+const sql = postgres(url, { max: 1, onnotice: () => {}, connection: PG_CONNECTION_PARAMS });
 
 let passed = 0;
 let failed = 0;

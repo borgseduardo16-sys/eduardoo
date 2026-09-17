@@ -2,6 +2,7 @@ import 'server-only';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from './schema';
+import { PG_CONNECTION_PARAMS } from './connection';
 import { serverEnv } from '@/lib/env';
 
 /**
@@ -23,6 +24,7 @@ function createConnection() {
     connect_timeout: 10,
     // pgbouncer em modo transaction nao suporta prepared statements nomeados.
     prepare: false,
+    connection: PG_CONNECTION_PARAMS,
   });
 }
 

@@ -86,15 +86,63 @@ Use a porta **5432** (conexão direta), não a 6543.
 - **Name:** `space-images`
 - **Public bucket:** **desmarcado**. As fotos são servidas por URL assinada.
 
-### 1.6 Rodar as migrações
+### 1.6 Criar o schema — cole um SQL, não mande senha para ninguém
+
+Existem dois caminhos. **Prefira o primeiro.**
+
+#### Caminho A — pelo painel (recomendado)
+
+Nenhuma credencial sai das suas mãos.
+
+1. No painel do Supabase: **SQL Editor → New query**
+2. Abra `supabase/setup.sql` deste repositório
+3. Cole o arquivo **inteiro** e clique em **Run**
+
+Pronto: 22 tabelas, índices geoespaciais, triggers, RLS e as taxas iniciais.
+
+O arquivo também se registra na tabela de controle do Drizzle, então um
+`pnpm db:migrate` futuro aplica só o que for novo em vez de tentar recriar tudo.
+
+Confira o resultado com:
+
+```sql
+SELECT count(*) FROM pg_tables WHERE schemaname = 'public';  -- 22
+SELECT key, value FROM platform_settings ORDER BY key;        -- taxas 3%+3%
+SELECT PostGIS_Version();                                     -- extensão ativa
+```
+
+> Quando o schema mudar, o arquivo é regerado com
+> `pnpm tsx scripts/build-supabase-setup.ts` — nunca editado à mão.
+
+#### Caminho B — pela linha de comando
+
+Só se você estiver rodando no **seu próprio computador**, onde a `DATABASE_URL`
+nunca sai da sua máquina:
 
 ```bash
 cp .env.example .env.local     # preencha com os valores acima
 pnpm install
 pnpm db:migrate
-pnpm tsx scripts/verify-schema.ts   # deve terminar com "28 passaram"
+pnpm tsx scripts/verify-schema.ts   # 29 passaram
+pnpm tsx scripts/verify-safety.ts   # 72 passaram
 pnpm dev
 ```
+
+> ⚠️ A `DATABASE_URL` contém a senha do banco. Ela nunca deve ser colada em
+> conversa, issue ou mensagem — nem para mim.
+
+### 1.7 Detalhe do PostGIS no Supabase
+
+O Supabase instala o PostGIS no schema `extensions`, não em `public`. Sem
+tratar isso, `ST_DWithin` e o cast `::geography` somem: a busca por distância
+funciona em desenvolvimento e quebra em produção.
+
+Já está resolvido em `src/db/connection.ts`, que define
+`search_path = 'public, extensions'` para toda conexão. Schema inexistente é
+ignorado pelo Postgres, então a mesma configuração serve aos dois ambientes.
+
+*Verificado: as 101 checagens passam tanto com o PostGIS em `public` quanto em
+`extensions`.*
 
 ---
 

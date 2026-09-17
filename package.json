@@ -14,7 +14,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed-features": "tsx src/db/seed-features.ts",
-    "check": "pnpm typecheck && pnpm lint && pnpm build"
+    "check": "pnpm typecheck && pnpm lint && pnpm build",
+    "db:supabase-sql": "tsx scripts/build-supabase-setup.ts",
+    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

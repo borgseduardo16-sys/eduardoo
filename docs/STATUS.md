@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 16/09/2026 · **Fase concluída:** 1 de 12 + segurança interna
+> **Atualizado em:** 17/09/2026 · **Fase concluída:** 1 de 12 + segurança interna
 
 Estados usados:
 
@@ -39,7 +39,10 @@ Estados usados:
 | Geolocalização do navegador | ✅ | Trata recusa com mensagem clara e alternativa manual |
 | Verificação automatizada do banco | ✅ | 29 checagens — `pnpm tsx scripts/verify-schema.ts` |
 | **Rate limiting** | ⚠️ | Em memória. **Não funciona em serverless.** Ver §Riscos |
-| Credenciais do Supabase | 🔑 | [SETUP.md §1](./SETUP.md#1-supabase--banco-autenticação-e-arquivos) |
+| Projeto Supabase criado | ✅ | pelo usuário, com PostGIS ativo |
+| SQL de instalação do schema | ✅ | `supabase/setup.sql` — testado num banco limpo que simula o Supabase |
+| Schema aplicado no Supabase | 🔑 | colar `supabase/setup.sql` no SQL Editor — [SETUP.md §1.6](./SETUP.md#16-criar-o-schema--cole-um-sql-não-mande-senha-para-ninguém) |
+| Credenciais para deploy | 🔑 | vão direto para a Vercel, não passam por aqui |
 
 ---
 
@@ -98,6 +101,22 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 As telas de `/buscar` e `/anunciar` existem e **dizem explicitamente que ainda
 não funcionam**, listando o que falta. Não há dado de exemplo em lugar nenhum
 que possa ser confundido com dado real.
+
+---
+
+## Nota sobre o ambiente desta sessão
+
+A política de rede deste container **bloqueia conexões com `*.supabase.co`**.
+Consequência prática, e ela é boa:
+
+- O desenvolvimento roda contra um **Postgres local com PostGIS**, que tem
+  exatamente o mesmo schema (conferido com `pg_dump` nos dois bancos — a única
+  diferença é o schema onde o PostGIS mora).
+- O schema chega ao Supabase por um **SQL que você cola no painel**, então
+  nenhuma senha ou chave secreta precisa ser transmitida.
+- As 101 checagens rodam **nos dois layouts de PostGIS** (`public` e
+  `extensions`), o que já pegou um bug real: os scripts de verificação abriam
+  conexão sem o `search_path` correto e quebravam como quebrariam em produção.
 
 ---
 

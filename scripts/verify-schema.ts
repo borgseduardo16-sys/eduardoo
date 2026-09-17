@@ -12,10 +12,11 @@ loadEnv({ path: ['.env.local', '.env'], quiet: true });
 
 import postgres from 'postgres';
 import { computeBookingAmounts, platformNetCents, formatBRL, parseBRLToCents } from '../src/lib/money';
+import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
-const sql = postgres(url, { max: 1, onnotice: () => {} });
+const sql = postgres(url, { max: 1, onnotice: () => {}, connection: PG_CONNECTION_PARAMS });
 
 let passed = 0;
 let failed = 0;
