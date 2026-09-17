@@ -10,6 +10,7 @@ import {
   primaryKey,
   check,
   numeric,
+  date,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 import { spaceType, spaceStatus } from './enums';
@@ -97,8 +98,15 @@ export const spaces = pgTable(
     forbiddenItems: text('forbidden_items'),
     accessHours: text('access_hours'),
 
-    /** Etapa concluida do formulario de publicacao (1..9), para retomar de onde parou. */
+    /** Etapa concluida do formulario de publicacao (1..8), para retomar de onde parou. */
     draftStep: integer('draft_step').notNull().default(1),
+
+    /**
+     * A partir de quando o espaco pode ser alugado.
+     * NULL enquanto o rascunho nao chegou na etapa de disponibilidade.
+     * Anuncio publicado precisa ter data — garantido por CHECK.
+     */
+    availableFrom: date('available_from'),
 
     /** Denormalizados a partir de `reviews`, mantidos por trigger. */
     ratingAvg: numeric('rating_avg', { precision: 3, scale: 2 }),
@@ -127,6 +135,24 @@ export const spaces = pgTable(
     check(
       'spaces_published_requires_location',
       sql`${t.status} <> 'published' OR (${t.location} IS NOT NULL AND ${t.approxLocation} IS NOT NULL)`,
+    ),
+    /**
+     * Anuncio publicado precisa estar completo.
+     *
+     * Esta e a regra que impede rascunho pela metade de virar publico. Vive no
+     * banco de proposito: um bug na aplicacao, ou um UPDATE manual no painel,
+     * nao consegue publicar um anuncio sem cidade, sem descricao ou sem data.
+     */
+    check(
+      'spaces_published_requires_complete',
+      sql`${t.status} NOT IN ('published','rented') OR (
+            ${t.city} IS NOT NULL AND length(trim(${t.city})) > 0
+            AND ${t.state} IS NOT NULL AND length(trim(${t.state})) = 2
+            AND ${t.district} IS NOT NULL AND length(trim(${t.district})) > 0
+            AND length(trim(${t.title})) >= 10
+            AND ${t.description} IS NOT NULL AND length(trim(${t.description})) >= 20
+            AND ${t.availableFrom} IS NOT NULL
+          )`,
     ),
   ],
 );

@@ -86,7 +86,7 @@ export function SearchBar({ className, autoFocus = false }: { className?: string
       params.set('onde', onde.trim());
     }
 
-    startTransition(() => router.push(`/buscar?${params.toString()}`));
+    startTransition(() => router.push(`/espacos?${params.toString()}`));
   }
 
   return (

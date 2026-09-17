@@ -187,12 +187,13 @@ async function main() {
     await sql`UPDATE profiles SET role='owner' WHERE id=${ana}`;
 
     const [space] = await sql<{ id: string }[]>`
-      INSERT INTO spaces (owner_id, slug, type, status, title, city, state,
-                          price_monthly_cents, location, approx_location, published_at)
+      INSERT INTO spaces (owner_id, slug, type, status, title, description,
+                          district, city, state, available_from,
+                          price_monthly_cents, location, published_at)
       VALUES (${ana}, ${`box-${tag}`}, 'deposito', 'published', 'Deposito seco no centro',
-              'Colatina', 'ES', 25000,
-              ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326),
-              ST_SetSRID(ST_MakePoint(-40.6320, -19.5410), 4326), now())
+              'Deposito fechado e ventilado, bom para movel e caixa.',
+              'Centro', 'Colatina', 'ES', CURRENT_DATE, 25000,
+              ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326), now())
       RETURNING id`;
     spaceId = space.id;
 

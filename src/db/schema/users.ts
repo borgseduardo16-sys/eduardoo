@@ -40,6 +40,10 @@ export const profiles = pgTable(
     /** Caminho no bucket de avatares (nao URL — a URL assinada e gerada na hora). */
     avatarPath: text('avatar_path'),
 
+    /** Cidade onde a pessoa esta. Usada para pre-preencher busca e anuncio. */
+    city: text('city'),
+    state: text('state'),
+
     /**
      * CPF/CNPJ apenas digitos. Obrigatorio somente para receber dinheiro (KYC do gateway).
      * Dado pessoal sensivel sob LGPD: nunca exposto em API publica.

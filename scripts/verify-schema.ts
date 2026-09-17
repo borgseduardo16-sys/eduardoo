@@ -140,23 +140,37 @@ async function main() {
 
     console.log('\n\x1b[1m3. Espacos e geolocalizacao\x1b[0m');
     // Centro de Colatina/ES.
+    // Publicado exige anuncio completo (spaces_published_requires_complete):
+    // bairro, titulo com 10+ caracteres, descricao e data de disponibilidade.
     const [space] = await sql<{ id: string }[]>`
-      INSERT INTO spaces (owner_id, slug, type, status, title, city, state,
-                          price_monthly_cents, location, approx_location, published_at)
+      INSERT INTO spaces (owner_id, slug, type, status, title, description,
+                          district, city, state, available_from,
+                          price_monthly_cents, location, published_at)
       VALUES (${ownerId}, ${`garagem-${tag}`}, 'garagem', 'published',
-              'Garagem coberta perto do centro', 'Colatina', 'ES', 18000,
+              'Garagem coberta perto do centro',
+              'Garagem fechada com portao automatico, cabe um carro medio.',
+              'Centro', 'Colatina', 'ES', CURRENT_DATE, 18000,
               ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326),
-              ST_SetSRID(ST_MakePoint(-40.6320, -19.5410), 4326),
               now())
       RETURNING id`;
     spaceId = space.id;
     ok('anuncio publicado com coordenada');
 
+    /*
+     * Este anuncio esta COMPLETO em tudo — bairro, titulo, descricao, data —
+     * e falta so a coordenada. Isolar assim e o que prova que a regra de
+     * localizacao existe por si: com campos faltando, a constraint de
+     * completude dispararia antes e o teste passaria pelo motivo errado.
+     */
     await mustReject(
       'publicar sem coordenada e bloqueado',
       () => sql`
-        INSERT INTO spaces (owner_id, slug, type, status, title, price_monthly_cents)
-        VALUES (${ownerId}, ${`sem-geo-${tag}`}, 'deposito', 'published', 'Sem geo', 10000)`,
+        INSERT INTO spaces (owner_id, slug, type, status, title, description,
+                            district, city, state, available_from, price_monthly_cents)
+        VALUES (${ownerId}, ${`sem-geo-${tag}`}, 'deposito', 'published',
+                'Deposito sem coordenada',
+                'Deposito completo em tudo, menos o ponto no mapa.',
+                'Centro', 'Colatina', 'ES', CURRENT_DATE, 10000)`,
       'spaces_published_requires_location',
     );
 

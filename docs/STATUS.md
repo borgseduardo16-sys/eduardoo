@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 17/09/2026 · **Fase concluída:** 1 de 12 + segurança interna
+> **Atualizado em:** 17/09/2026 · **Fases concluídas:** 1 e 2 de 12 + segurança interna
 
 Estados usados:
 
@@ -82,12 +82,45 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 
 ---
 
+## Fase 2 — Cadastro e publicação de anúncios ✅
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Formulário em 8 etapas | ✅ | volta sem perder dado; cada etapa grava no rascunho |
+| Rascunho retomável | ✅ | `/anunciar` lista onde você parou |
+| Tipo define o formulário | ✅ | galpão pede altura, vaga de moto não |
+| Busca de endereço por CEP | ⚠️ | código pronto (BrasilAPI + ViaCEP); **não testado ao vivo** — rede bloqueada nesta sessão |
+| Mapa com pino arrastável | ⚠️ | MapLibre + OpenStreetMap; **não testado ao vivo** — rede bloqueada |
+| Geolocalização do navegador | ✅ | trata recusa com alternativa manual |
+| Localização aproximada automática | ✅ | trigger no banco, deslocamento determinístico ~250 m |
+| Upload de fotos | ⚠️ | validação testada com arquivos reais; **envio ao Storage não testado** — rede bloqueada |
+| Validação por magic bytes | ✅ | PHP disfarçado de JPEG é recusado — testado |
+| Reordenar e escolher capa | ✅ | |
+| Preço em centavos | ✅ | mínimo lido de `platform_settings` |
+| Prévia do repasse | ✅ | mostra quanto cai na conta antes de publicar |
+| Revisão antes de publicar | ✅ | mostra exatamente a visão pública |
+| Publicação valida tudo de novo | ✅ | servidor + `CHECK` no banco |
+| Anúncio incompleto não publica | ✅ | testado |
+| Painel "Meus espaços" | ✅ | filtros, pausar, editar, excluir |
+| Pausar / reativar | ✅ | some da busca, continua no painel |
+| Exclusão preserva histórico | ✅ | com reserva vira arquivado — testado |
+| Anúncio alugado trava edição sensível | ✅ | só descrição e regras |
+| Marketplace público `/espacos` | ✅ | dados reais do banco, sem mock |
+| Página do anúncio `/espacos/[slug]` | ✅ | |
+| **Outro usuário não edita anúncio alheio** | ✅ | **testado** |
+| **Endereço exato não vaza** | ✅ | **testado, inclusive serializando o objeto inteiro** |
+| Verificação automatizada | ✅ | 32 checagens — `pnpm tsx scripts/verify-spaces.ts` |
+| Conversa com proprietário | ⬜ | Fase 6 |
+| Reservar / alugar | ⬜ | Fase 5 |
+
+
+---
+
 ## Fases 2 a 12 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
-| 2 | Criação de anúncios (9 etapas, upload de fotos) | Bucket do Supabase |
-| 3 | Busca, filtros, mapa, geolocalização | MapTiler + Geocoding |
+| 3 | Busca por distância, filtros avançados, mapa na listagem | MapTiler (opcional) |
 | 4 | Página do anúncio e favoritos | — |
 | 5 | Reserva e aluguel | — |
 | 6 | Chat e notificações | Resend |
@@ -129,6 +162,7 @@ Consequência prática, e ela é boa:
 - ❌ Nenhum chat falso
 - ❌ Nenhuma avaliação fabricada
 - ❌ Nenhuma denúncia ou bloqueio de exemplo
+- ❌ Nenhum anúncio de exemplo no marketplace (ele começa vazio, e diz isso)
 
 O banco começa vazio, exceto pelas taxas da plataforma e pelo catálogo de 20
 características — que são configuração, não conteúdo fictício.
@@ -164,7 +198,26 @@ O que continua valendo:
 
 Contas completas em [PAGAMENTOS.md §3](./PAGAMENTOS.md#3-a-economia-real-do-modelo-3--3).
 
-### ⚠️ 3. Não existe mediação de conflito
+### ⚠️ 3. Três integrações não foram testadas ao vivo
+
+A política de rede desta sessão bloqueia **toda** saída externa — BrasilAPI,
+ViaCEP, tiles de mapa e Supabase Storage retornam `000`. O código foi escrito
+conforme a documentação de cada serviço, mas **não houve uma única chamada real**:
+
+| O que | Estado | Como você confirma |
+|-------|--------|--------------------|
+| Busca de CEP | código pronto, não exercitado | digite um CEP e clique em Buscar |
+| Tiles do mapa | código pronto, não exercitado | a etapa de localização deve mostrar o mapa |
+| Upload ao Storage | código pronto, não exercitado | envie uma foto na etapa 4 |
+
+A **validação** das fotos foi testada de verdade, com arquivos reais — inclusive
+um PHP renomeado para `.jpg`, que é recusado. O que não foi testado é o envio
+ao bucket.
+
+Se algo falhar, o app mostra o erro em vez de fingir que deu certo: bucket
+inexistente, por exemplo, devolve *"Crie o bucket space-images no painel"*.
+
+### ⚠️ 4. Não existe mediação de conflito
 
 O produto **incentiva** fechar pela plataforma, e com razão: dentro dela há
 registro, denúncia e bloqueio. Mas quando duas pessoas discordarem sobre um
@@ -183,21 +236,21 @@ pode prometer isso. Antes disso, prometer seria publicidade enganosa.
 **O mesmo vale para cobertura de danos**, que exigiria seguro ou fundo de
 garantia — decisão de negócio, não de engenharia.
 
-### ⚠️ 4. Split + Pix Automático não confirmado
+### ⚠️ 5. Split + Pix Automático não confirmado
 
 Os dois recursos são documentados pelo Asaas separadamente; não achei
 confirmação de que funcionam **juntos**. É a primeira pergunta para o gerente.
 
-### ⚠️ 5. Sem monitoramento de erro
+### ⚠️ 6. Sem monitoramento de erro
 
 Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
-### ⚠️ 6. Sem testes de interface
+### ⚠️ 7. Sem testes de interface
 
-Há 101 checagens reais de banco, mas nenhum teste de UI (Playwright/Vitest).
+Há 133 checagens reais de banco, mas nenhum teste de UI (Playwright/Vitest).
 Fase 12.
 
-### ⚠️ 7. Sem documentos jurídicos
+### ⚠️ 8. Sem documentos jurídicos
 
 Termos de Uso, Política de Privacidade, LGPD, regras de cancelamento,
 reembolso e disputa **não existem** e **não devem ser escritos por mim**.
@@ -216,6 +269,7 @@ pnpm install
 pnpm db:migrate                      # aplica o schema
 pnpm tsx scripts/verify-schema.ts    # 29 checagens — invariantes centrais
 pnpm tsx scripts/verify-safety.ts    # 72 checagens — segurança entre usuários
+pnpm tsx scripts/verify-spaces.ts    # 32 checagens — anúncios e permissões
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```

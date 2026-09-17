@@ -18,10 +18,10 @@ export function SiteFooter() {
           <nav className="space-y-3" aria-label="Para quem procura">
             <h2 className="text-[0.8125rem] font-semibold">Para quem procura</h2>
             <ul className="space-y-2 text-[0.875rem] text-[var(--content-muted)]">
-              <li><Link href="/buscar?tipo=garagem" className="hover:text-[var(--content)]">Garagens</Link></li>
-              <li><Link href="/buscar?tipo=deposito" className="hover:text-[var(--content)]">Depósitos</Link></li>
-              <li><Link href="/buscar?tipo=galpao" className="hover:text-[var(--content)]">Galpões</Link></li>
-              <li><Link href="/buscar" className="hover:text-[var(--content)]">Ver todos</Link></li>
+              <li><Link href="/espacos?tipo=garagem" className="hover:text-[var(--content)]">Garagens</Link></li>
+              <li><Link href="/espacos?tipo=deposito" className="hover:text-[var(--content)]">Depósitos</Link></li>
+              <li><Link href="/espacos?tipo=galpao" className="hover:text-[var(--content)]">Galpões</Link></li>
+              <li><Link href="/espacos" className="hover:text-[var(--content)]">Ver todos</Link></li>
             </ul>
           </nav>
 

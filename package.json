@@ -16,7 +16,7 @@
     "db:seed-features": "tsx src/db/seed-features.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm build",
     "db:supabase-sql": "tsx scripts/build-supabase-setup.ts",
-    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts"
+    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -26,6 +26,7 @@
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.2",
     "lucide-react": "^1.46.0",
+    "maplibre-gl": "^6.10.0",
     "next": "16.3.5",
     "postgres": "^3.4.9",
     "react": "19.2.8",

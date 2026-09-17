@@ -24,6 +24,12 @@ export async function SiteHeader() {
                 Anunciar meu espaço
               </Link>
               <Link
+                href="/meus-espacos"
+                className="hidden sm:inline-flex items-center h-10 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
+              >
+                Meus espaços
+              </Link>
+              <Link
                 href="/minha-conta"
                 className="text-[0.875rem] font-medium px-3 py-2 rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
               >

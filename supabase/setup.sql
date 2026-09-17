@@ -9,7 +9,7 @@
 -- Roda uma vez so. Se rodar de novo por engano, a maior parte e protegida por
 -- IF NOT EXISTS, mas o correto e rodar uma vez em um projeto novo e vazio.
 --
--- Gerado por scripts/build-supabase-setup.ts a partir de 6
+-- Gerado por scripts/build-supabase-setup.ts a partir de 8
 -- migracoes ja testadas contra um Postgres real. Nao edite este arquivo a mao:
 -- altere src/db/schema/, rode as migracoes, e gere de novo.
 -- ============================================================================
@@ -1481,6 +1481,116 @@ ON CONFLICT (key) DO NOTHING;
 
 
 -- ============================================================================
+-- Migracao 6: 0006_uneven_quasimodo
+-- ============================================================================
+
+ALTER TABLE "profiles" ADD COLUMN "city" text;
+ALTER TABLE "profiles" ADD COLUMN "state" text;
+ALTER TABLE "spaces" ADD COLUMN "available_from" date;
+ALTER TABLE "spaces" ADD CONSTRAINT "spaces_published_requires_complete" CHECK ("spaces"."status" NOT IN ('published','rented') OR (
+            "spaces"."city" IS NOT NULL AND length(trim("spaces"."city")) > 0
+            AND "spaces"."state" IS NOT NULL AND length(trim("spaces"."state")) = 2
+            AND "spaces"."district" IS NOT NULL AND length(trim("spaces"."district")) > 0
+            AND length(trim("spaces"."title")) >= 10
+            AND "spaces"."description" IS NOT NULL AND length(trim("spaces"."description")) >= 20
+            AND "spaces"."available_from" IS NOT NULL
+          ));
+
+
+-- ============================================================================
+-- Migracao 7: 0007_localizacao_aproximada
+-- ============================================================================
+
+-- ============================================================================
+-- Localizacao aproximada, calculada pelo banco
+--
+-- O requisito de privacidade diz que o ponto exato nunca aparece em mapa
+-- publico. Ate aqui isso dependia da aplicacao lembrar de preencher duas
+-- colunas. Agora e o banco que garante: gravou `location`, ganhou
+-- `approx_location` automaticamente.
+--
+-- Por que o deslocamento e DETERMINISTICO (derivado do id do espaco) e nao
+-- sorteado: ponto sorteado a cada gravacao muda de lugar a cada visita da
+-- pagina, e quem cruzar algumas leituras consegue triangular o centro real.
+-- Deslocamento fixo por espaco nao vaza nada com repeticao.
+-- ============================================================================
+
+SET search_path = public, extensions;
+
+
+CREATE OR REPLACE FUNCTION public.fuzz_location(
+  exact_point geometry,
+  seed uuid,
+  radius_m integer DEFAULT 300
+)
+RETURNS geometry
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, extensions
+AS $$
+  SELECT CASE
+    WHEN exact_point IS NULL THEN NULL
+    ELSE ST_Project(
+      exact_point::geography,
+      -- Distancia entre 40% e 100% do raio. Nunca 0: deslocamento nulo
+      -- entregaria o ponto exato de quem calhasse de cair no zero.
+      radius_m * (0.4 + 0.6 * ((abs(hashtext(seed::text)) % 1000)::double precision / 1000.0)),
+      -- Azimute derivado de um hash DIFERENTE, senao distancia e direcao
+      -- ficariam correlacionadas e o padrao seria reversivel.
+      radians((abs(hashtext(seed::text || ':azimute')) % 360)::double precision)
+    )::geometry
+  END
+$$;
+
+
+CREATE OR REPLACE FUNCTION public.sync_approx_location()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, extensions
+AS $$
+DECLARE raio integer;
+BEGIN
+  IF NEW.location IS NULL THEN
+    NEW.approx_location := NULL;
+    RETURN NEW;
+  END IF;
+
+  -- So recalcula quando o ponto exato muda. Assim o deslocamento de um anuncio
+  -- publicado nao "pula" a cada edicao de titulo ou preco.
+  IF TG_OP = 'UPDATE'
+     AND OLD.location IS NOT NULL
+     AND ST_Equals(OLD.location, NEW.location)
+     AND NEW.approx_location IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT COALESCE((value #>> '{}')::integer, 300) INTO raio
+  FROM public.platform_settings WHERE key = 'privacy.approx_location_meters';
+
+  NEW.approx_location := public.fuzz_location(NEW.location, NEW.id, COALESCE(raio, 300));
+  RETURN NEW;
+END;
+$$;
+
+
+CREATE TRIGGER spaces_sync_approx_location
+  BEFORE INSERT OR UPDATE OF location ON public.spaces
+  FOR EACH ROW EXECUTE FUNCTION public.sync_approx_location();
+
+
+-- Preenche o que ja existir (em banco novo nao faz nada).
+UPDATE public.spaces
+SET approx_location = public.fuzz_location(location, id, 300)
+WHERE location IS NOT NULL AND approx_location IS NULL;
+
+
+-- Indice para a listagem publica: publicados, mais recentes primeiro.
+CREATE INDEX IF NOT EXISTS "spaces_public_listing_idx"
+  ON public.spaces (published_at DESC)
+  WHERE status = 'published' AND deleted_at IS NULL;
+
+
+-- ============================================================================
 -- Controle de migracoes
 --
 -- Marca as migracoes acima como ja aplicadas, exatamente como o migrador do
@@ -1504,7 +1614,9 @@ FROM (VALUES
   ('4eae0bd8ab6cc5b1e9e8c137bb1df60a5e03825acfe0b60aebb8e4e795f27d05', 1789589651338),
   ('68dd2c46d7208ea381d1622ebe11d4d30f472f8e0e3039a4280aa1dda8561d36', 1789589723620),
   ('96592144990223f2cf1788744beaf61c87564fd2bf0cc6d0f8bcf0cb63143fbc', 1789590971572),
-  ('ba4b6dce37e7099fa96fcfb10035f80c5356897e7b9924cf158cda6769078131', 1789590989707)
+  ('ba4b6dce37e7099fa96fcfb10035f80c5356897e7b9924cf158cda6769078131', 1789590989707),
+  ('81a0621ea17b81a45b9dc8bbcbda00818637c564fe91ef6404bd327ad9febba6', 1789606858948),
+  ('41ec89beb8492b6cc04655fbe58856892fa0b0aa7835965295199279dd42ee8c', 1789606885331)
 ) AS v(hash, created_at)
 WHERE NOT EXISTS (
   SELECT 1 FROM drizzle.__drizzle_migrations m WHERE m.hash = v.hash

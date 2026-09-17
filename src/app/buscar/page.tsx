@@ -1,33 +1,23 @@
-import type { Metadata } from 'next';
-import { SiteHeader } from '@/components/layout/site-header';
-import { SiteFooter } from '@/components/layout/site-footer';
-import { PhaseNotice } from '@/components/layout/phase-notice';
-
-export const metadata: Metadata = { title: 'Buscar espaços' };
+import { redirect } from 'next/navigation';
 
 /**
- * A busca recebe parâmetros reais da home (tipo, lat/lng/raio ou texto livre),
- * mas ainda não consulta o banco. Preferimos declarar isso a exibir resultados
- * inventados.
+ * A busca antiga virou o marketplace em /espacos.
+ *
+ * Mantemos a rota redirecionando porque links de /buscar podem ter sido
+ * compartilhados, e um 404 seria pior do que levar a pessoa à listagem.
+ * Os parâmetros que já funcionam (tipo, cidade) seguem junto; o filtro por
+ * distância ainda não existe e é ignorado — ver docs/STATUS.md.
  */
-export default function BuscarPage() {
-  return (
-    <>
-      <SiteHeader />
-      <main id="conteudo">
-        <PhaseNotice
-          fase="Fase 3 — não implementado"
-          titulo="A busca ainda não está pronta"
-          descricao="O formulário já monta os parâmetros corretos e a base já tem índices geoespaciais funcionando. Falta construir a consulta, os filtros e o mapa."
-          faltando={[
-            'Consulta por raio no banco (a estrutura PostGIS já existe e foi testada)',
-            'Filtros de preço, tipo, tamanho e características',
-            'Alternância entre lista e mapa',
-            'Geocodificação de endereço digitado (depende de chave de API)',
-          ]}
-        />
-      </main>
-      <SiteFooter />
-    </>
-  );
+export default async function BuscarPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tipo?: string; onde?: string }>;
+}) {
+  const { tipo, onde } = await searchParams;
+
+  const params = new URLSearchParams();
+  if (tipo) params.set('tipo', tipo);
+  if (onde) params.set('cidade', onde);
+
+  redirect(params.size > 0 ? `/espacos?${params}` : '/espacos');
 }

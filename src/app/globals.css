@@ -236,3 +236,31 @@
     to { opacity: 1; transform: none; }
   }
 }
+
+/* --------------------------------------------------------------------------
+   Pino do mapa. Desenhado em CSS em vez de imagem: herda a cor da marca e
+   nao carrega um arquivo so para isso.
+   -------------------------------------------------------------------------- */
+.myplace-pin {
+  width: 28px;
+  height: 36px;
+  cursor: grab;
+  background-color: var(--accent);
+  /* Gota: circulo no topo afinando ate a ponta embaixo. */
+  clip-path: path("M14 36C14 36 28 20.5 28 13.5C28 5.8 21.7 0 14 0C6.3 0 0 5.8 0 13.5C0 20.5 14 36 14 36Z");
+  filter: drop-shadow(0 2px 4px oklch(0.196 0.009 70 / 0.35));
+}
+.myplace-pin::after {
+  content: "";
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--surface);
+  margin: 8.5px auto 0;
+}
+.myplace-pin:active { cursor: grabbing; }
+
+/* O MapLibre traz o proprio CSS; estes ajustes so encaixam na identidade. */
+.maplibregl-ctrl-attrib { font-size: 10px; }
+.maplibregl-ctrl-group { border-radius: var(--radius-field) !important; }
