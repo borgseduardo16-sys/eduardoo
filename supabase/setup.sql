@@ -1,17 +1,21 @@
 -- ============================================================================
--- MyPlace — configuracao completa do banco
+-- MyPlace — schema do banco
 --
 -- COMO USAR
 --   1. Abra o painel do Supabase do projeto MyPlace
 --   2. SQL Editor > New query
 --   3. Cole este arquivo INTEIRO e clique em Run
 --
--- Roda uma vez so. Se rodar de novo por engano, a maior parte e protegida por
--- IF NOT EXISTS, mas o correto e rodar uma vez em um projeto novo e vazio.
+-- SEGURO DE RODAR MAIS DE UMA VEZ. Cada migracao so e aplicada se ainda nao
+-- estiver registrada em drizzle.__drizzle_migrations. Projeto novo recebe
+-- tudo; projeto que ja tem parte do schema recebe apenas o que falta.
 --
--- Gerado por scripts/build-supabase-setup.ts a partir de 8
--- migracoes ja testadas contra um Postgres real. Nao edite este arquivo a mao:
--- altere src/db/schema/, rode as migracoes, e gere de novo.
+-- Ao terminar, a saida mostra quantas migracoes foram aplicadas agora e
+-- quantas ja estavam no banco.
+--
+-- Gerado por scripts/build-supabase-setup.ts a partir de 8 migracoes
+-- testadas contra um Postgres real. Nao edite a mao: altere src/db/schema/,
+-- gere a migracao e rode este script de novo.
 -- ============================================================================
 
 -- O PostGIS do Supabase e instalado no schema "extensions", nao em "public".
@@ -19,32 +23,65 @@
 -- encontrados e a criacao das tabelas de espacos falha.
 SET search_path = public, extensions;
 
+-- Tabela de controle. Precisa existir antes das checagens abaixo.
+CREATE SCHEMA IF NOT EXISTS drizzle;
 
--- ============================================================================
--- Migracao 0: 0000_young_big_bertha
--- ============================================================================
+CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
+  id SERIAL PRIMARY KEY,
+  hash text NOT NULL,
+  created_at bigint
+);
 
--- Extensoes necessarias. PostGIS da as consultas por distancia real;
+
+-- ----------------------------------------------------------------------------
+-- Migracao 0: 0000_young_big_bertha  (138 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_0$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '2f03bdc057b4a4fb602b1972c2e42d5d85f8f219ee8c72b7b305c159b3409444'
+  ) THEN
+    RAISE NOTICE 'Migracao 0 (0000_young_big_bertha) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_0_0$-- Extensoes necessarias. PostGIS da as consultas por distancia real;
 -- pgcrypto/pgcrypto-equivalente fornece gen_random_uuid() (nativo no PG13+).
-CREATE EXTENSION IF NOT EXISTS "postgis";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
-CREATE TYPE "public"."account_status" AS ENUM('active', 'suspended', 'banned', 'deleted');
-CREATE TYPE "public"."booking_status" AS ENUM('requested', 'approved', 'rejected', 'awaiting_payment', 'active', 'past_due', 'cancelled', 'ended');
-CREATE TYPE "public"."ledger_entry_type" AS ENUM('charge_captured', 'gateway_fee', 'platform_fee_renter', 'platform_fee_owner', 'owner_payout', 'refund', 'chargeback', 'adjustment');
-CREATE TYPE "public"."notification_type" AS ENUM('space_published', 'space_rejected', 'booking_requested', 'booking_approved', 'booking_rejected', 'booking_cancelled', 'payment_confirmed', 'payment_upcoming', 'payment_failed', 'payout_settled', 'new_message', 'review_received', 'report_resolved', 'account_notice');
-CREATE TYPE "public"."payment_method" AS ENUM('pix', 'pix_automatico', 'credit_card', 'boleto');
-CREATE TYPE "public"."payment_status" AS ENUM('pending', 'confirmed', 'received', 'overdue', 'refunded', 'partially_refunded', 'chargeback', 'failed', 'cancelled');
-CREATE TYPE "public"."payout_account_status" AS ENUM('not_started', 'pending_documents', 'under_review', 'approved', 'rejected', 'disabled');
-CREATE TYPE "public"."payout_status" AS ENUM('pending', 'scheduled', 'settled', 'failed', 'reversed');
-CREATE TYPE "public"."report_reason" AS ENUM('fraude', 'conteudo_inadequado', 'endereco_incorreto', 'anuncio_falso', 'atividade_proibida', 'outro');
-CREATE TYPE "public"."report_status" AS ENUM('open', 'reviewing', 'resolved', 'dismissed');
-CREATE TYPE "public"."review_kind" AS ENUM('renter_to_space', 'owner_to_renter');
-CREATE TYPE "public"."space_status" AS ENUM('draft', 'pending_review', 'published', 'paused', 'rented', 'archived', 'removed');
-CREATE TYPE "public"."space_type" AS ENUM('garagem', 'vaga_carro', 'vaga_moto', 'deposito', 'quarto', 'galpao', 'sala', 'escritorio', 'loja', 'terreno', 'outro');
-CREATE TYPE "public"."subscription_status" AS ENUM('pending_authorization', 'active', 'past_due', 'paused', 'cancelled', 'expired');
-CREATE TYPE "public"."user_role" AS ENUM('user', 'owner', 'admin');
-CREATE TYPE "public"."webhook_status" AS ENUM('received', 'processed', 'failed', 'ignored');
-CREATE TABLE "owner_payout_accounts" (
+CREATE EXTENSION IF NOT EXISTS "postgis";$mp_0_0$;
+
+    EXECUTE $mp_0_1$CREATE EXTENSION IF NOT EXISTS "pg_trgm";$mp_0_1$;
+
+    EXECUTE $mp_0_2$CREATE TYPE "public"."account_status" AS ENUM('active', 'suspended', 'banned', 'deleted');$mp_0_2$;
+
+    EXECUTE $mp_0_3$CREATE TYPE "public"."booking_status" AS ENUM('requested', 'approved', 'rejected', 'awaiting_payment', 'active', 'past_due', 'cancelled', 'ended');$mp_0_3$;
+
+    EXECUTE $mp_0_4$CREATE TYPE "public"."ledger_entry_type" AS ENUM('charge_captured', 'gateway_fee', 'platform_fee_renter', 'platform_fee_owner', 'owner_payout', 'refund', 'chargeback', 'adjustment');$mp_0_4$;
+
+    EXECUTE $mp_0_5$CREATE TYPE "public"."notification_type" AS ENUM('space_published', 'space_rejected', 'booking_requested', 'booking_approved', 'booking_rejected', 'booking_cancelled', 'payment_confirmed', 'payment_upcoming', 'payment_failed', 'payout_settled', 'new_message', 'review_received', 'report_resolved', 'account_notice');$mp_0_5$;
+
+    EXECUTE $mp_0_6$CREATE TYPE "public"."payment_method" AS ENUM('pix', 'pix_automatico', 'credit_card', 'boleto');$mp_0_6$;
+
+    EXECUTE $mp_0_7$CREATE TYPE "public"."payment_status" AS ENUM('pending', 'confirmed', 'received', 'overdue', 'refunded', 'partially_refunded', 'chargeback', 'failed', 'cancelled');$mp_0_7$;
+
+    EXECUTE $mp_0_8$CREATE TYPE "public"."payout_account_status" AS ENUM('not_started', 'pending_documents', 'under_review', 'approved', 'rejected', 'disabled');$mp_0_8$;
+
+    EXECUTE $mp_0_9$CREATE TYPE "public"."payout_status" AS ENUM('pending', 'scheduled', 'settled', 'failed', 'reversed');$mp_0_9$;
+
+    EXECUTE $mp_0_10$CREATE TYPE "public"."report_reason" AS ENUM('fraude', 'conteudo_inadequado', 'endereco_incorreto', 'anuncio_falso', 'atividade_proibida', 'outro');$mp_0_10$;
+
+    EXECUTE $mp_0_11$CREATE TYPE "public"."report_status" AS ENUM('open', 'reviewing', 'resolved', 'dismissed');$mp_0_11$;
+
+    EXECUTE $mp_0_12$CREATE TYPE "public"."review_kind" AS ENUM('renter_to_space', 'owner_to_renter');$mp_0_12$;
+
+    EXECUTE $mp_0_13$CREATE TYPE "public"."space_status" AS ENUM('draft', 'pending_review', 'published', 'paused', 'rented', 'archived', 'removed');$mp_0_13$;
+
+    EXECUTE $mp_0_14$CREATE TYPE "public"."space_type" AS ENUM('garagem', 'vaga_carro', 'vaga_moto', 'deposito', 'quarto', 'galpao', 'sala', 'escritorio', 'loja', 'terreno', 'outro');$mp_0_14$;
+
+    EXECUTE $mp_0_15$CREATE TYPE "public"."subscription_status" AS ENUM('pending_authorization', 'active', 'past_due', 'paused', 'cancelled', 'expired');$mp_0_15$;
+
+    EXECUTE $mp_0_16$CREATE TYPE "public"."user_role" AS ENUM('user', 'owner', 'admin');$mp_0_16$;
+
+    EXECUTE $mp_0_17$CREATE TYPE "public"."webhook_status" AS ENUM('received', 'processed', 'failed', 'ignored');$mp_0_17$;
+
+    EXECUTE $mp_0_18$CREATE TABLE "owner_payout_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"owner_id" uuid NOT NULL,
 	"provider" text DEFAULT 'asaas' NOT NULL,
@@ -58,9 +95,9 @@ CREATE TABLE "owner_payout_accounts" (
 	"approved_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_18$;
 
-CREATE TABLE "profiles" (
+    EXECUTE $mp_0_19$CREATE TABLE "profiles" (
 	"id" uuid PRIMARY KEY NOT NULL,
 	"full_name" text,
 	"phone" text,
@@ -75,25 +112,25 @@ CREATE TABLE "profiles" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"deleted_at" timestamp with time zone
-);
+);$mp_0_19$;
 
-CREATE TABLE "renter_billing_profiles" (
+    EXECUTE $mp_0_20$CREATE TABLE "renter_billing_profiles" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
 	"provider" text DEFAULT 'asaas' NOT NULL,
 	"provider_customer_id" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_20$;
 
-CREATE TABLE "favorites" (
+    EXECUTE $mp_0_21$CREATE TABLE "favorites" (
 	"user_id" uuid NOT NULL,
 	"space_id" uuid NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "favorites_user_id_space_id_pk" PRIMARY KEY("user_id","space_id")
-);
+);$mp_0_21$;
 
-CREATE TABLE "features" (
+    EXECUTE $mp_0_22$CREATE TABLE "features" (
 	"key" text PRIMARY KEY NOT NULL,
 	"label" text NOT NULL,
 	"category" text NOT NULL,
@@ -102,15 +139,15 @@ CREATE TABLE "features" (
 	"sort_order" integer DEFAULT 0 NOT NULL,
 	"active" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_22$;
 
-CREATE TABLE "space_features" (
+    EXECUTE $mp_0_23$CREATE TABLE "space_features" (
 	"space_id" uuid NOT NULL,
 	"feature_key" text NOT NULL,
 	CONSTRAINT "space_features_space_id_feature_key_pk" PRIMARY KEY("space_id","feature_key")
-);
+);$mp_0_23$;
 
-CREATE TABLE "space_images" (
+    EXECUTE $mp_0_24$CREATE TABLE "space_images" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"space_id" uuid NOT NULL,
 	"storage_path" text NOT NULL,
@@ -121,9 +158,9 @@ CREATE TABLE "space_images" (
 	"alt" text,
 	"position" integer DEFAULT 0 NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_24$;
 
-CREATE TABLE "spaces" (
+    EXECUTE $mp_0_25$CREATE TABLE "spaces" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"owner_id" uuid NOT NULL,
 	"slug" text NOT NULL,
@@ -161,9 +198,9 @@ CREATE TABLE "spaces" (
 	CONSTRAINT "spaces_price_sane" CHECK ("spaces"."price_monthly_cents" <= 100000000),
 	CONSTRAINT "spaces_size_positive" CHECK ("spaces"."size_m2" IS NULL OR "spaces"."size_m2" > 0),
 	CONSTRAINT "spaces_published_requires_location" CHECK ("spaces"."status" <> 'published' OR ("spaces"."location" IS NOT NULL AND "spaces"."approx_location" IS NOT NULL))
-);
+);$mp_0_25$;
 
-CREATE TABLE "bookings" (
+    EXECUTE $mp_0_26$CREATE TABLE "bookings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"reference" text NOT NULL,
 	"space_id" uuid NOT NULL,
@@ -199,9 +236,9 @@ CREATE TABLE "bookings" (
 	CONSTRAINT "bookings_total_matches" CHECK ("bookings"."total_charged_cents" = "bookings"."monthly_rent_cents" + "bookings"."renter_fee_cents"),
 	CONSTRAINT "bookings_payout_matches" CHECK ("bookings"."owner_payout_cents" = "bookings"."monthly_rent_cents" - "bookings"."owner_fee_cents"),
 	CONSTRAINT "bookings_payout_positive" CHECK ("bookings"."owner_payout_cents" > 0)
-);
+);$mp_0_26$;
 
-CREATE TABLE "ledger_entries" (
+    EXECUTE $mp_0_27$CREATE TABLE "ledger_entries" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"type" "ledger_entry_type" NOT NULL,
 	"booking_id" uuid,
@@ -215,9 +252,9 @@ CREATE TABLE "ledger_entries" (
 	"occurred_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "ledger_amount_not_zero" CHECK ("ledger_entries"."amount_cents" <> 0)
-);
+);$mp_0_27$;
 
-CREATE TABLE "payments" (
+    EXECUTE $mp_0_28$CREATE TABLE "payments" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"booking_id" uuid NOT NULL,
 	"subscription_id" uuid,
@@ -240,9 +277,9 @@ CREATE TABLE "payments" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "payments_amount_positive" CHECK ("payments"."amount_cents" > 0),
 	CONSTRAINT "payments_refund_within_amount" CHECK ("payments"."refunded_cents" BETWEEN 0 AND "payments"."amount_cents")
-);
+);$mp_0_28$;
 
-CREATE TABLE "payouts" (
+    EXECUTE $mp_0_29$CREATE TABLE "payouts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"payment_id" uuid NOT NULL,
 	"owner_id" uuid NOT NULL,
@@ -256,9 +293,9 @@ CREATE TABLE "payouts" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "payouts_amount_positive" CHECK ("payouts"."amount_cents" > 0)
-);
+);$mp_0_29$;
 
-CREATE TABLE "subscriptions" (
+    EXECUTE $mp_0_30$CREATE TABLE "subscriptions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"booking_id" uuid NOT NULL,
 	"provider" text DEFAULT 'asaas' NOT NULL,
@@ -274,9 +311,9 @@ CREATE TABLE "subscriptions" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "subscriptions_billing_day_range" CHECK ("subscriptions"."billing_day" BETWEEN 1 AND 28),
 	CONSTRAINT "subscriptions_amount_positive" CHECK ("subscriptions"."amount_cents" > 0)
-);
+);$mp_0_30$;
 
-CREATE TABLE "webhook_events" (
+    EXECUTE $mp_0_31$CREATE TABLE "webhook_events" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"provider" text NOT NULL,
 	"provider_event_id" text NOT NULL,
@@ -287,9 +324,9 @@ CREATE TABLE "webhook_events" (
 	"last_error" text,
 	"received_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"processed_at" timestamp with time zone
-);
+);$mp_0_31$;
 
-CREATE TABLE "conversations" (
+    EXECUTE $mp_0_32$CREATE TABLE "conversations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"space_id" uuid NOT NULL,
 	"renter_id" uuid NOT NULL,
@@ -299,9 +336,9 @@ CREATE TABLE "conversations" (
 	"closed_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "conversations_distinct_parties" CHECK ("conversations"."renter_id" <> "conversations"."owner_id")
-);
+);$mp_0_32$;
 
-CREATE TABLE "messages" (
+    EXECUTE $mp_0_33$CREATE TABLE "messages" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"conversation_id" uuid NOT NULL,
 	"sender_id" uuid NOT NULL,
@@ -313,9 +350,9 @@ CREATE TABLE "messages" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "messages_body_not_empty" CHECK (length(trim("messages"."body")) > 0),
 	CONSTRAINT "messages_body_max" CHECK (length("messages"."body") <= 4000)
-);
+);$mp_0_33$;
 
-CREATE TABLE "reports" (
+    EXECUTE $mp_0_34$CREATE TABLE "reports" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"space_id" uuid NOT NULL,
 	"reporter_id" uuid,
@@ -326,9 +363,9 @@ CREATE TABLE "reports" (
 	"resolution_note" text,
 	"resolved_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_34$;
 
-CREATE TABLE "reviews" (
+    EXECUTE $mp_0_35$CREATE TABLE "reviews" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"booking_id" uuid NOT NULL,
 	"kind" "review_kind" NOT NULL,
@@ -345,9 +382,9 @@ CREATE TABLE "reviews" (
 	CONSTRAINT "reviews_comment_max" CHECK ("reviews"."comment" IS NULL OR length("reviews"."comment") <= 2000),
 	CONSTRAINT "reviews_target_matches_kind" CHECK (("reviews"."kind" = 'renter_to_space' AND "reviews"."space_id" IS NOT NULL AND "reviews"."target_user_id" IS NULL)
           OR ("reviews"."kind" = 'owner_to_renter' AND "reviews"."target_user_id" IS NOT NULL AND "reviews"."space_id" IS NULL))
-);
+);$mp_0_35$;
 
-CREATE TABLE "audit_logs" (
+    EXECUTE $mp_0_36$CREATE TABLE "audit_logs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"actor_id" uuid,
 	"actor_role" text,
@@ -358,9 +395,9 @@ CREATE TABLE "audit_logs" (
 	"ip" "inet",
 	"user_agent" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_36$;
 
-CREATE TABLE "notifications" (
+    EXECUTE $mp_0_37$CREATE TABLE "notifications" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,
 	"type" "notification_type" NOT NULL,
@@ -371,123 +408,235 @@ CREATE TABLE "notifications" (
 	"read_at" timestamp with time zone,
 	"email_sent_at" timestamp with time zone,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_37$;
 
-CREATE TABLE "platform_settings" (
+    EXECUTE $mp_0_38$CREATE TABLE "platform_settings" (
 	"key" text PRIMARY KEY NOT NULL,
 	"value" jsonb NOT NULL,
 	"description" text,
 	"is_public" boolean DEFAULT false NOT NULL,
 	"updated_by" uuid,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
+);$mp_0_38$;
 
-ALTER TABLE "owner_payout_accounts" ADD CONSTRAINT "owner_payout_accounts_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "renter_billing_profiles" ADD CONSTRAINT "renter_billing_profiles_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "favorites" ADD CONSTRAINT "favorites_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "favorites" ADD CONSTRAINT "favorites_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "space_features" ADD CONSTRAINT "space_features_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "space_features" ADD CONSTRAINT "space_features_feature_key_features_key_fk" FOREIGN KEY ("feature_key") REFERENCES "public"."features"("key") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "space_images" ADD CONSTRAINT "space_images_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "spaces" ADD CONSTRAINT "spaces_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "bookings" ADD CONSTRAINT "bookings_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "bookings" ADD CONSTRAINT "bookings_renter_id_profiles_id_fk" FOREIGN KEY ("renter_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "bookings" ADD CONSTRAINT "bookings_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "bookings" ADD CONSTRAINT "bookings_cancelled_by_profiles_id_fk" FOREIGN KEY ("cancelled_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_payment_id_payments_id_fk" FOREIGN KEY ("payment_id") REFERENCES "public"."payments"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_payout_id_payouts_id_fk" FOREIGN KEY ("payout_id") REFERENCES "public"."payouts"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "payments" ADD CONSTRAINT "payments_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "payments" ADD CONSTRAINT "payments_subscription_id_subscriptions_id_fk" FOREIGN KEY ("subscription_id") REFERENCES "public"."subscriptions"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "payouts" ADD CONSTRAINT "payouts_payment_id_payments_id_fk" FOREIGN KEY ("payment_id") REFERENCES "public"."payments"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "payouts" ADD CONSTRAINT "payouts_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_renter_id_profiles_id_fk" FOREIGN KEY ("renter_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "conversations" ADD CONSTRAINT "conversations_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "messages" ADD CONSTRAINT "messages_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "messages" ADD CONSTRAINT "messages_sender_id_profiles_id_fk" FOREIGN KEY ("sender_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "reports" ADD CONSTRAINT "reports_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "reports" ADD CONSTRAINT "reports_reporter_id_profiles_id_fk" FOREIGN KEY ("reporter_id") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "reports" ADD CONSTRAINT "reports_resolved_by_profiles_id_fk" FOREIGN KEY ("resolved_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "reviews" ADD CONSTRAINT "reviews_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "reviews" ADD CONSTRAINT "reviews_author_id_profiles_id_fk" FOREIGN KEY ("author_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;
-ALTER TABLE "reviews" ADD CONSTRAINT "reviews_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "reviews" ADD CONSTRAINT "reviews_target_user_id_profiles_id_fk" FOREIGN KEY ("target_user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_actor_id_profiles_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;
-ALTER TABLE "notifications" ADD CONSTRAINT "notifications_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "platform_settings" ADD CONSTRAINT "platform_settings_updated_by_profiles_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;
-CREATE UNIQUE INDEX "owner_payout_accounts_owner_provider_key" ON "owner_payout_accounts" USING btree ("owner_id","provider");
-CREATE UNIQUE INDEX "owner_payout_accounts_wallet_key" ON "owner_payout_accounts" USING btree ("provider_wallet_id");
-CREATE INDEX "owner_payout_accounts_status_idx" ON "owner_payout_accounts" USING btree ("status");
-CREATE INDEX "profiles_role_idx" ON "profiles" USING btree ("role");
-CREATE INDEX "profiles_status_idx" ON "profiles" USING btree ("status");
-CREATE UNIQUE INDEX "profiles_cpf_cnpj_key" ON "profiles" USING btree ("cpf_cnpj") WHERE cpf_cnpj IS NOT NULL;
-CREATE UNIQUE INDEX "renter_billing_profiles_user_provider_key" ON "renter_billing_profiles" USING btree ("user_id","provider");
-CREATE UNIQUE INDEX "renter_billing_profiles_customer_key" ON "renter_billing_profiles" USING btree ("provider","provider_customer_id");
-CREATE INDEX "favorites_space_idx" ON "favorites" USING btree ("space_id");
-CREATE INDEX "favorites_user_created_idx" ON "favorites" USING btree ("user_id","created_at");
-CREATE INDEX "features_category_idx" ON "features" USING btree ("category");
-CREATE INDEX "space_features_feature_idx" ON "space_features" USING btree ("feature_key");
-CREATE INDEX "space_images_space_idx" ON "space_images" USING btree ("space_id","position");
-CREATE UNIQUE INDEX "space_images_path_key" ON "space_images" USING btree ("storage_path");
-CREATE UNIQUE INDEX "spaces_slug_key" ON "spaces" USING btree ("slug");
-CREATE INDEX "spaces_owner_idx" ON "spaces" USING btree ("owner_id");
-CREATE INDEX "spaces_status_idx" ON "spaces" USING btree ("status");
-CREATE INDEX "spaces_type_idx" ON "spaces" USING btree ("type");
-CREATE INDEX "spaces_price_idx" ON "spaces" USING btree ("price_monthly_cents");
-CREATE INDEX "spaces_city_state_idx" ON "spaces" USING btree ("city","state");
-CREATE UNIQUE INDEX "bookings_reference_key" ON "bookings" USING btree ("reference");
-CREATE INDEX "bookings_space_idx" ON "bookings" USING btree ("space_id");
-CREATE INDEX "bookings_renter_idx" ON "bookings" USING btree ("renter_id","status");
-CREATE INDEX "bookings_owner_idx" ON "bookings" USING btree ("owner_id","status");
-CREATE INDEX "bookings_status_idx" ON "bookings" USING btree ("status");
-CREATE UNIQUE INDEX "bookings_one_active_per_space" ON "bookings" USING btree ("space_id") WHERE status IN ('approved','awaiting_payment','active','past_due');
-CREATE INDEX "ledger_booking_idx" ON "ledger_entries" USING btree ("booking_id");
-CREATE INDEX "ledger_payment_idx" ON "ledger_entries" USING btree ("payment_id");
-CREATE INDEX "ledger_user_idx" ON "ledger_entries" USING btree ("user_id");
-CREATE INDEX "ledger_type_occurred_idx" ON "ledger_entries" USING btree ("type","occurred_at");
-CREATE UNIQUE INDEX "payments_provider_id_key" ON "payments" USING btree ("provider","provider_payment_id");
-CREATE INDEX "payments_booking_idx" ON "payments" USING btree ("booking_id");
-CREATE INDEX "payments_subscription_idx" ON "payments" USING btree ("subscription_id");
-CREATE INDEX "payments_status_idx" ON "payments" USING btree ("status");
-CREATE INDEX "payments_due_date_idx" ON "payments" USING btree ("due_date");
-CREATE UNIQUE INDEX "payouts_provider_split_key" ON "payouts" USING btree ("provider","provider_split_id");
-CREATE INDEX "payouts_payment_idx" ON "payouts" USING btree ("payment_id");
-CREATE INDEX "payouts_owner_idx" ON "payouts" USING btree ("owner_id","status");
-CREATE UNIQUE INDEX "subscriptions_provider_id_key" ON "subscriptions" USING btree ("provider","provider_subscription_id");
-CREATE INDEX "subscriptions_booking_idx" ON "subscriptions" USING btree ("booking_id");
-CREATE INDEX "subscriptions_status_idx" ON "subscriptions" USING btree ("status");
-CREATE INDEX "subscriptions_next_due_idx" ON "subscriptions" USING btree ("next_due_date");
-CREATE UNIQUE INDEX "subscriptions_one_live_per_booking" ON "subscriptions" USING btree ("booking_id") WHERE status IN ('pending_authorization','active','past_due','paused');
-CREATE UNIQUE INDEX "webhook_events_provider_event_key" ON "webhook_events" USING btree ("provider","provider_event_id");
-CREATE INDEX "webhook_events_status_idx" ON "webhook_events" USING btree ("status","received_at");
-CREATE INDEX "webhook_events_type_idx" ON "webhook_events" USING btree ("event_type");
-CREATE UNIQUE INDEX "conversations_space_renter_key" ON "conversations" USING btree ("space_id","renter_id");
-CREATE INDEX "conversations_owner_idx" ON "conversations" USING btree ("owner_id","last_message_at");
-CREATE INDEX "conversations_renter_idx" ON "conversations" USING btree ("renter_id","last_message_at");
-CREATE INDEX "messages_conversation_idx" ON "messages" USING btree ("conversation_id","created_at");
-CREATE INDEX "messages_sender_idx" ON "messages" USING btree ("sender_id");
-CREATE INDEX "reports_space_idx" ON "reports" USING btree ("space_id");
-CREATE INDEX "reports_status_idx" ON "reports" USING btree ("status","created_at");
-CREATE UNIQUE INDEX "reports_one_open_per_reporter" ON "reports" USING btree ("space_id","reporter_id") WHERE status IN ('open','reviewing') AND reporter_id IS NOT NULL;
-CREATE UNIQUE INDEX "reviews_booking_author_kind_key" ON "reviews" USING btree ("booking_id","author_id","kind");
-CREATE INDEX "reviews_space_idx" ON "reviews" USING btree ("space_id");
-CREATE INDEX "reviews_target_user_idx" ON "reviews" USING btree ("target_user_id");
-CREATE INDEX "audit_logs_actor_idx" ON "audit_logs" USING btree ("actor_id","created_at");
-CREATE INDEX "audit_logs_entity_idx" ON "audit_logs" USING btree ("entity_type","entity_id");
-CREATE INDEX "audit_logs_action_idx" ON "audit_logs" USING btree ("action","created_at");
-CREATE INDEX "notifications_user_unread_idx" ON "notifications" USING btree ("user_id","read_at");
-CREATE INDEX "notifications_user_created_idx" ON "notifications" USING btree ("user_id","created_at");
+    EXECUTE $mp_0_39$ALTER TABLE "owner_payout_accounts" ADD CONSTRAINT "owner_payout_accounts_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_39$;
+
+    EXECUTE $mp_0_40$ALTER TABLE "renter_billing_profiles" ADD CONSTRAINT "renter_billing_profiles_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_40$;
+
+    EXECUTE $mp_0_41$ALTER TABLE "favorites" ADD CONSTRAINT "favorites_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_41$;
+
+    EXECUTE $mp_0_42$ALTER TABLE "favorites" ADD CONSTRAINT "favorites_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;$mp_0_42$;
+
+    EXECUTE $mp_0_43$ALTER TABLE "space_features" ADD CONSTRAINT "space_features_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;$mp_0_43$;
+
+    EXECUTE $mp_0_44$ALTER TABLE "space_features" ADD CONSTRAINT "space_features_feature_key_features_key_fk" FOREIGN KEY ("feature_key") REFERENCES "public"."features"("key") ON DELETE cascade ON UPDATE no action;$mp_0_44$;
+
+    EXECUTE $mp_0_45$ALTER TABLE "space_images" ADD CONSTRAINT "space_images_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;$mp_0_45$;
+
+    EXECUTE $mp_0_46$ALTER TABLE "spaces" ADD CONSTRAINT "spaces_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;$mp_0_46$;
+
+    EXECUTE $mp_0_47$ALTER TABLE "bookings" ADD CONSTRAINT "bookings_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE restrict ON UPDATE no action;$mp_0_47$;
+
+    EXECUTE $mp_0_48$ALTER TABLE "bookings" ADD CONSTRAINT "bookings_renter_id_profiles_id_fk" FOREIGN KEY ("renter_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;$mp_0_48$;
+
+    EXECUTE $mp_0_49$ALTER TABLE "bookings" ADD CONSTRAINT "bookings_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;$mp_0_49$;
+
+    EXECUTE $mp_0_50$ALTER TABLE "bookings" ADD CONSTRAINT "bookings_cancelled_by_profiles_id_fk" FOREIGN KEY ("cancelled_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_0_50$;
+
+    EXECUTE $mp_0_51$ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;$mp_0_51$;
+
+    EXECUTE $mp_0_52$ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_payment_id_payments_id_fk" FOREIGN KEY ("payment_id") REFERENCES "public"."payments"("id") ON DELETE restrict ON UPDATE no action;$mp_0_52$;
+
+    EXECUTE $mp_0_53$ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_payout_id_payouts_id_fk" FOREIGN KEY ("payout_id") REFERENCES "public"."payouts"("id") ON DELETE restrict ON UPDATE no action;$mp_0_53$;
+
+    EXECUTE $mp_0_54$ALTER TABLE "ledger_entries" ADD CONSTRAINT "ledger_entries_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;$mp_0_54$;
+
+    EXECUTE $mp_0_55$ALTER TABLE "payments" ADD CONSTRAINT "payments_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;$mp_0_55$;
+
+    EXECUTE $mp_0_56$ALTER TABLE "payments" ADD CONSTRAINT "payments_subscription_id_subscriptions_id_fk" FOREIGN KEY ("subscription_id") REFERENCES "public"."subscriptions"("id") ON DELETE set null ON UPDATE no action;$mp_0_56$;
+
+    EXECUTE $mp_0_57$ALTER TABLE "payouts" ADD CONSTRAINT "payouts_payment_id_payments_id_fk" FOREIGN KEY ("payment_id") REFERENCES "public"."payments"("id") ON DELETE restrict ON UPDATE no action;$mp_0_57$;
+
+    EXECUTE $mp_0_58$ALTER TABLE "payouts" ADD CONSTRAINT "payouts_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;$mp_0_58$;
+
+    EXECUTE $mp_0_59$ALTER TABLE "subscriptions" ADD CONSTRAINT "subscriptions_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;$mp_0_59$;
+
+    EXECUTE $mp_0_60$ALTER TABLE "conversations" ADD CONSTRAINT "conversations_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;$mp_0_60$;
+
+    EXECUTE $mp_0_61$ALTER TABLE "conversations" ADD CONSTRAINT "conversations_renter_id_profiles_id_fk" FOREIGN KEY ("renter_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_61$;
+
+    EXECUTE $mp_0_62$ALTER TABLE "conversations" ADD CONSTRAINT "conversations_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_62$;
+
+    EXECUTE $mp_0_63$ALTER TABLE "conversations" ADD CONSTRAINT "conversations_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE set null ON UPDATE no action;$mp_0_63$;
+
+    EXECUTE $mp_0_64$ALTER TABLE "messages" ADD CONSTRAINT "messages_conversation_id_conversations_id_fk" FOREIGN KEY ("conversation_id") REFERENCES "public"."conversations"("id") ON DELETE cascade ON UPDATE no action;$mp_0_64$;
+
+    EXECUTE $mp_0_65$ALTER TABLE "messages" ADD CONSTRAINT "messages_sender_id_profiles_id_fk" FOREIGN KEY ("sender_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_65$;
+
+    EXECUTE $mp_0_66$ALTER TABLE "reports" ADD CONSTRAINT "reports_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;$mp_0_66$;
+
+    EXECUTE $mp_0_67$ALTER TABLE "reports" ADD CONSTRAINT "reports_reporter_id_profiles_id_fk" FOREIGN KEY ("reporter_id") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_0_67$;
+
+    EXECUTE $mp_0_68$ALTER TABLE "reports" ADD CONSTRAINT "reports_resolved_by_profiles_id_fk" FOREIGN KEY ("resolved_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_0_68$;
+
+    EXECUTE $mp_0_69$ALTER TABLE "reviews" ADD CONSTRAINT "reviews_booking_id_bookings_id_fk" FOREIGN KEY ("booking_id") REFERENCES "public"."bookings"("id") ON DELETE restrict ON UPDATE no action;$mp_0_69$;
+
+    EXECUTE $mp_0_70$ALTER TABLE "reviews" ADD CONSTRAINT "reviews_author_id_profiles_id_fk" FOREIGN KEY ("author_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;$mp_0_70$;
+
+    EXECUTE $mp_0_71$ALTER TABLE "reviews" ADD CONSTRAINT "reviews_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;$mp_0_71$;
+
+    EXECUTE $mp_0_72$ALTER TABLE "reviews" ADD CONSTRAINT "reviews_target_user_id_profiles_id_fk" FOREIGN KEY ("target_user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_72$;
+
+    EXECUTE $mp_0_73$ALTER TABLE "audit_logs" ADD CONSTRAINT "audit_logs_actor_id_profiles_id_fk" FOREIGN KEY ("actor_id") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_0_73$;
+
+    EXECUTE $mp_0_74$ALTER TABLE "notifications" ADD CONSTRAINT "notifications_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_0_74$;
+
+    EXECUTE $mp_0_75$ALTER TABLE "platform_settings" ADD CONSTRAINT "platform_settings_updated_by_profiles_id_fk" FOREIGN KEY ("updated_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_0_75$;
+
+    EXECUTE $mp_0_76$CREATE UNIQUE INDEX "owner_payout_accounts_owner_provider_key" ON "owner_payout_accounts" USING btree ("owner_id","provider");$mp_0_76$;
+
+    EXECUTE $mp_0_77$CREATE UNIQUE INDEX "owner_payout_accounts_wallet_key" ON "owner_payout_accounts" USING btree ("provider_wallet_id");$mp_0_77$;
+
+    EXECUTE $mp_0_78$CREATE INDEX "owner_payout_accounts_status_idx" ON "owner_payout_accounts" USING btree ("status");$mp_0_78$;
+
+    EXECUTE $mp_0_79$CREATE INDEX "profiles_role_idx" ON "profiles" USING btree ("role");$mp_0_79$;
+
+    EXECUTE $mp_0_80$CREATE INDEX "profiles_status_idx" ON "profiles" USING btree ("status");$mp_0_80$;
+
+    EXECUTE $mp_0_81$CREATE UNIQUE INDEX "profiles_cpf_cnpj_key" ON "profiles" USING btree ("cpf_cnpj") WHERE cpf_cnpj IS NOT NULL;$mp_0_81$;
+
+    EXECUTE $mp_0_82$CREATE UNIQUE INDEX "renter_billing_profiles_user_provider_key" ON "renter_billing_profiles" USING btree ("user_id","provider");$mp_0_82$;
+
+    EXECUTE $mp_0_83$CREATE UNIQUE INDEX "renter_billing_profiles_customer_key" ON "renter_billing_profiles" USING btree ("provider","provider_customer_id");$mp_0_83$;
+
+    EXECUTE $mp_0_84$CREATE INDEX "favorites_space_idx" ON "favorites" USING btree ("space_id");$mp_0_84$;
+
+    EXECUTE $mp_0_85$CREATE INDEX "favorites_user_created_idx" ON "favorites" USING btree ("user_id","created_at");$mp_0_85$;
+
+    EXECUTE $mp_0_86$CREATE INDEX "features_category_idx" ON "features" USING btree ("category");$mp_0_86$;
+
+    EXECUTE $mp_0_87$CREATE INDEX "space_features_feature_idx" ON "space_features" USING btree ("feature_key");$mp_0_87$;
+
+    EXECUTE $mp_0_88$CREATE INDEX "space_images_space_idx" ON "space_images" USING btree ("space_id","position");$mp_0_88$;
+
+    EXECUTE $mp_0_89$CREATE UNIQUE INDEX "space_images_path_key" ON "space_images" USING btree ("storage_path");$mp_0_89$;
+
+    EXECUTE $mp_0_90$CREATE UNIQUE INDEX "spaces_slug_key" ON "spaces" USING btree ("slug");$mp_0_90$;
+
+    EXECUTE $mp_0_91$CREATE INDEX "spaces_owner_idx" ON "spaces" USING btree ("owner_id");$mp_0_91$;
+
+    EXECUTE $mp_0_92$CREATE INDEX "spaces_status_idx" ON "spaces" USING btree ("status");$mp_0_92$;
+
+    EXECUTE $mp_0_93$CREATE INDEX "spaces_type_idx" ON "spaces" USING btree ("type");$mp_0_93$;
+
+    EXECUTE $mp_0_94$CREATE INDEX "spaces_price_idx" ON "spaces" USING btree ("price_monthly_cents");$mp_0_94$;
+
+    EXECUTE $mp_0_95$CREATE INDEX "spaces_city_state_idx" ON "spaces" USING btree ("city","state");$mp_0_95$;
+
+    EXECUTE $mp_0_96$CREATE UNIQUE INDEX "bookings_reference_key" ON "bookings" USING btree ("reference");$mp_0_96$;
+
+    EXECUTE $mp_0_97$CREATE INDEX "bookings_space_idx" ON "bookings" USING btree ("space_id");$mp_0_97$;
+
+    EXECUTE $mp_0_98$CREATE INDEX "bookings_renter_idx" ON "bookings" USING btree ("renter_id","status");$mp_0_98$;
+
+    EXECUTE $mp_0_99$CREATE INDEX "bookings_owner_idx" ON "bookings" USING btree ("owner_id","status");$mp_0_99$;
+
+    EXECUTE $mp_0_100$CREATE INDEX "bookings_status_idx" ON "bookings" USING btree ("status");$mp_0_100$;
+
+    EXECUTE $mp_0_101$CREATE UNIQUE INDEX "bookings_one_active_per_space" ON "bookings" USING btree ("space_id") WHERE status IN ('approved','awaiting_payment','active','past_due');$mp_0_101$;
+
+    EXECUTE $mp_0_102$CREATE INDEX "ledger_booking_idx" ON "ledger_entries" USING btree ("booking_id");$mp_0_102$;
+
+    EXECUTE $mp_0_103$CREATE INDEX "ledger_payment_idx" ON "ledger_entries" USING btree ("payment_id");$mp_0_103$;
+
+    EXECUTE $mp_0_104$CREATE INDEX "ledger_user_idx" ON "ledger_entries" USING btree ("user_id");$mp_0_104$;
+
+    EXECUTE $mp_0_105$CREATE INDEX "ledger_type_occurred_idx" ON "ledger_entries" USING btree ("type","occurred_at");$mp_0_105$;
+
+    EXECUTE $mp_0_106$CREATE UNIQUE INDEX "payments_provider_id_key" ON "payments" USING btree ("provider","provider_payment_id");$mp_0_106$;
+
+    EXECUTE $mp_0_107$CREATE INDEX "payments_booking_idx" ON "payments" USING btree ("booking_id");$mp_0_107$;
+
+    EXECUTE $mp_0_108$CREATE INDEX "payments_subscription_idx" ON "payments" USING btree ("subscription_id");$mp_0_108$;
+
+    EXECUTE $mp_0_109$CREATE INDEX "payments_status_idx" ON "payments" USING btree ("status");$mp_0_109$;
+
+    EXECUTE $mp_0_110$CREATE INDEX "payments_due_date_idx" ON "payments" USING btree ("due_date");$mp_0_110$;
+
+    EXECUTE $mp_0_111$CREATE UNIQUE INDEX "payouts_provider_split_key" ON "payouts" USING btree ("provider","provider_split_id");$mp_0_111$;
+
+    EXECUTE $mp_0_112$CREATE INDEX "payouts_payment_idx" ON "payouts" USING btree ("payment_id");$mp_0_112$;
+
+    EXECUTE $mp_0_113$CREATE INDEX "payouts_owner_idx" ON "payouts" USING btree ("owner_id","status");$mp_0_113$;
+
+    EXECUTE $mp_0_114$CREATE UNIQUE INDEX "subscriptions_provider_id_key" ON "subscriptions" USING btree ("provider","provider_subscription_id");$mp_0_114$;
+
+    EXECUTE $mp_0_115$CREATE INDEX "subscriptions_booking_idx" ON "subscriptions" USING btree ("booking_id");$mp_0_115$;
+
+    EXECUTE $mp_0_116$CREATE INDEX "subscriptions_status_idx" ON "subscriptions" USING btree ("status");$mp_0_116$;
+
+    EXECUTE $mp_0_117$CREATE INDEX "subscriptions_next_due_idx" ON "subscriptions" USING btree ("next_due_date");$mp_0_117$;
+
+    EXECUTE $mp_0_118$CREATE UNIQUE INDEX "subscriptions_one_live_per_booking" ON "subscriptions" USING btree ("booking_id") WHERE status IN ('pending_authorization','active','past_due','paused');$mp_0_118$;
+
+    EXECUTE $mp_0_119$CREATE UNIQUE INDEX "webhook_events_provider_event_key" ON "webhook_events" USING btree ("provider","provider_event_id");$mp_0_119$;
+
+    EXECUTE $mp_0_120$CREATE INDEX "webhook_events_status_idx" ON "webhook_events" USING btree ("status","received_at");$mp_0_120$;
+
+    EXECUTE $mp_0_121$CREATE INDEX "webhook_events_type_idx" ON "webhook_events" USING btree ("event_type");$mp_0_121$;
+
+    EXECUTE $mp_0_122$CREATE UNIQUE INDEX "conversations_space_renter_key" ON "conversations" USING btree ("space_id","renter_id");$mp_0_122$;
+
+    EXECUTE $mp_0_123$CREATE INDEX "conversations_owner_idx" ON "conversations" USING btree ("owner_id","last_message_at");$mp_0_123$;
+
+    EXECUTE $mp_0_124$CREATE INDEX "conversations_renter_idx" ON "conversations" USING btree ("renter_id","last_message_at");$mp_0_124$;
+
+    EXECUTE $mp_0_125$CREATE INDEX "messages_conversation_idx" ON "messages" USING btree ("conversation_id","created_at");$mp_0_125$;
+
+    EXECUTE $mp_0_126$CREATE INDEX "messages_sender_idx" ON "messages" USING btree ("sender_id");$mp_0_126$;
+
+    EXECUTE $mp_0_127$CREATE INDEX "reports_space_idx" ON "reports" USING btree ("space_id");$mp_0_127$;
+
+    EXECUTE $mp_0_128$CREATE INDEX "reports_status_idx" ON "reports" USING btree ("status","created_at");$mp_0_128$;
+
+    EXECUTE $mp_0_129$CREATE UNIQUE INDEX "reports_one_open_per_reporter" ON "reports" USING btree ("space_id","reporter_id") WHERE status IN ('open','reviewing') AND reporter_id IS NOT NULL;$mp_0_129$;
+
+    EXECUTE $mp_0_130$CREATE UNIQUE INDEX "reviews_booking_author_kind_key" ON "reviews" USING btree ("booking_id","author_id","kind");$mp_0_130$;
+
+    EXECUTE $mp_0_131$CREATE INDEX "reviews_space_idx" ON "reviews" USING btree ("space_id");$mp_0_131$;
+
+    EXECUTE $mp_0_132$CREATE INDEX "reviews_target_user_idx" ON "reviews" USING btree ("target_user_id");$mp_0_132$;
+
+    EXECUTE $mp_0_133$CREATE INDEX "audit_logs_actor_idx" ON "audit_logs" USING btree ("actor_id","created_at");$mp_0_133$;
+
+    EXECUTE $mp_0_134$CREATE INDEX "audit_logs_entity_idx" ON "audit_logs" USING btree ("entity_type","entity_id");$mp_0_134$;
+
+    EXECUTE $mp_0_135$CREATE INDEX "audit_logs_action_idx" ON "audit_logs" USING btree ("action","created_at");$mp_0_135$;
+
+    EXECUTE $mp_0_136$CREATE INDEX "notifications_user_unread_idx" ON "notifications" USING btree ("user_id","read_at");$mp_0_136$;
+
+    EXECUTE $mp_0_137$CREATE INDEX "notifications_user_created_idx" ON "notifications" USING btree ("user_id","created_at");$mp_0_137$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('2f03bdc057b4a4fb602b1972c2e42d5d85f8f219ee8c72b7b305c159b3409444', 1789587473103);
+
+    RAISE NOTICE 'Migracao 0 (0000_young_big_bertha) aplicada.';
+  END IF;
+END
+$mp_bloco_0$;
 
 
--- ============================================================================
--- Migracao 1: 0001_integridade_indices_e_rls
--- ============================================================================
-
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Migracao 1: 0001_integridade_indices_e_rls  (54 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_1$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '382e101b16729861ed66e094696d3c9343393545caeb961b1fecb110ab01d654'
+  ) THEN
+    RAISE NOTICE 'Migracao 1 (0001_integridade_indices_e_rls) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_1_0$-- ============================================================================
 -- MyPlace — integridade, indices geoespaciais, triggers e RLS
 --
 -- O que este arquivo faz, em ordem:
@@ -526,16 +675,14 @@ BEGIN
       $body$;
     $f$;
   END IF;
-END $$;
+END $$;$mp_1_0$;
 
-
--- O perfil e uma extensao 1:1 da identidade. Apagar o usuario apaga o perfil.
+    EXECUTE $mp_1_1$-- O perfil e uma extensao 1:1 da identidade. Apagar o usuario apaga o perfil.
 ALTER TABLE "profiles"
   ADD CONSTRAINT "profiles_id_auth_users_fk"
-  FOREIGN KEY ("id") REFERENCES auth.users("id") ON DELETE CASCADE;
+  FOREIGN KEY ("id") REFERENCES auth.users("id") ON DELETE CASCADE;$mp_1_1$;
 
-
--- Cria o perfil automaticamente quando alguem se cadastra.
+    EXECUTE $mp_1_2$-- Cria o perfil automaticamente quando alguem se cadastra.
 -- Sem isto haveria uma janela em que o usuario existe mas nao tem perfil.
 CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
 RETURNS trigger
@@ -552,25 +699,22 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
   RETURN NEW;
 END;
-$$;
+$$;$mp_1_2$;
 
+    EXECUTE $mp_1_3$DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;$mp_1_3$;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-
-CREATE TRIGGER on_auth_user_created
+    EXECUTE $mp_1_4$CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();$mp_1_4$;
 
-
--- Quem e o usuario da requisicao atual (NULL para visitante).
+    EXECUTE $mp_1_5$-- Quem e o usuario da requisicao atual (NULL para visitante).
 CREATE OR REPLACE FUNCTION public.current_user_id()
 RETURNS uuid
 LANGUAGE sql STABLE
 SET search_path = public, auth
-AS $$ SELECT auth.uid() $$;
+AS $$ SELECT auth.uid() $$;$mp_1_5$;
 
-
--- SECURITY DEFINER para consultar profiles sem recursao de RLS.
+    EXECUTE $mp_1_6$-- SECURITY DEFINER para consultar profiles sem recursao de RLS.
 -- search_path fixo impede sequestro da funcao por schema malicioso.
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean
@@ -585,39 +729,33 @@ AS $$
       AND p.status = 'active'
       AND p.deleted_at IS NULL
   );
-$$;
+$$;$mp_1_6$;
 
-
-
--- ---------------------------------------------------------------------------
+    EXECUTE $mp_1_7$-- ---------------------------------------------------------------------------
 -- 2. Indices
 -- ---------------------------------------------------------------------------
 
 -- Busca por raio ("ate 2 km de mim") usa ST_DWithin(coluna::geography, ...).
 -- O indice precisa ser sobre EXATAMENTE essa expressao, senao o planner ignora.
 CREATE INDEX "spaces_location_gix"
-  ON "spaces" USING GIST ((("location")::geography));
+  ON "spaces" USING GIST ((("location")::geography));$mp_1_7$;
 
-CREATE INDEX "spaces_approx_location_gix"
-  ON "spaces" USING GIST ((("approx_location")::geography));
+    EXECUTE $mp_1_8$CREATE INDEX "spaces_approx_location_gix"
+  ON "spaces" USING GIST ((("approx_location")::geography));$mp_1_8$;
 
+    EXECUTE $mp_1_9$-- Busca textual tolerante a acento/erro de digitacao em titulo, cidade e bairro.
+CREATE INDEX "spaces_title_trgm_idx" ON "spaces" USING GIN ("title" gin_trgm_ops);$mp_1_9$;
 
--- Busca textual tolerante a acento/erro de digitacao em titulo, cidade e bairro.
-CREATE INDEX "spaces_title_trgm_idx" ON "spaces" USING GIN ("title" gin_trgm_ops);
+    EXECUTE $mp_1_10$CREATE INDEX "spaces_city_trgm_idx" ON "spaces" USING GIN ("city" gin_trgm_ops);$mp_1_10$;
 
-CREATE INDEX "spaces_city_trgm_idx" ON "spaces" USING GIN ("city" gin_trgm_ops);
+    EXECUTE $mp_1_11$CREATE INDEX "spaces_district_trgm_idx" ON "spaces" USING GIN ("district" gin_trgm_ops);$mp_1_11$;
 
-CREATE INDEX "spaces_district_trgm_idx" ON "spaces" USING GIN ("district" gin_trgm_ops);
-
-
--- O caminho quente da busca: anuncios publicados, filtrados por tipo e preco.
+    EXECUTE $mp_1_12$-- O caminho quente da busca: anuncios publicados, filtrados por tipo e preco.
 CREATE INDEX "spaces_published_browse_idx"
   ON "spaces" ("type", "price_monthly_cents")
-  WHERE "status" = 'published' AND "deleted_at" IS NULL;
+  WHERE "status" = 'published' AND "deleted_at" IS NULL;$mp_1_12$;
 
-
-
--- ---------------------------------------------------------------------------
+    EXECUTE $mp_1_13$-- ---------------------------------------------------------------------------
 -- 3. Triggers de integridade
 -- ---------------------------------------------------------------------------
 
@@ -627,10 +765,9 @@ BEGIN
   NEW.updated_at := now();
   RETURN NEW;
 END;
-$$;
+$$;$mp_1_13$;
 
-
-DO $$
+    EXECUTE $mp_1_14$DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
@@ -643,10 +780,9 @@ BEGIN
       t || '_set_updated_at', t
     );
   END LOOP;
-END $$;
+END $$;$mp_1_14$;
 
-
--- Impede avaliacao falsa. A aplicacao ja checa, mas isto e o que vale mesmo:
+    EXECUTE $mp_1_15$-- Impede avaliacao falsa. A aplicacao ja checa, mas isto e o que vale mesmo:
 -- so avalia quem participou da locacao, e so depois dela terminar.
 CREATE OR REPLACE FUNCTION public.validate_review()
 RETURNS trigger
@@ -682,15 +818,13 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$$;$mp_1_15$;
 
-
-CREATE TRIGGER reviews_validate
+    EXECUTE $mp_1_16$CREATE TRIGGER reviews_validate
   BEFORE INSERT OR UPDATE ON public.reviews
-  FOR EACH ROW EXECUTE FUNCTION public.validate_review();
+  FOR EACH ROW EXECUTE FUNCTION public.validate_review();$mp_1_16$;
 
-
--- Mantem a nota media do anuncio coerente com as avaliacoes visiveis.
+    EXECUTE $mp_1_17$-- Mantem a nota media do anuncio coerente com as avaliacoes visiveis.
 CREATE OR REPLACE FUNCTION public.refresh_space_rating()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -713,15 +847,13 @@ BEGIN
 
   RETURN COALESCE(NEW, OLD);
 END;
-$$;
+$$;$mp_1_17$;
 
-
-CREATE TRIGGER reviews_refresh_rating
+    EXECUTE $mp_1_18$CREATE TRIGGER reviews_refresh_rating
   AFTER INSERT OR UPDATE OR DELETE ON public.reviews
-  FOR EACH ROW EXECUTE FUNCTION public.refresh_space_rating();
+  FOR EACH ROW EXECUTE FUNCTION public.refresh_space_rating();$mp_1_18$;
 
-
--- O livro-razao e append-only: correcao se faz com lancamento novo, nunca
+    EXECUTE $mp_1_19$-- O livro-razao e append-only: correcao se faz com lancamento novo, nunca
 -- reescrevendo o passado. Isto vale inclusive para quem tem acesso direto ao banco.
 CREATE OR REPLACE FUNCTION public.forbid_mutation()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -730,20 +862,17 @@ BEGIN
     'Tabela % e append-only: use um novo lancamento para corrigir (tentativa de %)',
     TG_TABLE_NAME, TG_OP;
 END;
-$$;
+$$;$mp_1_19$;
 
-
-CREATE TRIGGER ledger_entries_append_only
+    EXECUTE $mp_1_20$CREATE TRIGGER ledger_entries_append_only
   BEFORE UPDATE OR DELETE ON public.ledger_entries
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_mutation();
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_mutation();$mp_1_20$;
 
-
-CREATE TRIGGER audit_logs_append_only
+    EXECUTE $mp_1_21$CREATE TRIGGER audit_logs_append_only
   BEFORE UPDATE OR DELETE ON public.audit_logs
-  FOR EACH ROW EXECUTE FUNCTION public.forbid_mutation();
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_mutation();$mp_1_21$;
 
-
--- Ninguem vira admin sozinho. Mudanca de papel/status so por admin ou pelo
+    EXECUTE $mp_1_22$-- Ninguem vira admin sozinho. Mudanca de papel/status so por admin ou pelo
 -- servidor com conexao privilegiada (que roda como owner e nao dispara isto).
 CREATE OR REPLACE FUNCTION public.guard_profile_privileges()
 RETURNS trigger
@@ -764,15 +893,13 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$$;$mp_1_22$;
 
-
-CREATE TRIGGER profiles_guard_privileges
+    EXECUTE $mp_1_23$CREATE TRIGGER profiles_guard_privileges
   BEFORE UPDATE ON public.profiles
-  FOR EACH ROW EXECUTE FUNCTION public.guard_profile_privileges();
+  FOR EACH ROW EXECUTE FUNCTION public.guard_profile_privileges();$mp_1_23$;
 
-
--- Mantem a conversa ordenada por atividade sem custo de subquery na listagem.
+    EXECUTE $mp_1_24$-- Mantem a conversa ordenada por atividade sem custo de subquery na listagem.
 CREATE OR REPLACE FUNCTION public.touch_conversation()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -784,15 +911,13 @@ BEGIN
   WHERE id = NEW.conversation_id;
   RETURN NEW;
 END;
-$$;
+$$;$mp_1_24$;
 
-
-CREATE TRIGGER messages_touch_conversation
+    EXECUTE $mp_1_25$CREATE TRIGGER messages_touch_conversation
   AFTER INSERT ON public.messages
-  FOR EACH ROW EXECUTE FUNCTION public.touch_conversation();
+  FOR EACH ROW EXECUTE FUNCTION public.touch_conversation();$mp_1_25$;
 
-
--- ---------------------------------------------------------------------------
+    EXECUTE $mp_1_26$-- ---------------------------------------------------------------------------
 -- 4. RLS — Row Level Security
 --
 -- Postura: NEGAR POR PADRAO.
@@ -818,10 +943,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
     CREATE ROLE service_role NOLOGIN NOINHERIT BYPASSRLS;
   END IF;
-END $$;
+END $$;$mp_1_26$;
 
-
--- Liga RLS em tudo. Tabela com RLS ligada e sem policy = ninguem le nada,
+    EXECUTE $mp_1_27$-- Liga RLS em tudo. Tabela com RLS ligada e sem policy = ninguem le nada,
 -- que e exatamente o padrao que queremos.
 DO $$
 DECLARE t text;
@@ -832,80 +956,67 @@ BEGIN
   LOOP
     EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
   END LOOP;
-END $$;
+END $$;$mp_1_27$;
 
+    EXECUTE $mp_1_28$-- Ponto de partida: o navegador nao alcanca nada.
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;$mp_1_28$;
 
--- Ponto de partida: o navegador nao alcanca nada.
-REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+    EXECUTE $mp_1_29$REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;$mp_1_29$;
 
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+    EXECUTE $mp_1_30$ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;$mp_1_30$;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+    EXECUTE $mp_1_31$GRANT USAGE ON SCHEMA public TO anon, authenticated;$mp_1_31$;
 
-GRANT USAGE ON SCHEMA public TO anon, authenticated;
-
-
-
--- ===== profiles =====
+    EXECUTE $mp_1_32$-- ===== profiles =====
 -- Leitura do proprio perfil. Dados de outras pessoas saem pela view publica
 -- mais abaixo, que nao inclui telefone nem CPF.
 CREATE POLICY "profiles_select_own" ON public.profiles
   FOR SELECT TO authenticated
-  USING (id = auth.uid());
+  USING (id = auth.uid());$mp_1_32$;
 
-
-CREATE POLICY "profiles_update_own" ON public.profiles
+    EXECUTE $mp_1_33$CREATE POLICY "profiles_update_own" ON public.profiles
   FOR UPDATE TO authenticated
   USING (id = auth.uid() AND status = 'active')
-  WITH CHECK (id = auth.uid());
+  WITH CHECK (id = auth.uid());$mp_1_33$;
 
+    EXECUTE $mp_1_34$GRANT SELECT ON public.profiles TO authenticated;$mp_1_34$;
 
-GRANT SELECT ON public.profiles TO authenticated;
-
--- Privilegio por COLUNA: mesmo com a policy acima, o usuario so consegue
+    EXECUTE $mp_1_35$-- Privilegio por COLUNA: mesmo com a policy acima, o usuario so consegue
 -- escrever nestes tres campos. Papel, status e CPF ficam fora do alcance.
 GRANT UPDATE (full_name, phone, avatar_path, accepted_terms_at, accepted_terms_version)
-  ON public.profiles TO authenticated;
+  ON public.profiles TO authenticated;$mp_1_35$;
 
-
--- Identificacao publica e minima de um usuario (quem anuncia, quem avaliou).
+    EXECUTE $mp_1_36$-- Identificacao publica e minima de um usuario (quem anuncia, quem avaliou).
 CREATE OR REPLACE VIEW public.public_profiles
 WITH (security_invoker = true) AS
   SELECT id, full_name, avatar_path, created_at
   FROM public.profiles
-  WHERE status = 'active' AND deleted_at IS NULL;
+  WHERE status = 'active' AND deleted_at IS NULL;$mp_1_36$;
 
-
-CREATE POLICY "profiles_select_public_subset" ON public.profiles
+    EXECUTE $mp_1_37$CREATE POLICY "profiles_select_public_subset" ON public.profiles
   FOR SELECT TO anon, authenticated
-  USING (status = 'active' AND deleted_at IS NULL);
+  USING (status = 'active' AND deleted_at IS NULL);$mp_1_37$;
 
+    EXECUTE $mp_1_38$GRANT SELECT ON public.public_profiles TO anon, authenticated;$mp_1_38$;
 
-GRANT SELECT ON public.public_profiles TO anon, authenticated;
-
-
-
--- ===== favorites =====
+    EXECUTE $mp_1_39$-- ===== favorites =====
 CREATE POLICY "favorites_all_own" ON public.favorites
   FOR ALL TO authenticated
   USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid());$mp_1_39$;
 
-GRANT SELECT, INSERT, DELETE ON public.favorites TO authenticated;
+    EXECUTE $mp_1_40$GRANT SELECT, INSERT, DELETE ON public.favorites TO authenticated;$mp_1_40$;
 
-
-
--- ===== conversations / messages =====
+    EXECUTE $mp_1_41$-- ===== conversations / messages =====
 -- O chat e o unico fluxo em que o navegador conversa direto com o banco
 -- (Supabase Realtime). Por isso estas policies sao a barreira de verdade.
 CREATE POLICY "conversations_select_participant" ON public.conversations
   FOR SELECT TO authenticated
-  USING (renter_id = auth.uid() OR owner_id = auth.uid());
+  USING (renter_id = auth.uid() OR owner_id = auth.uid());$mp_1_41$;
 
-GRANT SELECT ON public.conversations TO authenticated;
+    EXECUTE $mp_1_42$GRANT SELECT ON public.conversations TO authenticated;$mp_1_42$;
 
-
-CREATE POLICY "messages_select_participant" ON public.messages
+    EXECUTE $mp_1_43$CREATE POLICY "messages_select_participant" ON public.messages
   FOR SELECT TO authenticated
   USING (
     hidden_at IS NULL
@@ -914,10 +1025,9 @@ CREATE POLICY "messages_select_participant" ON public.messages
       WHERE c.id = messages.conversation_id
         AND (c.renter_id = auth.uid() OR c.owner_id = auth.uid())
     )
-  );
+  );$mp_1_43$;
 
-
--- Enviar mensagem exige: ser participante, ser o proprio remetente, a conversa
+    EXECUTE $mp_1_44$-- Enviar mensagem exige: ser participante, ser o proprio remetente, a conversa
 -- estar aberta, e a mensagem nao ser marcada como do sistema.
 CREATE POLICY "messages_insert_participant" ON public.messages
   FOR INSERT TO authenticated
@@ -931,39 +1041,33 @@ CREATE POLICY "messages_insert_participant" ON public.messages
         AND c.closed_at IS NULL
         AND (c.renter_id = auth.uid() OR c.owner_id = auth.uid())
     )
-  );
+  );$mp_1_44$;
 
-GRANT SELECT, INSERT ON public.messages TO authenticated;
+    EXECUTE $mp_1_45$GRANT SELECT, INSERT ON public.messages TO authenticated;$mp_1_45$;
 
-
-
--- ===== notifications =====
+    EXECUTE $mp_1_46$-- ===== notifications =====
 CREATE POLICY "notifications_select_own" ON public.notifications
   FOR SELECT TO authenticated
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid());$mp_1_46$;
 
-CREATE POLICY "notifications_update_own" ON public.notifications
+    EXECUTE $mp_1_47$CREATE POLICY "notifications_update_own" ON public.notifications
   FOR UPDATE TO authenticated
   USING (user_id = auth.uid())
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid());$mp_1_47$;
 
-GRANT SELECT ON public.notifications TO authenticated;
+    EXECUTE $mp_1_48$GRANT SELECT ON public.notifications TO authenticated;$mp_1_48$;
 
-GRANT UPDATE (read_at) ON public.notifications TO authenticated;
+    EXECUTE $mp_1_49$GRANT UPDATE (read_at) ON public.notifications TO authenticated;$mp_1_49$;
 
-
-
--- ===== features =====
+    EXECUTE $mp_1_50$-- ===== features =====
 -- Catalogo publico, sem dado sensivel.
 CREATE POLICY "features_select_active" ON public.features
   FOR SELECT TO anon, authenticated
-  USING (active = true);
+  USING (active = true);$mp_1_50$;
 
-GRANT SELECT ON public.features TO anon, authenticated;
+    EXECUTE $mp_1_51$GRANT SELECT ON public.features TO anon, authenticated;$mp_1_51$;
 
-
-
--- NOTA DELIBERADA: spaces, bookings, payments, payouts, ledger_entries,
+    EXECUTE $mp_1_52$-- NOTA DELIBERADA: spaces, bookings, payments, payouts, ledger_entries,
 -- subscriptions, reports, reviews, audit_logs, webhook_events e as tabelas de
 -- dados de recebimento NAO recebem grant algum para anon/authenticated.
 -- Elas so sao alcancaveis pelo servidor. Endereco exato, valores e dados
@@ -990,10 +1094,9 @@ INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
    'Ciclos seguidos com falha antes de suspender a locacao.', false),
   ('privacy.approx_location_meters', '300'::jsonb,
    'Raio do deslocamento aplicado ao ponto publico no mapa.', false)
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT (key) DO NOTHING;$mp_1_52$;
 
-
-INSERT INTO public.features (key, label, category, icon, applies_to, sort_order) VALUES
+    EXECUTE $mp_1_53$INSERT INTO public.features (key, label, category, icon, applies_to, sort_order) VALUES
   ('coberto',          'Coberto',                'estrutura', 'Umbrella',      '{garagem,vaga_carro,vaga_moto,deposito,galpao,terreno}', 10),
   ('fechado',          'Fechado / trancado',     'seguranca', 'Lock',          '{garagem,deposito,galpao,sala,escritorio,loja,quarto}', 20),
   ('portao',           'Portao',                 'acesso',    'DoorClosed',    '{garagem,vaga_carro,vaga_moto,deposito,galpao,terreno}', 30),
@@ -1014,16 +1117,32 @@ INSERT INTO public.features (key, label, category, icon, applies_to, sort_order)
   ('elevador',         'Elevador',               'acesso',    'MoveVertical',  '{sala,escritorio,loja,deposito,quarto}', 180),
   ('terreo',           'Terreo',                 'acesso',    'ArrowDownToLine','{sala,escritorio,loja,deposito,galpao}', 190),
   ('mobiliado',        'Mobiliado',              'estrutura', 'Armchair',      '{sala,escritorio,loja,quarto}', 200)
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT (key) DO NOTHING;$mp_1_53$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('382e101b16729861ed66e094696d3c9343393545caeb961b1fecb110ab01d654', 1789587488214);
+
+    RAISE NOTICE 'Migracao 1 (0001_integridade_indices_e_rls) aplicada.';
+  END IF;
+END
+$mp_bloco_1$;
 
 
--- ============================================================================
--- Migracao 2: 0002_great_harpoon
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Migracao 2: 0002_great_harpoon  (34 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_2$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '4eae0bd8ab6cc5b1e9e8c137bb1df60a5e03825acfe0b60aebb8e4e795f27d05'
+  ) THEN
+    RAISE NOTICE 'Migracao 2 (0002_great_harpoon) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_2_0$CREATE TYPE "public"."report_severity" AS ENUM('low', 'normal', 'high', 'critical');$mp_2_0$;
 
-CREATE TYPE "public"."report_severity" AS ENUM('low', 'normal', 'high', 'critical');
-CREATE TYPE "public"."report_target" AS ENUM('space', 'user', 'message');
-CREATE TABLE "user_blocks" (
+    EXECUTE $mp_2_1$CREATE TYPE "public"."report_target" AS ENUM('space', 'user', 'message');$mp_2_1$;
+
+    EXECUTE $mp_2_2$CREATE TABLE "user_blocks" (
 	"blocker_id" uuid NOT NULL,
 	"blocked_id" uuid NOT NULL,
 	"reason" text,
@@ -1031,50 +1150,94 @@ CREATE TABLE "user_blocks" (
 	CONSTRAINT "user_blocks_blocker_id_blocked_id_pk" PRIMARY KEY("blocker_id","blocked_id"),
 	CONSTRAINT "user_blocks_distinct" CHECK ("user_blocks"."blocker_id" <> "user_blocks"."blocked_id"),
 	CONSTRAINT "user_blocks_reason_max" CHECK ("user_blocks"."reason" IS NULL OR length("user_blocks"."reason") <= 500)
-);
+);$mp_2_2$;
 
-ALTER TABLE "reports" ALTER COLUMN "reason" SET DATA TYPE text;
-DROP TYPE "public"."report_reason";
-CREATE TYPE "public"."report_reason" AS ENUM('anuncio_falso', 'endereco_incorreto', 'preco_enganoso', 'espaco_inexistente', 'fraude', 'golpe_pagamento', 'pagamento_fora_plataforma', 'assedio', 'discurso_odio', 'ameaca', 'identidade_falsa', 'conteudo_inadequado', 'spam', 'atividade_proibida', 'nao_compareceu', 'dano_ao_espaco', 'uso_indevido_do_espaco', 'outro');
-ALTER TABLE "reports" ALTER COLUMN "reason" SET DATA TYPE "public"."report_reason" USING "reason"::"public"."report_reason";
-DROP INDEX "reports_status_idx";
-DROP INDEX "reports_one_open_per_reporter";
-ALTER TABLE "reports" ALTER COLUMN "space_id" DROP NOT NULL;
-ALTER TABLE "profiles" ADD COLUMN "upheld_report_count" integer DEFAULT 0 NOT NULL;
-ALTER TABLE "messages" ADD COLUMN "flagged_at" timestamp with time zone;
-ALTER TABLE "messages" ADD COLUMN "flag_reason" text;
--- Adicionado com DEFAULT e depois sem: assim a migracao tambem funciona
+    EXECUTE $mp_2_3$ALTER TABLE "reports" ALTER COLUMN "reason" SET DATA TYPE text;$mp_2_3$;
+
+    EXECUTE $mp_2_4$DROP TYPE "public"."report_reason";$mp_2_4$;
+
+    EXECUTE $mp_2_5$CREATE TYPE "public"."report_reason" AS ENUM('anuncio_falso', 'endereco_incorreto', 'preco_enganoso', 'espaco_inexistente', 'fraude', 'golpe_pagamento', 'pagamento_fora_plataforma', 'assedio', 'discurso_odio', 'ameaca', 'identidade_falsa', 'conteudo_inadequado', 'spam', 'atividade_proibida', 'nao_compareceu', 'dano_ao_espaco', 'uso_indevido_do_espaco', 'outro');$mp_2_5$;
+
+    EXECUTE $mp_2_6$ALTER TABLE "reports" ALTER COLUMN "reason" SET DATA TYPE "public"."report_reason" USING "reason"::"public"."report_reason";$mp_2_6$;
+
+    EXECUTE $mp_2_7$DROP INDEX "reports_status_idx";$mp_2_7$;
+
+    EXECUTE $mp_2_8$DROP INDEX "reports_one_open_per_reporter";$mp_2_8$;
+
+    EXECUTE $mp_2_9$ALTER TABLE "reports" ALTER COLUMN "space_id" DROP NOT NULL;$mp_2_9$;
+
+    EXECUTE $mp_2_10$ALTER TABLE "profiles" ADD COLUMN "upheld_report_count" integer DEFAULT 0 NOT NULL;$mp_2_10$;
+
+    EXECUTE $mp_2_11$ALTER TABLE "messages" ADD COLUMN "flagged_at" timestamp with time zone;$mp_2_11$;
+
+    EXECUTE $mp_2_12$ALTER TABLE "messages" ADD COLUMN "flag_reason" text;$mp_2_12$;
+
+    EXECUTE $mp_2_13$-- Adicionado com DEFAULT e depois sem: assim a migracao tambem funciona
 -- em um banco que ja tenha denuncias gravadas (todas elas eram de anuncio).
-ALTER TABLE "reports" ADD COLUMN "target_type" "report_target" NOT NULL DEFAULT 'space';
-ALTER TABLE "reports" ALTER COLUMN "target_type" DROP DEFAULT;
-ALTER TABLE "reports" ADD COLUMN "target_user_id" uuid;
-ALTER TABLE "reports" ADD COLUMN "message_id" uuid;
-ALTER TABLE "reports" ADD COLUMN "severity" "report_severity" DEFAULT 'normal' NOT NULL;
-ALTER TABLE "reports" ADD COLUMN "evidence_snapshot" jsonb;
-ALTER TABLE "reports" ADD COLUMN "upheld" boolean;
-ALTER TABLE "user_blocks" ADD CONSTRAINT "user_blocks_blocker_id_profiles_id_fk" FOREIGN KEY ("blocker_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "user_blocks" ADD CONSTRAINT "user_blocks_blocked_id_profiles_id_fk" FOREIGN KEY ("blocked_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-CREATE INDEX "user_blocks_blocked_idx" ON "user_blocks" USING btree ("blocked_id");
-ALTER TABLE "reports" ADD CONSTRAINT "reports_target_user_id_profiles_id_fk" FOREIGN KEY ("target_user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;
-ALTER TABLE "reports" ADD CONSTRAINT "reports_message_id_messages_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE cascade ON UPDATE no action;
-CREATE INDEX "messages_flagged_idx" ON "messages" USING btree ("flagged_at") WHERE flagged_at IS NOT NULL AND hidden_at IS NULL;
-CREATE INDEX "reports_target_user_idx" ON "reports" USING btree ("target_user_id");
-CREATE INDEX "reports_message_idx" ON "reports" USING btree ("message_id");
-CREATE INDEX "reports_reporter_idx" ON "reports" USING btree ("reporter_id");
-CREATE INDEX "reports_queue_idx" ON "reports" USING btree ("status","severity","created_at") WHERE status IN ('open','reviewing');
-CREATE UNIQUE INDEX "reports_one_open_per_target" ON "reports" USING btree ("reporter_id","target_type",COALESCE(space_id, target_user_id, message_id)) WHERE status IN ('open','reviewing') AND reporter_id IS NOT NULL;
-ALTER TABLE "reports" ADD CONSTRAINT "reports_target_matches_type" CHECK (("reports"."target_type" = 'space'   AND "reports"."space_id" IS NOT NULL AND "reports"."target_user_id" IS NULL AND "reports"."message_id" IS NULL)
+ALTER TABLE "reports" ADD COLUMN "target_type" "report_target" NOT NULL DEFAULT 'space';$mp_2_13$;
+
+    EXECUTE $mp_2_14$ALTER TABLE "reports" ALTER COLUMN "target_type" DROP DEFAULT;$mp_2_14$;
+
+    EXECUTE $mp_2_15$ALTER TABLE "reports" ADD COLUMN "target_user_id" uuid;$mp_2_15$;
+
+    EXECUTE $mp_2_16$ALTER TABLE "reports" ADD COLUMN "message_id" uuid;$mp_2_16$;
+
+    EXECUTE $mp_2_17$ALTER TABLE "reports" ADD COLUMN "severity" "report_severity" DEFAULT 'normal' NOT NULL;$mp_2_17$;
+
+    EXECUTE $mp_2_18$ALTER TABLE "reports" ADD COLUMN "evidence_snapshot" jsonb;$mp_2_18$;
+
+    EXECUTE $mp_2_19$ALTER TABLE "reports" ADD COLUMN "upheld" boolean;$mp_2_19$;
+
+    EXECUTE $mp_2_20$ALTER TABLE "user_blocks" ADD CONSTRAINT "user_blocks_blocker_id_profiles_id_fk" FOREIGN KEY ("blocker_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_2_20$;
+
+    EXECUTE $mp_2_21$ALTER TABLE "user_blocks" ADD CONSTRAINT "user_blocks_blocked_id_profiles_id_fk" FOREIGN KEY ("blocked_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_2_21$;
+
+    EXECUTE $mp_2_22$CREATE INDEX "user_blocks_blocked_idx" ON "user_blocks" USING btree ("blocked_id");$mp_2_22$;
+
+    EXECUTE $mp_2_23$ALTER TABLE "reports" ADD CONSTRAINT "reports_target_user_id_profiles_id_fk" FOREIGN KEY ("target_user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_2_23$;
+
+    EXECUTE $mp_2_24$ALTER TABLE "reports" ADD CONSTRAINT "reports_message_id_messages_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE cascade ON UPDATE no action;$mp_2_24$;
+
+    EXECUTE $mp_2_25$CREATE INDEX "messages_flagged_idx" ON "messages" USING btree ("flagged_at") WHERE flagged_at IS NOT NULL AND hidden_at IS NULL;$mp_2_25$;
+
+    EXECUTE $mp_2_26$CREATE INDEX "reports_target_user_idx" ON "reports" USING btree ("target_user_id");$mp_2_26$;
+
+    EXECUTE $mp_2_27$CREATE INDEX "reports_message_idx" ON "reports" USING btree ("message_id");$mp_2_27$;
+
+    EXECUTE $mp_2_28$CREATE INDEX "reports_reporter_idx" ON "reports" USING btree ("reporter_id");$mp_2_28$;
+
+    EXECUTE $mp_2_29$CREATE INDEX "reports_queue_idx" ON "reports" USING btree ("status","severity","created_at") WHERE status IN ('open','reviewing');$mp_2_29$;
+
+    EXECUTE $mp_2_30$CREATE UNIQUE INDEX "reports_one_open_per_target" ON "reports" USING btree ("reporter_id","target_type",COALESCE(space_id, target_user_id, message_id)) WHERE status IN ('open','reviewing') AND reporter_id IS NOT NULL;$mp_2_30$;
+
+    EXECUTE $mp_2_31$ALTER TABLE "reports" ADD CONSTRAINT "reports_target_matches_type" CHECK (("reports"."target_type" = 'space'   AND "reports"."space_id" IS NOT NULL AND "reports"."target_user_id" IS NULL AND "reports"."message_id" IS NULL)
           OR ("reports"."target_type" = 'user'    AND "reports"."target_user_id" IS NOT NULL AND "reports"."space_id" IS NULL AND "reports"."message_id" IS NULL)
-          OR ("reports"."target_type" = 'message' AND "reports"."message_id" IS NOT NULL AND "reports"."space_id" IS NULL AND "reports"."target_user_id" IS NULL));
-ALTER TABLE "reports" ADD CONSTRAINT "reports_no_self_report" CHECK ("reports"."target_user_id" IS NULL OR "reports"."reporter_id" IS NULL OR "reports"."target_user_id" <> "reports"."reporter_id");
-ALTER TABLE "reports" ADD CONSTRAINT "reports_details_max" CHECK ("reports"."details" IS NULL OR length("reports"."details") <= 2000);
+          OR ("reports"."target_type" = 'message' AND "reports"."message_id" IS NOT NULL AND "reports"."space_id" IS NULL AND "reports"."target_user_id" IS NULL));$mp_2_31$;
+
+    EXECUTE $mp_2_32$ALTER TABLE "reports" ADD CONSTRAINT "reports_no_self_report" CHECK ("reports"."target_user_id" IS NULL OR "reports"."reporter_id" IS NULL OR "reports"."target_user_id" <> "reports"."reporter_id");$mp_2_32$;
+
+    EXECUTE $mp_2_33$ALTER TABLE "reports" ADD CONSTRAINT "reports_details_max" CHECK ("reports"."details" IS NULL OR length("reports"."details") <= 2000);$mp_2_33$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('4eae0bd8ab6cc5b1e9e8c137bb1df60a5e03825acfe0b60aebb8e4e795f27d05', 1789589651338);
+
+    RAISE NOTICE 'Migracao 2 (0002_great_harpoon) aplicada.';
+  END IF;
+END
+$mp_bloco_2$;
 
 
--- ============================================================================
--- Migracao 3: 0003_seguranca_e_taxas
--- ============================================================================
-
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Migracao 3: 0003_seguranca_e_taxas  (22 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_3$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '68dd2c46d7208ea381d1622ebe11d4d30f472f8e0e3039a4280aa1dda8561d36'
+  ) THEN
+    RAISE NOTICE 'Migracao 3 (0003_seguranca_e_taxas) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_3_0$-- ============================================================================
 -- MyPlace — sistemas de seguranca interna + novas taxas
 --
 --   1. Bloqueio entre usuarios, garantido por trigger
@@ -1104,10 +1267,9 @@ AS $$
     WHERE (blocker_id = a AND blocked_id = b)
        OR (blocker_id = b AND blocked_id = a)
   );
-$$;
+$$;$mp_3_0$;
 
-
--- Conversa nova entre pessoas que se bloquearam nao nasce.
+    EXECUTE $mp_3_1$-- Conversa nova entre pessoas que se bloquearam nao nasce.
 CREATE OR REPLACE FUNCTION public.guard_conversation_block()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1120,15 +1282,13 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$$;$mp_3_1$;
 
-
-CREATE TRIGGER conversations_guard_block
+    EXECUTE $mp_3_2$CREATE TRIGGER conversations_guard_block
   BEFORE INSERT ON public.conversations
-  FOR EACH ROW EXECUTE FUNCTION public.guard_conversation_block();
+  FOR EACH ROW EXECUTE FUNCTION public.guard_conversation_block();$mp_3_2$;
 
-
--- E conversa antiga para de receber mensagem se o bloqueio vier depois.
+    EXECUTE $mp_3_3$-- E conversa antiga para de receber mensagem se o bloqueio vier depois.
 CREATE OR REPLACE FUNCTION public.guard_message_block()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1162,15 +1322,13 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$$;$mp_3_3$;
 
-
-CREATE TRIGGER messages_guard_block
+    EXECUTE $mp_3_4$CREATE TRIGGER messages_guard_block
   BEFORE INSERT ON public.messages
-  FOR EACH ROW EXECUTE FUNCTION public.guard_message_block();
+  FOR EACH ROW EXECUTE FUNCTION public.guard_message_block();$mp_3_4$;
 
-
--- Bloqueio tambem impede reserva — senao contorna-se o bloqueio alugando.
+    EXECUTE $mp_3_5$-- Bloqueio tambem impede reserva — senao contorna-se o bloqueio alugando.
 CREATE OR REPLACE FUNCTION public.guard_booking_block()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -1183,15 +1341,13 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$$;
+$$;$mp_3_5$;
 
-
-CREATE TRIGGER bookings_guard_block
+    EXECUTE $mp_3_6$CREATE TRIGGER bookings_guard_block
   BEFORE INSERT ON public.bookings
-  FOR EACH ROW EXECUTE FUNCTION public.guard_booking_block();
+  FOR EACH ROW EXECUTE FUNCTION public.guard_booking_block();$mp_3_6$;
 
-
--- Bloquear encerra a conversa existente entre as duas pessoas. Sem isso, a
+    EXECUTE $mp_3_7$-- Bloquear encerra a conversa existente entre as duas pessoas. Sem isso, a
 -- thread continuaria aberta na tela das duas, sugerindo que da para responder.
 CREATE OR REPLACE FUNCTION public.close_conversations_on_block()
 RETURNS trigger
@@ -1206,16 +1362,13 @@ BEGIN
       OR (renter_id = NEW.blocked_id AND owner_id = NEW.blocker_id));
   RETURN NEW;
 END;
-$$;
+$$;$mp_3_7$;
 
-
-CREATE TRIGGER user_blocks_close_conversations
+    EXECUTE $mp_3_8$CREATE TRIGGER user_blocks_close_conversations
   AFTER INSERT ON public.user_blocks
-  FOR EACH ROW EXECUTE FUNCTION public.close_conversations_on_block();
+  FOR EACH ROW EXECUTE FUNCTION public.close_conversations_on_block();$mp_3_8$;
 
-
-
--- ---------------------------------------------------------------------------
+    EXECUTE $mp_3_9$-- ---------------------------------------------------------------------------
 -- 2. Reincidencia
 --
 -- Quando o moderador resolve uma denuncia como procedente, o contador do
@@ -1254,16 +1407,13 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$$;$mp_3_9$;
 
-
-CREATE TRIGGER reports_refresh_upheld_count
+    EXECUTE $mp_3_10$CREATE TRIGGER reports_refresh_upheld_count
   AFTER INSERT OR UPDATE OF upheld ON public.reports
-  FOR EACH ROW EXECUTE FUNCTION public.refresh_upheld_report_count();
+  FOR EACH ROW EXECUTE FUNCTION public.refresh_upheld_report_count();$mp_3_10$;
 
-
-
--- ---------------------------------------------------------------------------
+    EXECUTE $mp_3_11$-- ---------------------------------------------------------------------------
 -- 3. Evidencia
 --
 -- Guarda o conteudo denunciado no momento da denuncia. Conteudo denunciado e
@@ -1314,42 +1464,36 @@ BEGIN
 
   RETURN NEW;
 END;
-$$;
+$$;$mp_3_11$;
 
-
-CREATE TRIGGER reports_capture_evidence
+    EXECUTE $mp_3_12$CREATE TRIGGER reports_capture_evidence
   BEFORE INSERT ON public.reports
-  FOR EACH ROW EXECUTE FUNCTION public.capture_report_evidence();
+  FOR EACH ROW EXECUTE FUNCTION public.capture_report_evidence();$mp_3_12$;
 
-
-
--- ---------------------------------------------------------------------------
+    EXECUTE $mp_3_13$-- ---------------------------------------------------------------------------
 -- 4. RLS das tabelas novas
 -- ---------------------------------------------------------------------------
 
-ALTER TABLE public.user_blocks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_blocks ENABLE ROW LEVEL SECURITY;$mp_3_13$;
 
-
--- A pessoa gerencia a propria lista de bloqueios. Ninguem consulta a lista de
+    EXECUTE $mp_3_14$-- A pessoa gerencia a propria lista de bloqueios. Ninguem consulta a lista de
 -- outra pessoa — nem para saber se foi bloqueado.
 CREATE POLICY "user_blocks_manage_own" ON public.user_blocks
   FOR ALL TO authenticated
   USING (blocker_id = auth.uid())
-  WITH CHECK (blocker_id = auth.uid());
+  WITH CHECK (blocker_id = auth.uid());$mp_3_14$;
 
-GRANT SELECT, INSERT, DELETE ON public.user_blocks TO authenticated;
+    EXECUTE $mp_3_15$GRANT SELECT, INSERT, DELETE ON public.user_blocks TO authenticated;$mp_3_15$;
 
-
--- Denuncia: quem denunciou acompanha a propria denuncia. Ninguem ve denuncia
+    EXECUTE $mp_3_16$-- Denuncia: quem denunciou acompanha a propria denuncia. Ninguem ve denuncia
 -- feita contra si — saber quem denunciou e o caminho mais curto para retaliacao.
 CREATE POLICY "reports_select_own" ON public.reports
   FOR SELECT TO authenticated
-  USING (reporter_id = auth.uid());
+  USING (reporter_id = auth.uid());$mp_3_16$;
 
-GRANT SELECT ON public.reports TO authenticated;
+    EXECUTE $mp_3_17$GRANT SELECT ON public.reports TO authenticated;$mp_3_17$;
 
-
--- INSERT de denuncia passa pelo servidor (que valida motivo, severidade,
+    EXECUTE $mp_3_18$-- INSERT de denuncia passa pelo servidor (que valida motivo, severidade,
 -- limites e captura evidencia). Nao ha grant de INSERT para o navegador.
 
 
@@ -1367,24 +1511,21 @@ UPDATE public.platform_settings
 SET value = '300'::jsonb,
     description = 'Taxa cobrada de quem aluga, sobre o valor do aluguel. 300 = 3%.',
     updated_at = now()
-WHERE key = 'fees.renter_fee_bps';
+WHERE key = 'fees.renter_fee_bps';$mp_3_18$;
 
-
-UPDATE public.platform_settings
+    EXECUTE $mp_3_19$UPDATE public.platform_settings
 SET value = '300'::jsonb,
     description = 'Taxa retida de quem recebe, sobre o valor do aluguel. 300 = 3%.',
     updated_at = now()
-WHERE key = 'fees.owner_fee_bps';
+WHERE key = 'fees.owner_fee_bps';$mp_3_19$;
 
-
-UPDATE public.platform_settings
+    EXECUTE $mp_3_20$UPDATE public.platform_settings
 SET value = '3500'::jsonb,
     description = 'Aluguel minimo aceito (R$ 35,00). Ponto de equilibrio a 3%+3% e R$ 33,17 no Pix.',
     updated_at = now()
-WHERE key = 'booking.min_rent_cents';
+WHERE key = 'booking.min_rent_cents';$mp_3_20$;
 
-
-INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
+    EXECUTE $mp_3_21$INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
   ('safety.flag_contact_info', 'true'::jsonb,
    'Sinalizar mensagens com telefone, e-mail ou chave Pix. Sinaliza e avisa; nao bloqueia o envio.', false),
   ('safety.auto_review_upheld_threshold', '3'::jsonb,
@@ -1395,22 +1536,51 @@ INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
    'Denuncias que um usuario pode abrir por dia. Evita uso da denuncia como assedio.', false),
   ('safety.reveal_address_on_status', '"active"'::jsonb,
    'Status de reserva a partir do qual o endereco completo e revelado ao locatario.', true)
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT (key) DO NOTHING;$mp_3_21$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('68dd2c46d7208ea381d1622ebe11d4d30f472f8e0e3039a4280aa1dda8561d36', 1789589723620);
+
+    RAISE NOTICE 'Migracao 3 (0003_seguranca_e_taxas) aplicada.';
+  END IF;
+END
+$mp_bloco_3$;
 
 
--- ============================================================================
--- Migracao 4: 0004_wooden_newton_destine
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Migracao 4: 0004_wooden_newton_destine  (2 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_4$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '96592144990223f2cf1788744beaf61c87564fd2bf0cc6d0f8bcf0cb63143fbc'
+  ) THEN
+    RAISE NOTICE 'Migracao 4 (0004_wooden_newton_destine) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_4_0$ALTER TABLE "profiles" ADD COLUMN "document_verified_at" timestamp with time zone;$mp_4_0$;
 
-ALTER TABLE "profiles" ADD COLUMN "document_verified_at" timestamp with time zone;
-ALTER TABLE "profiles" ADD COLUMN "completed_bookings_count" integer DEFAULT 0 NOT NULL;
+    EXECUTE $mp_4_1$ALTER TABLE "profiles" ADD COLUMN "completed_bookings_count" integer DEFAULT 0 NOT NULL;$mp_4_1$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('96592144990223f2cf1788744beaf61c87564fd2bf0cc6d0f8bcf0cb63143fbc', 1789590971572);
+
+    RAISE NOTICE 'Migracao 4 (0004_wooden_newton_destine) aplicada.';
+  END IF;
+END
+$mp_bloco_4$;
 
 
--- ============================================================================
--- Migracao 5: 0005_contagem_de_locacoes
--- ============================================================================
-
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Migracao 5: 0005_contagem_de_locacoes  (5 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_5$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = 'ba4b6dce37e7099fa96fcfb10035f80c5356897e7b9924cf158cda6769078131'
+  ) THEN
+    RAISE NOTICE 'Migracao 5 (0005_contagem_de_locacoes) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_5_0$-- ============================================================================
 -- Contagem de locacoes concluidas
 --
 -- Conta os dois lados: quem alugou e quem foi alugado. Uma locacao que chegou
@@ -1444,17 +1614,15 @@ BEGIN
 
   RETURN COALESCE(NEW, OLD);
 END;
-$$;
+$$;$mp_5_0$;
 
-
--- Dispara so quando o status muda: UPDATE de qualquer outra coluna nao
+    EXECUTE $mp_5_1$-- Dispara so quando o status muda: UPDATE de qualquer outra coluna nao
 -- precisa recontar nada.
 CREATE TRIGGER bookings_refresh_completed_count
   AFTER INSERT OR UPDATE OF status OR DELETE ON public.bookings
-  FOR EACH ROW EXECUTE FUNCTION public.refresh_completed_bookings_count();
+  FOR EACH ROW EXECUTE FUNCTION public.refresh_completed_bookings_count();$mp_5_1$;
 
-
--- A view publica de perfil ganha os sinais de confianca. Nada aqui e sensivel:
+    EXECUTE $mp_5_2$-- A view publica de perfil ganha os sinais de confianca. Nada aqui e sensivel:
 -- sao exatamente os dados que ajudam alguem a decidir se confia na outra parte.
 CREATE OR REPLACE VIEW public.public_profiles
 WITH (security_invoker = true) AS
@@ -1466,42 +1634,71 @@ WITH (security_invoker = true) AS
          document_verified_at IS NOT NULL AS document_verified,
          completed_bookings_count
   FROM public.profiles
-  WHERE status = 'active' AND deleted_at IS NULL;
+  WHERE status = 'active' AND deleted_at IS NULL;$mp_5_2$;
 
+    EXECUTE $mp_5_3$GRANT SELECT ON public.public_profiles TO anon, authenticated;$mp_5_3$;
 
-GRANT SELECT ON public.public_profiles TO anon, authenticated;
-
-
-INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
+    EXECUTE $mp_5_4$INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
   ('safety.visit_before_booking', 'true'::jsonb,
    'Recomendar visita ao espaco antes de fechar a reserva.', true),
   ('safety.protection_copy_version', '"2026-09-16"'::jsonb,
    'Versao do texto de protecao exibido. Muda quando a politica muda.', true)
-ON CONFLICT (key) DO NOTHING;
+ON CONFLICT (key) DO NOTHING;$mp_5_4$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('ba4b6dce37e7099fa96fcfb10035f80c5356897e7b9924cf158cda6769078131', 1789590989707);
+
+    RAISE NOTICE 'Migracao 5 (0005_contagem_de_locacoes) aplicada.';
+  END IF;
+END
+$mp_bloco_5$;
 
 
--- ============================================================================
--- Migracao 6: 0006_uneven_quasimodo
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Migracao 6: 0006_uneven_quasimodo  (4 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_6$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '81a0621ea17b81a45b9dc8bbcbda00818637c564fe91ef6404bd327ad9febba6'
+  ) THEN
+    RAISE NOTICE 'Migracao 6 (0006_uneven_quasimodo) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_6_0$ALTER TABLE "profiles" ADD COLUMN "city" text;$mp_6_0$;
 
-ALTER TABLE "profiles" ADD COLUMN "city" text;
-ALTER TABLE "profiles" ADD COLUMN "state" text;
-ALTER TABLE "spaces" ADD COLUMN "available_from" date;
-ALTER TABLE "spaces" ADD CONSTRAINT "spaces_published_requires_complete" CHECK ("spaces"."status" NOT IN ('published','rented') OR (
+    EXECUTE $mp_6_1$ALTER TABLE "profiles" ADD COLUMN "state" text;$mp_6_1$;
+
+    EXECUTE $mp_6_2$ALTER TABLE "spaces" ADD COLUMN "available_from" date;$mp_6_2$;
+
+    EXECUTE $mp_6_3$ALTER TABLE "spaces" ADD CONSTRAINT "spaces_published_requires_complete" CHECK ("spaces"."status" NOT IN ('published','rented') OR (
             "spaces"."city" IS NOT NULL AND length(trim("spaces"."city")) > 0
             AND "spaces"."state" IS NOT NULL AND length(trim("spaces"."state")) = 2
             AND "spaces"."district" IS NOT NULL AND length(trim("spaces"."district")) > 0
             AND length(trim("spaces"."title")) >= 10
             AND "spaces"."description" IS NOT NULL AND length(trim("spaces"."description")) >= 20
             AND "spaces"."available_from" IS NOT NULL
-          ));
+          ));$mp_6_3$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('81a0621ea17b81a45b9dc8bbcbda00818637c564fe91ef6404bd327ad9febba6', 1789606858948);
+
+    RAISE NOTICE 'Migracao 6 (0006_uneven_quasimodo) aplicada.';
+  END IF;
+END
+$mp_bloco_6$;
 
 
--- ============================================================================
--- Migracao 7: 0007_localizacao_aproximada
--- ============================================================================
-
--- ============================================================================
+-- ----------------------------------------------------------------------------
+-- Migracao 7: 0007_localizacao_aproximada  (6 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_7$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '41ec89beb8492b6cc04655fbe58856892fa0b0aa7835965295199279dd42ee8c'
+  ) THEN
+    RAISE NOTICE 'Migracao 7 (0007_localizacao_aproximada) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_7_0$-- ============================================================================
 -- Localizacao aproximada, calculada pelo banco
 --
 -- O requisito de privacidade diz que o ponto exato nunca aparece em mapa
@@ -1515,10 +1712,9 @@ ALTER TABLE "spaces" ADD CONSTRAINT "spaces_published_requires_complete" CHECK (
 -- Deslocamento fixo por espaco nao vaza nada com repeticao.
 -- ============================================================================
 
-SET search_path = public, extensions;
+SET search_path = public, extensions;$mp_7_0$;
 
-
-CREATE OR REPLACE FUNCTION public.fuzz_location(
+    EXECUTE $mp_7_1$CREATE OR REPLACE FUNCTION public.fuzz_location(
   exact_point geometry,
   seed uuid,
   radius_m integer DEFAULT 300
@@ -1540,10 +1736,9 @@ AS $$
       radians((abs(hashtext(seed::text || ':azimute')) % 360)::double precision)
     )::geometry
   END
-$$;
+$$;$mp_7_1$;
 
-
-CREATE OR REPLACE FUNCTION public.sync_approx_location()
+    EXECUTE $mp_7_2$CREATE OR REPLACE FUNCTION public.sync_approx_location()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, extensions
@@ -1570,62 +1765,45 @@ BEGIN
   NEW.approx_location := public.fuzz_location(NEW.location, NEW.id, COALESCE(raio, 300));
   RETURN NEW;
 END;
-$$;
+$$;$mp_7_2$;
 
-
-CREATE TRIGGER spaces_sync_approx_location
+    EXECUTE $mp_7_3$CREATE TRIGGER spaces_sync_approx_location
   BEFORE INSERT OR UPDATE OF location ON public.spaces
-  FOR EACH ROW EXECUTE FUNCTION public.sync_approx_location();
+  FOR EACH ROW EXECUTE FUNCTION public.sync_approx_location();$mp_7_3$;
 
-
--- Preenche o que ja existir (em banco novo nao faz nada).
+    EXECUTE $mp_7_4$-- Preenche o que ja existir (em banco novo nao faz nada).
 UPDATE public.spaces
 SET approx_location = public.fuzz_location(location, id, 300)
-WHERE location IS NOT NULL AND approx_location IS NULL;
+WHERE location IS NOT NULL AND approx_location IS NULL;$mp_7_4$;
 
-
--- Indice para a listagem publica: publicados, mais recentes primeiro.
+    EXECUTE $mp_7_5$-- Indice para a listagem publica: publicados, mais recentes primeiro.
 CREATE INDEX IF NOT EXISTS "spaces_public_listing_idx"
   ON public.spaces (published_at DESC)
-  WHERE status = 'published' AND deleted_at IS NULL;
+  WHERE status = 'published' AND deleted_at IS NULL;$mp_7_5$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('41ec89beb8492b6cc04655fbe58856892fa0b0aa7835965295199279dd42ee8c', 1789606885331);
+
+    RAISE NOTICE 'Migracao 7 (0007_localizacao_aproximada) aplicada.';
+  END IF;
+END
+$mp_bloco_7$;
 
 
 -- ============================================================================
--- Controle de migracoes
---
--- Marca as migracoes acima como ja aplicadas, exatamente como o migrador do
--- Drizzle faria. Assim um `pnpm db:migrate` futuro aplica apenas o que for
--- novo, em vez de tentar recriar tudo.
+-- Resumo
 -- ============================================================================
+DO $mp_resumo$
+DECLARE aplicadas integer;
+BEGIN
+  SELECT count(*) INTO aplicadas FROM drizzle.__drizzle_migrations;
+  RAISE NOTICE '---';
+  RAISE NOTICE 'Pronto: % de 8 migracoes registradas no banco.', aplicadas;
+END
+$mp_resumo$;
 
-CREATE SCHEMA IF NOT EXISTS drizzle;
-
-CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (
-  id SERIAL PRIMARY KEY,
-  hash text NOT NULL,
-  created_at bigint
-);
-
-INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-SELECT v.hash, v.created_at
-FROM (VALUES
-  ('2f03bdc057b4a4fb602b1972c2e42d5d85f8f219ee8c72b7b305c159b3409444', 1789587473103),
-  ('382e101b16729861ed66e094696d3c9343393545caeb961b1fecb110ab01d654', 1789587488214),
-  ('4eae0bd8ab6cc5b1e9e8c137bb1df60a5e03825acfe0b60aebb8e4e795f27d05', 1789589651338),
-  ('68dd2c46d7208ea381d1622ebe11d4d30f472f8e0e3039a4280aa1dda8561d36', 1789589723620),
-  ('96592144990223f2cf1788744beaf61c87564fd2bf0cc6d0f8bcf0cb63143fbc', 1789590971572),
-  ('ba4b6dce37e7099fa96fcfb10035f80c5356897e7b9924cf158cda6769078131', 1789590989707),
-  ('81a0621ea17b81a45b9dc8bbcbda00818637c564fe91ef6404bd327ad9febba6', 1789606858948),
-  ('41ec89beb8492b6cc04655fbe58856892fa0b0aa7835965295199279dd42ee8c', 1789606885331)
-) AS v(hash, created_at)
-WHERE NOT EXISTS (
-  SELECT 1 FROM drizzle.__drizzle_migrations m WHERE m.hash = v.hash
-);
-
--- ============================================================================
--- Pronto. Confira o resultado com:
+-- Confira o resultado com:
 --
 --   SELECT count(*) FROM pg_tables WHERE schemaname = 'public';   -- 22
 --   SELECT key, value FROM platform_settings ORDER BY key;        -- taxas 3%+3%
 --   SELECT PostGIS_Version();                                     -- extensao ativa
--- ============================================================================

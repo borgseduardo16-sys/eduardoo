@@ -100,7 +100,23 @@ Nenhuma credencial sai das suas mãos.
 
 Pronto: 22 tabelas, índices geoespaciais, triggers, RLS e as taxas iniciais.
 
-O arquivo também se registra na tabela de controle do Drizzle, então um
+**É seguro rodar mais de uma vez.** Cada migração só é aplicada se ainda não
+estiver registrada em `drizzle.__drizzle_migrations`. Projeto novo recebe tudo;
+projeto que já tem parte do schema recebe apenas o que falta; rodar duas vezes
+seguidas não faz nada na segunda.
+
+Ao terminar, a saída mostra o que foi feito:
+
+```
+NOTICE:  Migracao 5 (0005_contagem_de_locacoes) ja aplicada — pulando.
+NOTICE:  Migracao 6 (0006_uneven_quasimodo) aplicada.
+NOTICE:  Pronto: 8 de 8 migracoes registradas no banco.
+```
+
+> Quando houver migração nova, basta rodar o arquivo atualizado de novo.
+> Ele aplica só a parte nova.
+
+O arquivo também mantém a tabela de controle do Drizzle em dia, então um
 `pnpm db:migrate` futuro aplica só o que for novo em vez de tentar recriar tudo.
 
 Confira o resultado com:

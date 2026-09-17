@@ -51,6 +51,18 @@ function expect(name: string, actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) === JSON.stringify(expected)) ok(name);
   else bad(name, `esperava ${JSON.stringify(expected)}, veio ${JSON.stringify(actual)}`);
 }
+/** Distancia em metros entre dois pontos, pela formula de haversine. */
+function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6_371_000;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 async function mustReject(name: string, fn: () => Promise<unknown>, fragment: string) {
   try {
     await fn();
@@ -210,10 +222,29 @@ async function main() {
         }
 
         expect('mas o bairro aparece', pub.district, 'Sao Silvano');
-        if (pub.approxLat && Math.abs(pub.approxLat - (-19.5386)) > 0.0005) {
-          ok('a coordenada publica e a aproximada');
+
+        /*
+         * Mede a DISTANCIA entre o ponto publico e o exato, nao a diferenca de
+         * latitude.
+         *
+         * O deslocamento e um vetor em direcao derivada do id do espaco: se
+         * calhar de apontar para leste ou oeste, a latitude quase nao muda e
+         * todo o deslocamento vai para a longitude. Conferir um eixo so
+         * acusaria vazamento onde nao ha — foi exatamente o que aconteceu, e o
+         * teste falhava em ~1 de cada 3 execucoes.
+         */
+        if (pub.approxLat != null && pub.approxLng != null) {
+          const metros = haversine(
+            { lat: pub.approxLat, lng: pub.approxLng },
+            { lat: -19.5386, lng: -40.6295 },
+          );
+          if (metros > 100 && metros < 400) {
+            ok('a coordenada publica e a aproximada', `${Math.round(metros)} m do ponto real`);
+          } else {
+            bad('coordenada publica', `deslocamento de ${Math.round(metros)} m (esperado 100-400)`);
+          }
         } else {
-          bad('coordenada publica', `approxLat=${pub.approxLat}`);
+          bad('coordenada publica', 'aproximada ausente');
         }
       }
     }
