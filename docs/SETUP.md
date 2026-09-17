@@ -110,6 +110,19 @@ Nenhuma credencial sai das suas mãos.
 2. Abra `supabase/setup.sql` deste repositório
 3. Cole o arquivo **inteiro** e clique em **Run**
 
+**Já rodou o schema antes e só quer a parte nova?** Existe um arquivo menor
+com apenas as migrações recentes — hoje `supabase/atualizacao-0009.sql`. Ele é
+gerado do mesmo lugar e guardado pelo mesmo hash, então dá no mesmo:
+
+```bash
+pnpm tsx scripts/build-supabase-setup.ts --desde 9
+```
+
+*Verificado:* colar o `setup.sql` antigo e depois a atualização produz um
+schema **byte a byte idêntico** ao de um banco novo com o `setup.sql`
+completo, e idêntico ao que o `pnpm db:migrate` gera (comparado com `pg_dump`,
+1300 linhas).
+
 Pronto: 22 tabelas, índices geoespaciais, triggers, RLS, as políticas do
 bucket de fotos e as taxas iniciais.
 

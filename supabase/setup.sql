@@ -1817,7 +1817,7 @@ $mp_bloco_8$;
 DO $mp_bloco_9$
 BEGIN
   IF EXISTS (
-    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '14c3b2b2158cdb78097b9decda4544861cae1282754845701bb63a7c57d2d643'
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '4401e244007763ce3ae67f910d4179f32c196911d9bf9427a195cf1ed5e32eac'
   ) THEN
     RAISE NOTICE 'Migracao 9 (0009_fotos_e_storage) ja aplicada — pulando.';
   ELSE
@@ -1837,7 +1837,17 @@ BEGIN
 --     a politica abaixo e o que continua segurando.
 -- ============================================================================
 
-ALTER TABLE "space_images" ADD CONSTRAINT "space_images_position_positive" CHECK ("space_images"."position" >= 0);$mp_9_0$;
+-- `ADD CONSTRAINT` nao aceita IF NOT EXISTS para CHECK, entao a checagem e
+-- explicita: assim rodar de novo nao estoura em "constraint already exists".
+DO $mp_check_pos$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'space_images_position_positive'
+  ) THEN
+    ALTER TABLE public.space_images
+      ADD CONSTRAINT space_images_position_positive CHECK (position >= 0);
+  END IF;
+END $mp_check_pos$;$mp_9_0$;
 
     EXECUTE $mp_9_1$-- ---------------------------------------------------------------------------
 -- 1. Minimo de fotos para publicar
@@ -1951,19 +1961,30 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Bucket PRIVADO. O acesso a foto e sempre por URL assinada, com validade
-  -- curta, gerada no servidor. Nao existe URL publica permanente.
-  INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-  VALUES (
-    'space-images', 'space-images', false, 8388608,
-    ARRAY['image/jpeg', 'image/png', 'image/webp']
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    public = false,
-    file_size_limit = 8388608,
-    allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp'];
+  /*
+   * Bucket PRIVADO. O acesso a foto e sempre por URL assinada, com validade
+   * curta, gerada no servidor. Nao existe URL publica permanente.
+   *
+   * O bloco interno existe porque `storage.buckets` pertence ao papel
+   * supabase_storage_admin. Se o papel que roda este SQL nao tiver privilegio,
+   * a migracao NAO pode falhar por causa disso — ela avisa e segue, e a
+   * configuracao se faz pelo painel.
+   */
+  BEGIN
+    INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    VALUES (
+      'space-images', 'space-images', false, 8388608,
+      ARRAY['image/jpeg', 'image/png', 'image/webp']
+    )
+    ON CONFLICT (id) DO UPDATE SET
+      public = false,
+      file_size_limit = 8388608,
+      allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp'];
 
-  RAISE NOTICE 'Bucket space-images configurado: privado, 8 MB, jpeg/png/webp.';
+    RAISE NOTICE 'Bucket space-images configurado: privado, 8 MB, jpeg/png/webp.';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE WARNING 'Sem permissao para configurar o bucket por SQL. Faca no painel: Storage > space-images > Settings (privado, 8 MB, image/jpeg,image/png,image/webp).';
+  END;
 END $mp_storage$;$mp_9_9$;
 
     EXECUTE $mp_9_10$DO $mp_storage_pol$
@@ -1988,47 +2009,59 @@ BEGIN
    * nao escreve nada no bucket. Quem le foto de anuncio publicado le pela
    * URL assinada que o servidor gera.
    */
-  EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_le ON storage.objects$pol$;
-  EXECUTE $pol$CREATE POLICY space_images_dono_le ON storage.objects
-    FOR SELECT TO authenticated
-    USING (
-      bucket_id = 'space-images'
-      AND (storage.foldername(name))[1] = auth.uid()::text
-    )$pol$;
+  BEGIN
+    EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_le ON storage.objects$pol$;
+    EXECUTE $pol$CREATE POLICY space_images_dono_le ON storage.objects
+      FOR SELECT TO authenticated
+      USING (
+        bucket_id = 'space-images'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+      )$pol$;
 
-  EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_envia ON storage.objects$pol$;
-  EXECUTE $pol$CREATE POLICY space_images_dono_envia ON storage.objects
-    FOR INSERT TO authenticated
-    WITH CHECK (
-      bucket_id = 'space-images'
-      AND (storage.foldername(name))[1] = auth.uid()::text
-    )$pol$;
+    EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_envia ON storage.objects$pol$;
+    EXECUTE $pol$CREATE POLICY space_images_dono_envia ON storage.objects
+      FOR INSERT TO authenticated
+      WITH CHECK (
+        bucket_id = 'space-images'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+      )$pol$;
 
-  EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_substitui ON storage.objects$pol$;
-  EXECUTE $pol$CREATE POLICY space_images_dono_substitui ON storage.objects
-    FOR UPDATE TO authenticated
-    USING (
-      bucket_id = 'space-images'
-      AND (storage.foldername(name))[1] = auth.uid()::text
-    )
-    WITH CHECK (
-      bucket_id = 'space-images'
-      AND (storage.foldername(name))[1] = auth.uid()::text
-    )$pol$;
+    EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_substitui ON storage.objects$pol$;
+    EXECUTE $pol$CREATE POLICY space_images_dono_substitui ON storage.objects
+      FOR UPDATE TO authenticated
+      USING (
+        bucket_id = 'space-images'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+      )
+      WITH CHECK (
+        bucket_id = 'space-images'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+      )$pol$;
 
-  EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_apaga ON storage.objects$pol$;
-  EXECUTE $pol$CREATE POLICY space_images_dono_apaga ON storage.objects
-    FOR DELETE TO authenticated
-    USING (
-      bucket_id = 'space-images'
-      AND (storage.foldername(name))[1] = auth.uid()::text
-    )$pol$;
+    EXECUTE $pol$DROP POLICY IF EXISTS space_images_dono_apaga ON storage.objects$pol$;
+    EXECUTE $pol$CREATE POLICY space_images_dono_apaga ON storage.objects
+      FOR DELETE TO authenticated
+      USING (
+        bucket_id = 'space-images'
+        AND (storage.foldername(name))[1] = auth.uid()::text
+      )$pol$;
 
-  RAISE NOTICE 'Politicas do bucket space-images aplicadas (4 politicas, por pasta do dono).';
+    RAISE NOTICE 'Politicas do bucket space-images aplicadas (4 politicas, por pasta do dono).';
+
+  /*
+   * Mesma razao do bloco do bucket: `storage.objects` nao pertence ao papel
+   * do SQL Editor em todo projeto. Sem privilegio, avisamos o que fazer no
+   * painel em vez de derrubar a migracao inteira — e vale lembrar que a
+   * autorizacao de verdade esta na aplicacao (src/lib/storage/actions.ts).
+   * Estas politicas sao a segunda tranca.
+   */
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE WARNING 'Sem permissao para criar politica em storage.objects. Crie no painel (Storage > Policies) restringindo cada usuario a pasta (storage.foldername(name))[1] = auth.uid()::text. Detalhes em docs/SETUP.md secao 1.5.';
+  END;
 END $mp_storage_pol$;$mp_9_10$;
 
     INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-    VALUES ('14c3b2b2158cdb78097b9decda4544861cae1282754845701bb63a7c57d2d643', 1789677839915);
+    VALUES ('4401e244007763ce3ae67f910d4179f32c196911d9bf9427a195cf1ed5e32eac', 1789677839915);
 
     RAISE NOTICE 'Migracao 9 (0009_fotos_e_storage) aplicada.';
   END IF;

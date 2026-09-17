@@ -28,20 +28,45 @@
  * referencia tabela ainda inexistente falharia ao ser compilado, mesmo que o
  * comando anterior fosse criar essa tabela.
  *
+ * GERANDO SO A PARTE NOVA
+ *
+ * `--desde N` gera um arquivo com as migracoes de indice N em diante, em
+ * `supabase/atualizacao-NNNN.sql`. Serve para quem ja rodou o schema antes e
+ * quer colar no painel apenas o que mudou, sem passar 90 KB pelo editor. O
+ * conteudo e o mesmo — os blocos continuam guardados pelo hash, entao aplicar
+ * o arquivo completo depois nao repete nada.
+ *
  *   pnpm tsx scripts/build-supabase-setup.ts
+ *   pnpm tsx scripts/build-supabase-setup.ts --desde 9
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const MIGRATIONS_DIR = 'drizzle';
-const OUT = 'supabase/setup.sql';
+
+/** `--desde N`: gera so as migracoes de indice N em diante. */
+const argDesde = process.argv.indexOf('--desde');
+const desde = argDesde >= 0 ? Number(process.argv[argDesde + 1]) : 0;
+if (!Number.isInteger(desde) || desde < 0) {
+  throw new Error('--desde precisa de um indice inteiro. Ex.: --desde 9');
+}
+const parcial = desde > 0;
 
 type JournalEntry = { idx: number; when: number; tag: string; breakpoints: boolean };
 
 const journal = JSON.parse(
   readFileSync(join(MIGRATIONS_DIR, 'meta', '_journal.json'), 'utf8'),
 ) as { entries: JournalEntry[] };
+
+const selecionadas = journal.entries.filter((e) => e.idx >= desde);
+if (selecionadas.length === 0) {
+  throw new Error(`Nenhuma migracao com indice >= ${desde}.`);
+}
+
+const OUT = parcial
+  ? `supabase/atualizacao-${String(desde).padStart(4, '0')}.sql`
+  : 'supabase/setup.sql';
 
 /**
  * O comando tem SQL de verdade, ou e so comentario?
@@ -63,7 +88,7 @@ function tag(migration: number, statement: number): string {
   return `$mp_${migration}_${statement}$`;
 }
 
-const migracoes = journal.entries.map((entry) => {
+const migracoes = selecionadas.map((entry) => {
   const raw = readFileSync(join(MIGRATIONS_DIR, `${entry.tag}.sql`), 'utf8');
   return {
     ...entry,
@@ -80,7 +105,7 @@ const migracoes = journal.entries.map((entry) => {
 const parts: string[] = [];
 
 parts.push(`-- ============================================================================
--- MyPlace — schema do banco
+-- MyPlace — ${parcial ? 'atualizacao do banco' : 'schema do banco'}
 --
 -- COMO USAR
 --   1. Abra o painel do Supabase do projeto MyPlace
@@ -88,8 +113,16 @@ parts.push(`-- =================================================================
 --   3. Cole este arquivo INTEIRO e clique em Run
 --
 -- SEGURO DE RODAR MAIS DE UMA VEZ. Cada migracao so e aplicada se ainda nao
--- estiver registrada em drizzle.__drizzle_migrations. Projeto novo recebe
--- tudo; projeto que ja tem parte do schema recebe apenas o que falta.
+-- estiver registrada em drizzle.__drizzle_migrations.${
+  parcial
+    ? `
+--
+-- Este arquivo tem SO as migracoes ${desde} em diante. Ele supoe que as
+-- anteriores ja foram aplicadas — se este for um projeto novo, use
+-- supabase/setup.sql, que traz o schema completo.`
+    : ` Projeto novo recebe
+-- tudo; projeto que ja tem parte do schema recebe apenas o que falta.`
+}
 --
 -- Ao terminar, a saida mostra quantas migracoes foram aplicadas agora e
 -- quantas ja estavam no banco.
@@ -151,7 +184,7 @@ DECLARE aplicadas integer;
 BEGIN
   SELECT count(*) INTO aplicadas FROM drizzle.__drizzle_migrations;
   RAISE NOTICE '---';
-  RAISE NOTICE 'Pronto: % de ${migracoes.length} migracoes registradas no banco.', aplicadas;
+  RAISE NOTICE 'Pronto: % de ${journal.entries.length} migracoes registradas no banco.', aplicadas;
 END
 $mp_resumo$;
 
