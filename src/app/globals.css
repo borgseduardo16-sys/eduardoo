@@ -5,9 +5,15 @@
 
    Identidade propria, construida do zero. As decisoes:
 
-   - Cor de marca em verde-petroleo profundo. Deliberadamente longe do
-     vermelho/coral e do azul-corporativo dos marketplaces conhecidos, e
-     serio o bastante para uma tela onde se move dinheiro.
+   - Cor de marca em azul profundo, deliberadamente pouco saturado (croma no
+     pico ~0.13, contra ~0.21 do azul padrao de biblioteca de UI): pesquisa
+     de mercado pediu azul como base, mas o azul saturado de SaaS generico
+     e exatamente a "cara de produto de IA" que essa mesma pesquisa pede pra
+     evitar. Um azul mais escuro e contido (matiz ~240-260, nunca cruzando
+     para violeta) le como cofre/fintech serio em vez de dashboard de
+     template. (Ate 18/09/2026 a marca era um verde-petroleo com o mesmo
+     raciocinio de "fugir do azul corporativo" — a decisao foi revista a
+     pedido explicito do produto; ver docs/STATUS.md.)
    - Neutros QUENTES (matiz ~70) em vez de cinza puro. Cinza frio deixa
      interface com cara de painel administrativo; quente parece produto.
    - Tudo em OKLCH: claro/escuro previsivel e contraste que nao quebra ao
@@ -30,18 +36,18 @@
   --color-sand-900: oklch(0.196 0.009 70);
   --color-sand-950: oklch(0.135 0.008 70);
 
-  /* --- Marca: verde-petroleo --- */
-  --color-brand-50:  oklch(0.972 0.018 175);
-  --color-brand-100: oklch(0.938 0.037 176);
-  --color-brand-200: oklch(0.878 0.065 177);
-  --color-brand-300: oklch(0.795 0.093 178);
-  --color-brand-400: oklch(0.706 0.103 180);
-  --color-brand-500: oklch(0.618 0.099 182);
-  --color-brand-600: oklch(0.524 0.086 184);
-  --color-brand-700: oklch(0.438 0.071 186);
-  --color-brand-800: oklch(0.362 0.056 187);
-  --color-brand-900: oklch(0.302 0.044 188);
-  --color-brand-950: oklch(0.212 0.032 190);
+  /* --- Marca: azul profundo, croma contido de proposito --- */
+  --color-brand-50:  oklch(0.975 0.010 240);
+  --color-brand-100: oklch(0.945 0.024 241);
+  --color-brand-200: oklch(0.891 0.048 242);
+  --color-brand-300: oklch(0.810 0.082 243);
+  --color-brand-400: oklch(0.703 0.114 245);
+  --color-brand-500: oklch(0.594 0.132 248);
+  --color-brand-600: oklch(0.503 0.132 251);
+  --color-brand-700: oklch(0.423 0.119 254);
+  --color-brand-800: oklch(0.348 0.099 257);
+  --color-brand-900: oklch(0.283 0.079 260);
+  --color-brand-950: oklch(0.202 0.058 263);
 
   /* --- Acento: ambar queimado, so para destaque pontual --- */
   --color-ember-400: oklch(0.795 0.145 62);
@@ -125,7 +131,7 @@
       --accent: var(--color-brand-400);
       --accent-hover: var(--color-brand-300);
       --accent-content: var(--color-sand-950);
-      --accent-subtle: oklch(0.252 0.032 186);
+      --accent-subtle: oklch(0.252 0.032 251);
 
       --ring: var(--color-brand-400);
     }
@@ -148,7 +154,7 @@
     --accent: var(--color-brand-400);
     --accent-hover: var(--color-brand-300);
     --accent-content: var(--color-sand-950);
-    --accent-subtle: oklch(0.252 0.032 186);
+    --accent-subtle: oklch(0.252 0.032 251);
 
     --ring: var(--color-brand-400);
   }

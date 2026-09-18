@@ -63,7 +63,7 @@ const userB = crypto.randomUUID();
 
 // Pontos reais.
 const CENTRO_COLATINA = { lat: -19.5386, lng: -40.6295 };
-const SAO_SILVANO = { lat: -19.5450, lng: -40.6320 }; // ~900m do centro
+const SAO_SILVANO = { lat: -19.5450, lng: -40.6320 }; // ~758m do centro
 const VILA_VELHA = { lat: -20.3297, lng: -40.2925 }; // ~100km de Colatina
 
 type Seed = {
@@ -205,7 +205,7 @@ async function main() {
      * aleatorio, nao a busca.
      */
     const primeiro = perto[0]!;
-    assert('mais proximo vem de quem esta no mesmo ponto da busca (nao do que esta a ~900 m)',
+    assert('mais proximo vem de quem esta no mesmo ponto da busca (nao do que esta a ~758 m)',
       [ids.s1, ids.s4, ids.s5].includes(primeiro.id),
       `${primeiro.title}: ${Math.round(primeiro.distanceMeters ?? -1)} m`);
 
@@ -243,8 +243,20 @@ async function main() {
       Math.abs(pg!.metros - distanciaReal) / distanciaReal < 0.01,
       `postgres: ${pg!.metros.toFixed(1)} m, haversine: ${distanciaReal.toFixed(1)} m, diferenca: ${(Math.abs(pg!.metros - distanciaReal) / distanciaReal * 100).toFixed(2)}%`);
 
-    const longe = await listPublishedSpaces({ point: CENTRO_COLATINA, radiusMeters: 500, limit: 10 });
-    assert('raio de 500 m exclui o Sao Silvano (a ~900 m)', !longe.some((r) => r.id === ids.s2));
+    /*
+     * O raio de exclusao PRECISA ficar abaixo de (distancia real - 300 m do
+     * deslocamento de privacidade) — nao um numero fixo tipo 500 m. Com
+     * distancia real de ~758 m, um raio de 500 m as vezes falhava: o mesmo
+     * embaralhamento de ate 300 m que os testes acima toleram por FAIXA podia
+     * empurrar o Sao Silvano pra dentro dos 500 m, e o teste virava um teste
+     * do hash do id (que muda a cada seed), nao da busca. Por isso o raio
+     * aqui e derivado de `distanciaReal`, com folga de 100 m sobre a pior
+     * hipotese — sempre seguro, mesmo se as coordenadas do fixture mudarem.
+     */
+    const raioSeguro = Math.floor(distanciaReal - 300 - 100);
+    const longe = await listPublishedSpaces({ point: CENTRO_COLATINA, radiusMeters: raioSeguro, limit: 10 });
+    assert(`raio de ${raioSeguro} m exclui o Sao Silvano (a ${Math.round(distanciaReal)} m, deslocamento privado ate 300 m)`,
+      !longe.some((r) => r.id === ids.s2));
 
     const qualquerDistancia = await listPublishedSpaces({ point: VILA_VELHA, sort: 'distance', limit: 20 });
     assert('sem raio, qualquer distancia entra (Vila Velha aparece buscando do proprio ponto)',

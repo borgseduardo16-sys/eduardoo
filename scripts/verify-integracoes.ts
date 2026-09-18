@@ -220,7 +220,7 @@ async function main() {
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJ').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJK').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -231,6 +231,7 @@ async function main() {
   if (quais.includes('H')) await testeHGaleria();
   if (quais.includes('I')) await testeIFavoritos();
   if (quais.includes('J')) await testeJCompartilhar();
+  if (quais.includes('K')) await testeKSolicitarEAceitar();
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -1475,10 +1476,93 @@ async function testeJCompartilhar() {
   await page.context().close();
 }
 
+async function testeKSolicitarEAceitar() {
+  secao('TESTE K (navegador) - solicitar aluguel, proprietario aceitar, locatario ver o status');
+
+  const [espaco] = await sql<{ slug: string; price: number }[]>`
+    SELECT slug, price_monthly_cents AS price FROM spaces WHERE id=${publicado}`;
+
+  // --- outro (locatario) solicita ---
+  const pageOutro = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 430, height: 900 } });
+  await pageOutro.goto(`${baseUrl}/espacos/${espaco!.slug}/solicitar`, { waitUntil: 'domcontentloaded' });
+
+  await pageOutro.getByLabel('A partir de quando?').waitFor({ timeout: 20_000 });
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  await pageOutro.getByLabel('A partir de quando?').fill(amanha.toISOString().slice(0, 10));
+  await pageOutro.getByLabel('Mensagem para o proprietário').fill('Preciso para guardar uma moto.');
+
+  const totalEsperado = Math.round(espaco!.price * 1.03);
+  const resumo = await pageOutro.getByTestId('resumo-solicitacao').textContent();
+  assert('o resumo mostra o total com a taxa embutida', (resumo ?? '').includes('Total mensal'), resumo ?? '');
+
+  await pageOutro.getByRole('button', { name: 'Enviar solicitação' }).click();
+  await pageOutro.waitForURL(/\/reservas/, { timeout: 20_000 });
+  await pageOutro.getByText('Aguardando resposta').waitFor({ timeout: 20_000 });
+  ok('locatario enviou a solicitacao e ve o status "Aguardando resposta" em /reservas');
+
+  const [naBanco] = await sql<{ id: string; status: string; total: number }[]>`
+    SELECT id, status, total_charged_cents AS total FROM bookings
+    WHERE space_id=${publicado} AND renter_id=${outroId} ORDER BY requested_at DESC LIMIT 1`;
+  expect('status gravado no banco e "requested"', naBanco!.status, 'requested');
+  expect('total cobrado bate com preco + 3%', naBanco!.total, totalEsperado);
+  const bookingId = naBanco!.id;
+
+  // --- outro tenta solicitar de novo: a pagina mostra o status, nao o formulario ---
+  await pageOutro.goto(`${baseUrl}/espacos/${espaco!.slug}/solicitar`, { waitUntil: 'domcontentloaded' });
+  assert('a segunda visita a pagina de solicitar mostra o status, nao o formulario de novo',
+    (await pageOutro.getByLabel('A partir de quando?').count()) === 0);
+  await pageOutro.getByText('Você já tem uma solicitação').waitFor({ timeout: 10_000 });
+  ok('a pagina avisa que ja existe solicitacao em vez de deixar mandar outra');
+
+  // --- dono ve e aceita pela area de Solicitacoes ---
+  const pageDono = await novaAba(testbed!.users.get(donoId)!, { viewport: { width: 900, height: 1000 } });
+  await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByText('Preciso para guardar uma moto.').waitFor({ timeout: 20_000 });
+  ok('a mensagem do locatario aparece pro proprietario');
+
+  await pageDono.getByRole('button', { name: 'Aceitar' }).first().click();
+  await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
+  ok('proprietario aceita a solicitacao pela interface');
+
+  const [aprovadaNoBanco] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingId}`;
+  expect('o banco reflete o aceite feito pela tela', aprovadaNoBanco!.status, 'approved');
+
+  // --- locatario recarrega e ve "Aceita" ---
+  await pageOutro.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByText('Aceita').waitFor({ timeout: 20_000 });
+  ok('locatario ve a reserva como "Aceita" depois do proprietario aceitar');
+
+  // --- financeiro do proprietario reflete o aluguel aceito ---
+  await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByText('Nenhum pagamento processado ainda').waitFor({ timeout: 20_000 });
+  ok('financeiro do proprietario e honesto: sem gateway, sem pagamento inventado');
+
+  // --- locatario cancela a reserva ja aceita: mesma armadilha de desmontar
+  // antes de mostrar sucesso que o "Aceitar" tinha, agora no CancelBookingButton ---
+  await pageOutro.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByRole('button', { name: 'Cancelar solicitação' }).click();
+  await pageOutro.getByRole('button', { name: 'Sim, cancelar' }).click();
+  await pageOutro.getByText('Cancelado.').waitFor({ timeout: 20_000 });
+  ok('locatario cancela a reserva aceita pela interface e ve a confirmacao sem a tela sumir');
+
+  const [canceladaNoBanco] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingId}`;
+  expect('o banco reflete o cancelamento feito pela tela', canceladaNoBanco!.status, 'cancelled');
+
+  await pageOutro.screenshot({ path: join(tmp, 'teste-k-reservas.png'), fullPage: true });
+  await pageDono.screenshot({ path: join(tmp, 'teste-k-solicitacoes.png'), fullPage: true });
+  await pageOutro.context().close();
+  await pageDono.context().close();
+}
+
 // ---------------------------------------------------------------------------
 
 async function limpar() {
   try {
+    // bookings.space_id/renter_id/owner_id sao ON DELETE RESTRICT de proposito
+    // (uma reserva nao pode sumir por baixo dos pes de quem alugou ou de quem
+    // publicou) — por isso precisa sair ANTES dos espacos e dos perfis.
+    await sql`DELETE FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId})`;
     await sql`DELETE FROM spaces WHERE owner_id IN (${donoId}, ${outroId})`;
 
     /*

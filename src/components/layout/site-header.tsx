@@ -31,6 +31,12 @@ export async function SiteHeader() {
                 Meus espaços
               </Link>
               <Link
+                href="/reservas"
+                className="hidden sm:inline-flex items-center h-10 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
+              >
+                Minhas reservas
+              </Link>
+              <Link
                 href="/favoritos"
                 aria-label="Favoritos"
                 className="inline-flex items-center justify-center size-10 rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)] text-[var(--content-muted)]"

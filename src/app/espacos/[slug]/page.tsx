@@ -6,6 +6,8 @@ import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { getCurrentUser } from '@/lib/auth/dal';
 import { isFavorited } from '@/lib/favorites/queries';
+import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
+import { bookingStatusLabel } from '@/lib/bookings/format';
 import { computeTrustProfile } from '@/lib/safety/trust';
 import { serverEnv } from '@/lib/env';
 import type { SpaceTypeKey } from '@/lib/spaces/types';
@@ -19,6 +21,8 @@ import { ProtectionNotice } from '@/components/safety/protection-notice';
 import { VisitChecklist } from '@/components/safety/visit-checklist';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { ShareButton } from '@/components/espacos/share-button';
+import { buttonVariants } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
 
 export const dynamic = 'force-dynamic';
@@ -60,11 +64,13 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
 
   if (!space) notFound();
 
-  const [urls, favorited] = await Promise.all([
+  const isOwner = viewer?.id === space.ownerId;
+
+  const [urls, favorited, existingBooking] = await Promise.all([
     signImagePaths(space.images.flatMap((i) => [i.storagePath, i.thumbPath].filter(Boolean) as string[])),
     viewer ? isFavorited(viewer.id, space.id) : Promise.resolve(false),
+    viewer && !isOwner ? getViewerActiveBookingForSpace(space.id, viewer.id) : Promise.resolve(null),
   ]);
-  const isOwner = viewer?.id === space.ownerId;
   const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
 
   const trust = space.owner
@@ -144,20 +150,42 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
         />
 
         {/*
-          "Tenho interesse" — a chamada principal da página, sem fingir uma
-          reserva que não existe ainda. Não é um botão morto: é um cartão que
-          diz com todas as letras o que falta e o que já dá pra fazer agora
-          (visitar o espaço, ver quem anuncia). A solicitação de fato entra
-          na próxima etapa — ver docs/STATUS.md.
+          "Tenho interesse" — a chamada principal da pagina. Se quem ve ja
+          tem uma solicitacao em aberto pra este espaco, mostra o status dela
+          em vez de deixar mandar outra as cegas.
         */}
         {!isOwner && (
-          <section className="rounded-[var(--radius-card)] border-2 border-dashed p-5 sm:p-6 space-y-2">
-            <p className="font-semibold text-[1.0625rem]">Tenho interesse neste espaço</p>
-            <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
-              A solicitação de aluguel pela plataforma ainda não está pronta — é a próxima etapa
-              do produto. Por enquanto, favorite o espaço para não perdê-lo de vista, e combine a
-              visita quando essa etapa estiver no ar.
-            </p>
+          <section className="rounded-[var(--radius-card)] border-2 p-5 sm:p-6 space-y-3">
+            {existingBooking ? (
+              <>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-[1.0625rem]">Sua solicitação</p>
+                  <Badge tone={existingBooking.status === 'approved' ? 'positive' : 'caution'}>
+                    {bookingStatusLabel(existingBooking.status)}
+                  </Badge>
+                </div>
+                <p className="text-[0.875rem] text-[var(--content-muted)]">
+                  Código {existingBooking.reference}.
+                </p>
+                <Link
+                  href="/reservas"
+                  className="inline-flex items-center gap-1.5 h-11 px-5 font-medium rounded-[var(--radius-field)] border hover:bg-[var(--surface-sunken)] transition-colors"
+                >
+                  Ver em “Minhas reservas”
+                </Link>
+              </>
+            ) : (
+              <>
+                <p className="font-semibold text-[1.0625rem]">Tenho interesse neste espaço</p>
+                <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
+                  Envie uma solicitação de aluguel com o período que você precisa. O
+                  proprietário recebe, avalia e decide se aceita antes de qualquer cobrança.
+                </p>
+                <Link href={`/espacos/${space.slug}/solicitar`} className={buttonVariants({ size: 'lg' })}>
+                  Solicitar aluguel
+                </Link>
+              </>
+            )}
           </section>
         )}
 

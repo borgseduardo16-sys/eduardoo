@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1, 2, 3 e 4 de 12 + segurança interna
+> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1 a 4 de 12 + segurança interna · **Fase 5 em andamento:** reserva e aluguel sem pagamento
 
 Estados usados:
 
@@ -121,7 +121,7 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Políticas do Storage por pasta do dono | ✅ | migração 0009 aplicada no Supabase real em 18/09/2026 — bucket privado, 4 políticas confirmadas |
 | Verificação automatizada | ✅ | 37 checagens — `scripts/verify-spaces.ts`; fotos/mapa/CEP em navegador real cobertas junto com a Fase 3/4 (ver abaixo) |
 | Conversa com proprietário | ⬜ | Fase 6 |
-| Reservar / alugar | ⬜ | Fase 5 |
+| Reservar / alugar (solicitação, aceite, cancelamento) | ✅ | Fase 5, ver seção própria abaixo — falta só o pagamento (Fase 7) |
 
 ---
 
@@ -153,8 +153,8 @@ juntas de um só pedido.
 | Metadados de SEO (título, descrição, canonical) | ✅ | por anúncio |
 | Endereço/coordenada exata nunca aparece na busca | ✅ | **testado**, inclusive contra o HTML renderizado da página |
 | Verificação automatizada (banco) | ✅ | 61 checagens — `scripts/verify-busca.ts` |
-| Verificação automatizada (navegador) | ✅ | 6 novos testes reais (E–J) somados aos 4 já existentes — 126 checagens no total, `pnpm verify:integracoes` |
-| Reserva / solicitação de fato | ⬜ | Fase 5 — o CTA já diz isso na tela |
+| Verificação automatizada (navegador) | ✅ | 6 testes reais (E–J) somados aos 4 de Fase 2 — 126 checagens; TESTE K (Fase 5, abaixo) soma mais 13 — 139 no total, `pnpm verify:integracoes` |
+| Reserva / solicitação de fato | ✅ | Fase 5, ver seção abaixo — o CTA agora funciona de verdade |
 
 **Dois bugs reais encontrados e corrigidos escrevendo os testes desta fase**
 (não hipotéticos — pegos com Chromium de verdade, ver `git log`):
@@ -173,16 +173,104 @@ juntas de um só pedido.
 
 ---
 
-## Fases 5 a 12 — ⬜ não implementadas
+## Fase 5 — Reserva e aluguel, sem pagamento 🚧
+
+O pedido chamou este bloco de "Parte 4": identidade visual (abaixo) + o fluxo
+real de solicitação → aceite/recusa → reserva → cancelamento. **Pagamento
+ainda não existe** — isso é a Fase 7, bloqueada esperando a conta Asaas (ver
+a tabela de fases mais abaixo). Sem pagamento, também não há repasse, cobrança
+recorrente nem "aluguel ativo" de verdade — o que existe é o combinado entre
+as duas partes, registrado e protegido contra corrida no banco.
+
+### Identidade visual
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Paleta azul + tokens OKLCH | ✅ | `--color-brand-*`, mesma curva de contraste (claro/escuro) da paleta anterior, só muda o matiz |
+| Componente `Badge` | ✅ | `src/components/ui/badge.tsx` — retangular, cinco tons, **não** é pill |
+| Navegação por sub-abas do proprietário | ✅ | `OwnerSubnav` — Meus espaços / Solicitações / Financeiro, com contador de pendentes |
+| Imagem de compartilhamento (OG) | ✅ | atualizada para a nova paleta |
+
+### Solicitação de aluguel
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Tela de solicitação (`/espacos/[slug]/solicitar`) | ✅ | espaço, período, mensagem opcional, resumo com a taxa embutida antes de enviar |
+| Status real no banco, não só no frontend | ✅ | enum `booking_status`: `requested/approved/rejected/cancelled/expired/awaiting_payment/active/past_due/ended` |
+| Servidor recalcula o valor; nunca confia no que o navegador mandou | ✅ | `computeBookingAmounts` roda dos dois lados — o navegador só antecipa, quem decide é o servidor |
+| Taxa aplicada: 3% locatário + 3% proprietário | ✅ | lida de `platform_settings` no momento da solicitação **e recongelada** no momento do aceite |
+| Não deixa duplicar solicitação pendente para o mesmo espaço | ✅ | testado |
+| Não deixa solicitar o próprio espaço | ✅ | testado |
+| Expiração automática de solicitação parada | ✅ | varredura a cada listagem (`expireStaleBookingRequests`), sem precisar de worker/cron — status vira `expired` de verdade no banco |
+
+### Área do proprietário — Solicitações
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Lista com filtro por status | ✅ | Todas / Pendentes / Aceitas / Encerradas |
+| Aceitar revalida disponibilidade no banco, não confia no que a tela mostrava | ✅ | transação + índice único parcial (`bookings_one_active_per_space`) |
+| **Duas aprovações simultâneas pro mesmo espaço: só uma vence** | ✅ | **testado com corrida real (`Promise.all`), não hipotético** — cobre os dois erros que o Postgres pode devolver (`23505` de violação de unicidade e `40P01` de deadlock) |
+| Aceitar recusa automaticamente os outros interessados do mesmo espaço | ✅ | com notificação para quem foi preterido, não só para quem ganhou |
+| Recusar com motivo opcional | ✅ | só o dono e o interessado veem o motivo |
+| Notificação interna | ✅ | proprietário: nova solicitação · locatário: aceita ou recusada — pelo sistema interno de notificações já existente |
+
+### Cancelamento
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Locatário cancela solicitação pendente ou reserva já aceita | ✅ | testado |
+| Proprietário cancela reserva já aceita (solicitação pendente ele recusa, não cancela) | ✅ | testado |
+| Política de reembolso | ⬜ | **decisão de negócio ainda não tomada** — sem pagamento, também não há o que reembolsar ainda; ver Fase 7 |
+
+### Dashboards
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `/reservas` (locatário) | ✅ | em andamento / encerradas numa lista só (ver bug corrigido abaixo), cancelar reserva |
+| `/meus-espacos/financeiro` (proprietário) | ✅ | repasse esperado dos aluguéis aceitos; **honesto sobre não ter gateway** — não inventa pagamento nem mostra número de "recebido" |
+| Verificação automatizada (banco) | ✅ | 43 checagens — `scripts/verify-bookings.ts`, inclui a corrida de concorrência real |
+| Verificação automatizada (navegador) | ✅ | TESTE K — solicitar, aceitar, cancelar, tudo pela interface, num Chromium real; 13 checagens somadas às 126 já existentes |
+
+**Um bug real, com três ocorrências da mesma causa, encontrado e corrigido
+escrevendo os testes desta fase** (pego pelo Chromium de verdade travando em
+`waitFor`, não hipotético): depois de qualquer Server Action, o Next atualiza
+sozinho a árvore de Server Components da rota atual — equivalente a um
+`router.refresh()` implícito. Quando um componente cliente guarda localmente
+"acabei de ter sucesso" (para mostrar uma confirmação inline) e o **pai**
+decide se esse componente existe na tela com base no mesmo dado que a própria
+ação acabou de mudar, essa atualização automática desmonta o componente antes
+da confirmação aparecer. Apareceu de duas formas diferentes:
+
+1. Um `{status === 'requested' && <Componente />}` no pai: o status muda,
+   a condição vira falsa, o componente (com o estado de sucesso dentro dele)
+   some da árvore. Corrigido em `RespondRequestActions` e
+   `CancelBookingButton`: agora recebem o status por prop e decidem sozinhos
+   o que mostrar, checando o sucesso local **antes** do status vindo de fora.
+   `RequestBookingForm` teve a mesma causa raiz, mas a solução foi diferente
+   porque o objetivo dele é navegar para outra página: o redirecionamento
+   passou a acontecer no servidor (`redirect()`), não num `useEffect` no
+   cliente que corria contra a mesma atualização automática.
+2. Mais sutil, em `/reservas`: a lista de reservas era **duas** arrays
+   filtradas por status, cada uma no seu `<ul>` ("Em andamento" / "Encerradas").
+   Cancelar uma reserva aceita move o item de uma lista pra outra — e mesmo
+   com a mesma `key`, o item muda de pai no React (de um `<ul>` para outro) e
+   perde a identidade, então o `CancelBookingButton` também é desmontado e
+   remontado do zero, sem chance de mostrar "Cancelado.". Corrigido trocando
+   as duas listas por **uma lista só**, ordenada com as ativas primeiro
+   (`Array.prototype.sort` é estável), com o cabeçalho de seção inserido
+   conforme a posição — nenhum item muda de pai quando o status dele muda.
+
+---
+
+## Fases 6 a 12 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
-| 5 | Reserva e aluguel | — |
-| 6 | Chat e notificações | Resend |
-| 7 | Pagamento real | **Conta Asaas** |
+| 6 | Chat e notificações (além do sistema interno já usado nas solicitações) | Resend |
+| 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** |
 | 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** |
-| 9 | Painel do proprietário | Fase 7 |
-| 10 | Painel do locatário | Fase 7 |
+| 9 | Painel do proprietário completo (valores recebidos/pendentes/histórico) | Fase 7 — hoje tem espaços, solicitações e reservas; falta a parte com dinheiro de verdade |
+| 10 | Painel do locatário completo (pagamentos, próximo pagamento) | Fase 7 — hoje tem reservas; falta a parte com dinheiro de verdade |
 | 11 | Painel administrativo | — |
 | 12 | Segurança, testes e preparação para produção | Upstash + Sentry |
 
@@ -220,6 +308,8 @@ Consequência prática, e ela é boa:
 - ❌ Nenhuma avaliação fabricada
 - ❌ Nenhuma denúncia ou bloqueio de exemplo
 - ❌ Nenhum anúncio de exemplo no marketplace (ele começa vazio, e diz isso)
+- ❌ Nenhuma reserva "aceita" que não esteja de fato gravada no banco — o
+  status vem sempre do banco, nunca só do que a tela mostrou depois de clicar
 
 O banco começa vazio, exceto pelas taxas da plataforma e pelo catálogo de 20
 características — que são configuração, não conteúdo fictício.
@@ -262,8 +352,9 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 126 checagens — fotos, mapa, CEP,
-busca com GPS real, filtros, favoritos e compartilhar).
+verdade** (`scripts/verify-integracoes.ts`, 139 checagens — fotos, mapa, CEP,
+busca com GPS real, filtros, favoritos, compartilhar e o fluxo de solicitar,
+aceitar e cancelar aluguel).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -330,10 +421,11 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 339 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
-busca (com GPS real), filtros, favoritos, galeria e compartilhar rodam em
-Chromium de verdade (`pnpm verify:integracoes`). O que ainda não tem teste
-automatizado de interface: cadastro, login e o painel "Meus espaços". Fase 12.
+São 395 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+busca (com GPS real), filtros, favoritos, galeria, compartilhar e o fluxo de
+solicitar/aceitar/cancelar aluguel rodam em Chromium de verdade
+(`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
+interface: cadastro, login e o painel "Meus espaços". Fase 12.
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -352,8 +444,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 213 checagens contra o Postgres real
-pnpm verify:integracoes              # 126 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos)
+pnpm verify                          # 256 checagens contra o Postgres real
+pnpm verify:integracoes              # 139 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```

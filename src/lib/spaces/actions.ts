@@ -4,9 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { spaces, spaceFeatures, features, platformSettings, auditLogs, bookings } from '@/db/schema';
+import { spaces, spaceFeatures, features, auditLogs, bookings } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { parseBRLToCents, formatBRL } from '@/lib/money';
+import { settingInt } from '@/lib/settings';
 import { rateLimit } from '@/lib/rate-limit';
 import { lookupCep } from '@/lib/maps/cep-lookup';
 import { CepError, normalizeCep } from '@/lib/maps/cep';
@@ -37,17 +38,6 @@ function fieldErrors(e: { flatten: () => { fieldErrors: Record<string, string[] 
   return Object.fromEntries(
     Object.entries(e.flatten().fieldErrors).filter(([, v]) => v?.length),
   ) as Record<string, string[]>;
-}
-
-/** Le um inteiro de platform_settings. O valor vigente manda, nao o do codigo. */
-async function settingInt(key: string, fallback: number): Promise<number> {
-  const [row] = await db
-    .select({ value: platformSettings.value })
-    .from(platformSettings)
-    .where(eq(platformSettings.key, key))
-    .limit(1);
-  const n = Number(row?.value);
-  return Number.isFinite(n) ? n : fallback;
 }
 
 // ---------------------------------------------------------------------------

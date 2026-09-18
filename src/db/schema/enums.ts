@@ -44,12 +44,17 @@ export const spaceStatus = pgEnum('space_status', [
 
 /**
  * Ciclo de vida da reserva.
- * requested -> (approved | rejected) -> awaiting_payment -> active -> (ended | cancelled)
+ * requested -> (approved | rejected | expired | cancelled) -> awaiting_payment -> active -> (ended | cancelled)
+ *
+ * `expired` e so alcancavel a partir de `requested`: uma solicitacao que
+ * ninguem respondeu dentro do prazo (`booking.request_expiry_days em
+ * platform_settings). Ver src/lib/bookings/queries.ts#expireStaleRequests.
  */
 export const bookingStatus = pgEnum('booking_status', [
   'requested',
   'approved',
   'rejected',
+  'expired',
   'awaiting_payment',
   'active',
   'past_due',

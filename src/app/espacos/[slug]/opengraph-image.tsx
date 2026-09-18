@@ -22,8 +22,8 @@ export const alt = 'Foto do espaço no MyPlace';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
-const COR_FUNDO = '#22332e';
-const COR_ACENTO = '#8fd6c8';
+const COR_FUNDO = '#141b2e';
+const COR_ACENTO = '#e8a355';
 
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -82,7 +82,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
         <div
           style={{
             position: 'absolute', inset: 0,
-            background: 'linear-gradient(to top, rgba(15,20,18,0.88) 0%, rgba(15,20,18,0.35) 45%, rgba(15,20,18,0.05) 75%)',
+            background: 'linear-gradient(to top, rgba(11,16,28,0.88) 0%, rgba(11,16,28,0.35) 45%, rgba(11,16,28,0.05) 75%)',
             display: 'flex',
           }}
         />

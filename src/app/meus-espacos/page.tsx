@@ -10,7 +10,9 @@ import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { TOTAL_STEPS } from '@/lib/spaces/schemas';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
+import { OwnerSubnav } from '@/components/layout/owner-subnav';
 import { SpaceCardActions } from '@/components/anunciar/space-card-actions';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Meus espaços' };
@@ -23,12 +25,12 @@ const FILTROS = [
   { key: 'pausados', label: 'Pausados', status: ['paused'] },
 ] as const;
 
-const STATUS_BADGE: Record<string, { label: string; className: string }> = {
-  draft: { label: 'Rascunho', className: 'bg-[var(--surface-sunken)] text-[var(--content-muted)]' },
-  published: { label: 'Publicado', className: 'bg-[color-mix(in_oklch,var(--color-positive)_14%,transparent)] text-[var(--color-positive)]' },
-  paused: { label: 'Pausado', className: 'bg-[color-mix(in_oklch,var(--color-caution)_16%,transparent)] text-[var(--color-caution)]' },
-  rented: { label: 'Alugado', className: 'bg-[var(--accent-subtle)] text-[var(--accent)]' },
-  archived: { label: 'Arquivado', className: 'bg-[var(--surface-sunken)] text-[var(--content-subtle)]' },
+const STATUS_BADGE: Record<string, { label: string; tone: BadgeProps['tone'] }> = {
+  draft: { label: 'Rascunho', tone: 'neutral' },
+  published: { label: 'Publicado', tone: 'positive' },
+  paused: { label: 'Pausado', tone: 'caution' },
+  rented: { label: 'Alugado', tone: 'accent' },
+  archived: { label: 'Arquivado', tone: 'neutral' },
 };
 
 export default async function MeusEspacosPage({
@@ -53,6 +55,8 @@ export default async function MeusEspacosPage({
       <SiteHeader />
 
       <main id="conteudo" className="mx-auto max-w-4xl px-4 sm:px-6 py-8 sm:py-10 space-y-6">
+        <OwnerSubnav active="espacos" />
+
         <header className="flex items-start justify-between gap-4">
           <div className="space-y-1">
             <h1 className="text-[1.75rem] font-semibold">Meus espaços</h1>
@@ -141,9 +145,7 @@ export default async function MeusEspacosPage({
                         <h2 className="font-medium truncate">
                           {s.title?.trim() || `${spaceTypeLabel(s.type as SpaceTypeKey)} sem título`}
                         </h2>
-                        <span className={cn('shrink-0 px-2 py-0.5 rounded-[var(--radius-pill)] text-[0.6875rem] font-medium', badge.className)}>
-                          {badge.label}
-                        </span>
+                        <Badge tone={badge.tone} className="shrink-0">{badge.label}</Badge>
                       </div>
 
                       <p className="text-[0.875rem] text-[var(--content-muted)] truncate">
