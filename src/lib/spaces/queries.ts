@@ -1,9 +1,9 @@
 import 'server-only';
 import { cache } from 'react';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { spaces, spaceImages, spaceFeatures, features, profiles } from '@/db/schema';
-import { latOf, lngOf } from '@/db/schema/_types';
+import { latOf, lngOf, withinMeters, distanceMeters, type LatLng } from '@/db/schema/_types';
 
 /**
  * Leitura de anuncios.
@@ -76,20 +76,72 @@ export type PublicSpace = {
   approxLng: number | null;
   coverPath: string | null;
   photoCount: number;
+  /** Metros ate o ponto de referencia da busca. Null quando nao ha ponto. */
+  distanceMeters: number | null;
+  /** Ate 3 nomes de caracteristica, para a linha resumo do card. */
+  featureLabels: string[];
+};
+
+export type SearchSort = 'distance' | 'price_asc' | 'price_desc' | 'recent';
+
+export type SearchSpacesOptions = {
+  limit?: number;
+  offset?: number;
+  /** Igualdade exata (usado pelo /buscar antigo e pelos testes). */
+  city?: string;
+  /** Tipo do espaco (space_type). Valor desconhecido = nenhum resultado, de proposito. */
+  type?: string;
+
+  /** Ponto de referencia (GPS, CEP ou endereco geocodificado) — ver resolve-location.ts. */
+  point?: LatLng | null;
+  /** Raio maximo em metros. So tem efeito quando `point` existe. */
+  radiusMeters?: number | null;
+
+  /** Filtro solto por cidade/bairro, vindo de um match sem coordenada. */
+  cityFilter?: string | null;
+  districtFilter?: string | null;
+
+  /** Texto livre: casa com titulo, cidade e bairro (trigram, ja indexado). */
+  textQuery?: string | null;
+
+  priceMinCents?: number | null;
+  priceMaxCents?: number | null;
+  /** Chaves de `features`. Semantica E: o espaco precisa ter todas. */
+  featureKeys?: readonly string[];
+  /** So espacos com `available_from <= hoje`. */
+  availableNow?: boolean;
+
+  sort?: SearchSort;
 };
 
 /**
- * Listagem publica do marketplace.
- * So `published`, so nao apagado. Rascunho e pausado nunca aparecem.
+ * `distance` so faz sentido com um ponto de referencia real. Pedir para
+ * ordenar por distancia sem ponto (ex.: buscou so por texto, sem CEP nem
+ * GPS) cai em "mais recentes" em vez de falhar ou fingir uma ordem. A
+ * interface usa esta mesma funcao para saber qual ordenacao MOSTRAR como
+ * selecionada, entao nunca diz "ordenado por distância" quando nao esta.
  */
-export async function listPublishedSpaces(options?: {
-  limit?: number;
-  offset?: number;
-  city?: string;
-  type?: string;
-}): Promise<PublicSpace[]> {
+export function effectiveSort(sort: SearchSort | undefined, hasPoint: boolean): SearchSort {
+  if (sort === 'distance' && !hasPoint) return 'recent';
+  return sort ?? (hasPoint ? 'distance' : 'recent');
+}
+
+/**
+ * Busca publica do marketplace. So `published`, so nao apagado — rascunho e
+ * pausado nunca aparecem, e essa condicao nao depende de nenhum filtro
+ * passado por quem chama.
+ *
+ * A distancia e sempre calculada a partir de `approx_location`, nunca do
+ * ponto exato: e o mesmo ponto que ja aparece no mapa publico, entao mostrar
+ * "a 1,2 km" nao revela nada que o marcador no mapa nao revele ja. Calcular
+ * a partir do ponto exato permitiria, com consultas repetidas de pontos
+ * diferentes, triangular o endereco real por trilateracao.
+ */
+export async function listPublishedSpaces(options?: SearchSpacesOptions): Promise<PublicSpace[]> {
   const limit = Math.min(options?.limit ?? 24, 60);
   const offset = Math.max(options?.offset ?? 0, 0);
+  const point = options?.point ?? null;
+  const sort = effectiveSort(options?.sort, point != null);
 
   const conditions = [
     eq(spaces.status, 'published'),
@@ -99,9 +151,69 @@ export async function listPublishedSpaces(options?: {
     // ILIKE sem curinga = comparacao exata ignorando maiusculas.
     conditions.push(sql`${spaces.city} ILIKE ${options.city}`);
   }
+  if (options?.cityFilter) {
+    conditions.push(sql`${spaces.city} ILIKE ${options.cityFilter}`);
+  }
+  if (options?.districtFilter) {
+    conditions.push(sql`${spaces.district} ILIKE ${options.districtFilter}`);
+  }
   if (options?.type) {
     conditions.push(sql`${spaces.type}::text = ${options.type}`);
   }
+  if (options?.priceMinCents != null) {
+    conditions.push(gte(spaces.priceMonthlyCents, options.priceMinCents));
+  }
+  if (options?.priceMaxCents != null) {
+    conditions.push(lte(spaces.priceMonthlyCents, options.priceMaxCents));
+  }
+  if (options?.availableNow) {
+    conditions.push(sql`${spaces.availableFrom} <= CURRENT_DATE`);
+  }
+  if (point && options?.radiusMeters) {
+    conditions.push(withinMeters(spaces.approxLocation, point, options.radiusMeters));
+  }
+  if (options?.textQuery) {
+    const termo = options.textQuery.trim();
+    if (termo) {
+      // similarity() usa os indices GIN trigram de title/city/district — nao
+      // e sequential scan. ILIKE '%...%' entra tambem, para substring exata
+      // curta (ex.: "moto") que o trigram sozinho pontuaria baixo.
+      conditions.push(sql`(
+        similarity(${spaces.title}, ${termo}) > 0.15
+        OR similarity(${spaces.city}, ${termo}) > 0.2
+        OR similarity(${spaces.district}, ${termo}) > 0.2
+        OR ${spaces.title} ILIKE ${'%' + termo + '%'}
+      )`);
+    }
+  }
+  if (options?.featureKeys?.length) {
+    /*
+     * Precisa ter TODAS as chaves pedidas: conta quantas das pedidas o
+     * espaco tem, e exige que bata com a quantidade pedida.
+     *
+     * O array vai como `ARRAY[$1, $2, ...]` montado por `sql.join`, e nao
+     * como `${options.featureKeys}` direto: o driver postgres-js nao
+     * serializa array JS sozinho dentro de um parametro posicional — vira
+     * "malformed array literal", porque ele tenta ligar o array inteiro como
+     * se fosse um unico texto. `sql.join` liga cada chave no seu proprio `$N`.
+     */
+    const chaves = sql.join(
+      options.featureKeys.map((k) => sql`${k}`),
+      sql`, `,
+    );
+    conditions.push(sql`(
+      SELECT count(*) FROM space_features sf
+      WHERE sf.space_id = spaces.id AND sf.feature_key = ANY(ARRAY[${chaves}])
+    ) = ${options.featureKeys.length}`);
+  }
+
+  const distanceExpr = point ? distanceMeters(spaces.approxLocation, point) : sql<number | null>`NULL`;
+
+  const orderBy =
+    sort === 'distance' ? [asc(distanceExpr)]
+    : sort === 'price_asc' ? [asc(spaces.priceMonthlyCents)]
+    : sort === 'price_desc' ? [desc(spaces.priceMonthlyCents)]
+    : [desc(spaces.publishedAt)];
 
   const rows = await db
     .select({
@@ -115,6 +227,7 @@ export async function listPublishedSpaces(options?: {
       priceMonthlyCents: spaces.priceMonthlyCents,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
+      distanceMeters: distanceExpr,
       /*
        * COALESCE: fotos enviadas antes da miniatura existir caem na principal.
        *
@@ -133,15 +246,26 @@ export async function listPublishedSpaces(options?: {
       photoCount: sql<number>`(
         SELECT count(*)::int FROM space_images si WHERE si.space_id = spaces.id
       )`,
+      featureLabels: sql<string[]>`(
+        SELECT COALESCE(array_agg(f.label ORDER BY f.sort_order), '{}')
+        FROM (
+          SELECT feature_key FROM space_features sf2
+          WHERE sf2.space_id = spaces.id LIMIT 3
+        ) sf
+        JOIN features f ON f.key = sf.feature_key
+      )`,
     })
     .from(spaces)
     .where(and(...conditions))
-    .orderBy(desc(spaces.publishedAt))
+    .orderBy(...orderBy)
     .limit(limit)
     .offset(offset);
 
   return rows as PublicSpace[];
 }
+
+/** Alias — a busca (Parte 3) e o marketplace simples sao a mesma consulta. */
+export const searchPublishedSpaces = listPublishedSpaces;
 
 /** Pagina publica de um anuncio. Devolve null se nao estiver publicado. */
 export const getPublicSpaceBySlug = cache(async (slug: string) => {
@@ -309,6 +433,84 @@ export async function countOwnerSpacesByStatus(userId: string) {
   return Object.fromEntries(rows.map((r) => [r.status, r.total])) as Record<string, number>;
 }
 
+export type KnownLocationMatch =
+  | { kind: 'city'; city: string; state: string | null }
+  | { kind: 'district'; district: string; city: string | null; state: string | null };
+
+/**
+ * Tenta casar um texto livre com uma cidade ou bairro que JA EXISTE entre os
+ * anuncios publicados.
+ *
+ * Existe para a busca por local funcionar sem geocodificacao no caso mais
+ * comum: alguem digita "Colatina" e o marketplace so tem anuncios em
+ * Colatina/ES — nao ha por que gastar uma chamada de rede para descobrir algo
+ * que o proprio banco ja sabe. So quando isto nao acha nada a busca recorre
+ * ao geocodificador (ver src/lib/spaces/resolve-location.ts).
+ *
+ * Ordem: cidade exata, cidade por prefixo, bairro exato, bairro por prefixo,
+ * e por ultimo similaridade (pg_trgm) para tolerar erro de digitacao —
+ * "Colattina" ainda acha "Colatina". Previsivel de proposito: cada etapa so
+ * roda se a anterior nao achou nada.
+ */
+export async function matchKnownLocation(text: string): Promise<KnownLocationMatch | null> {
+  const termo = text.trim();
+  if (termo.length < 2) return null;
+
+  const base = and(eq(spaces.status, 'published'), isNull(spaces.deletedAt));
+
+  const [porCidadeExata] = await db
+    .select({ city: spaces.city, state: spaces.state })
+    .from(spaces)
+    .where(and(base, sql`${spaces.city} ILIKE ${termo}`))
+    .limit(1);
+  if (porCidadeExata?.city) return { kind: 'city', city: porCidadeExata.city, state: porCidadeExata.state };
+
+  const [porCidadePrefixo] = await db
+    .select({ city: spaces.city, state: spaces.state })
+    .from(spaces)
+    .where(and(base, sql`${spaces.city} ILIKE ${termo + '%'}`))
+    .limit(1);
+  if (porCidadePrefixo?.city) {
+    return { kind: 'city', city: porCidadePrefixo.city, state: porCidadePrefixo.state };
+  }
+
+  const [porBairroExato] = await db
+    .select({ district: spaces.district, city: spaces.city, state: spaces.state })
+    .from(spaces)
+    .where(and(base, sql`${spaces.district} ILIKE ${termo}`))
+    .limit(1);
+  if (porBairroExato?.district) {
+    return {
+      kind: 'district', district: porBairroExato.district,
+      city: porBairroExato.city, state: porBairroExato.state,
+    };
+  }
+
+  const [porBairroPrefixo] = await db
+    .select({ district: spaces.district, city: spaces.city, state: spaces.state })
+    .from(spaces)
+    .where(and(base, sql`${spaces.district} ILIKE ${termo + '%'}`))
+    .limit(1);
+  if (porBairroPrefixo?.district) {
+    return {
+      kind: 'district', district: porBairroPrefixo.district,
+      city: porBairroPrefixo.city, state: porBairroPrefixo.state,
+    };
+  }
+
+  const [porSimilaridade] = await db
+    .select({ city: spaces.city, state: spaces.state, sim: sql<number>`similarity(${spaces.city}, ${termo})` })
+    .from(spaces)
+    .where(and(base, sql`similarity(${spaces.city}, ${termo}) > 0.4`))
+    .orderBy(sql`similarity(${spaces.city}, ${termo}) DESC`)
+    .limit(1);
+  if (porSimilaridade?.city) {
+    return { kind: 'city', city: porSimilaridade.city, state: porSimilaridade.state };
+  }
+
+  return null;
+}
+
 /** Catalogo de caracteristicas aplicaveis a um tipo de espaco. */
 export const listFeaturesForType = cache(async (type: string) => {
   return db
@@ -325,5 +527,26 @@ export const listFeaturesForType = cache(async (type: string) => {
         sql`(cardinality(${features.appliesTo}) = 0 OR ${type}::space_type = ANY(${features.appliesTo}))`,
       ),
     )
+    .orderBy(features.sortOrder);
+});
+
+/**
+ * Todas as caracteristicas ativas, sem filtrar por tipo.
+ *
+ * Usado no filtro da busca quando a pessoa ainda nao escolheu um tipo de
+ * espaco: "Mostrar somente características compatíveis com os dados
+ * cadastrados" (Parte 3, secao 9) vira "todas as que existem no catalogo",
+ * porque sem tipo escolhido qualquer uma pode ser compativel.
+ */
+export const listAllActiveFeatures = cache(async () => {
+  return db
+    .select({
+      key: features.key,
+      label: features.label,
+      icon: features.icon,
+      category: features.category,
+    })
+    .from(features)
+    .where(eq(features.active, true))
     .orderBy(features.sortOrder);
 });

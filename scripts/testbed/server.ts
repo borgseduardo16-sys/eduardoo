@@ -52,6 +52,12 @@ export type Testbed = {
   cepFora: boolean;
   /** Derruba so a fonte primaria, para testar a queda para a reserva. */
   brasilApiFora: boolean;
+  /**
+   * Enderecos que o geocodificador (Nominatim-fake) reconhece. Chave e o
+   * texto de busca EXATO que o teste vai digitar; vazio = lista vazia,
+   * que e como o Nominatim responde para endereco que nao acha.
+   */
+  geocodes: Map<string, { lat: number; lon: number; display_name: string }>;
   tilesServidos: () => { z: number; x: number; y: number }[];
   close: () => Promise<void>;
 };
@@ -63,6 +69,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const objects = new Map<string, { bytes: Buffer; contentType: string }>();
   const users = new Map<string, TestbedUser>();
   const ceps = new Map<string, unknown>();
+  const geocodes = new Map<string, { lat: number; lon: number; display_name: string }>();
   const tiles: { z: number; x: number; y: number }[] = [];
   const tileCache = new Map<string, Buffer>();
   const assinaturas = new Map<string, { path: string; expiraEm: number }>();
@@ -286,6 +293,20 @@ export async function startTestbed(port = 0): Promise<Testbed> {
           }
         }
 
+        // ---------------------------------------------------------------
+        // Geocodificacao — formato Nominatim (fallback gratuito real)
+        // ---------------------------------------------------------------
+        else if (rota === '/search') {
+          const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
+          // O modulo de geocodificacao completa com ", Brasil" quando o
+          // texto ja nao menciona — casamos ignorando esse sufixo.
+          const semSufixo = q.replace(/,\s*brasil$/i, '').trim();
+          const achado = [...geocodes.entries()].find(
+            ([chave]) => chave.toLowerCase() === q || chave.toLowerCase() === semSufixo,
+          );
+          status = json(res, 200, achado ? [achado[1]] : []);
+        }
+
         else {
           status = json(res, 404, { error: 'rota nao implementada no testbed', rota });
         }
@@ -307,6 +328,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     objects,
     users,
     ceps,
+    geocodes,
     get cepFora() {
       return estado.cepFora;
     },

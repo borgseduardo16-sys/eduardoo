@@ -1,8 +1,8 @@
-import Image from 'next/image';
 import { CalendarCheck, Clock, MapPin, Ruler, ShieldCheck } from 'lucide-react';
 import { formatBRL } from '@/lib/money';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { Icon } from '@/components/safety/icon';
+import { PhotoGallery } from './photo-gallery';
 
 export type PreviewPhoto = {
   id: string;
@@ -44,50 +44,23 @@ function formatDate(iso: string | null): string | null {
  * número e complemento. Isso não é esquecimento — é o requisito de
  * privacidade. Quem vê o anúncio sabe o bairro, não o endereço.
  */
-export function SpacePreview({ data }: { data: PreviewData }) {
-  const capa = data.photos[0];
-  const resto = data.photos.slice(1, 5);
+export function SpacePreview({
+  data,
+  emptyPhotosText,
+}: {
+  data: PreviewData;
+  /** Texto de quando não há foto nenhuma. Diferente para dono e visitante. */
+  emptyPhotosText?: string;
+}) {
   const disponivel = formatDate(data.availableFrom);
 
   return (
     <article className="space-y-6">
-      {/* Fotos */}
-      {capa ? (
-        <div className="space-y-2">
-          <div className="relative aspect-[16/10] rounded-[var(--radius-card)] overflow-hidden bg-[var(--surface-sunken)] border">
-            {capa.url ? (
-              <Image
-                src={capa.url} alt={capa.alt ?? data.title ?? 'Foto do espaço'}
-                fill sizes="(max-width: 768px) 100vw, 640px"
-                className="object-cover" unoptimized priority
-              />
-            ) : (
-              <div className="absolute inset-0 grid place-items-center text-[0.875rem] text-[var(--content-subtle)]">
-                Foto indisponível
-              </div>
-            )}
-          </div>
-          {resto.length > 0 && (
-            <div className="grid grid-cols-4 gap-2">
-              {resto.map((p, i) => (
-                <div key={p.id} className="relative aspect-square rounded-[var(--radius-field)] overflow-hidden bg-[var(--surface-sunken)] border">
-                  {(p.thumbUrl ?? p.url) && (
-                    <Image
-                      src={(p.thumbUrl ?? p.url)!}
-                      alt={p.alt ?? `Foto ${i + 2}`}
-                      fill sizes="160px" className="object-cover" unoptimized
-                    />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="aspect-[16/10] rounded-[var(--radius-card)] border border-dashed grid place-items-center text-[0.875rem] text-[var(--content-subtle)]">
-          Sem fotos ainda
-        </div>
-      )}
+      <PhotoGallery
+        photos={data.photos}
+        title={data.title ?? 'Espaço'}
+        emptyText={emptyPhotosText}
+      />
 
       {/* Cabeçalho */}
       <header className="space-y-2">

@@ -387,6 +387,12 @@ mas é medida de segurança e vale repetir:
 - O mapa mostra posição deslocada ~300 m, **determinística** por espaço
   (sorteio a cada carregamento permitiria triangular o ponto real)
 - Rua, número e complemento só após reserva ativa
+- **A distância mostrada na busca segue a mesma regra.** "≈ 1,2 km" num
+  cartão de resultado é sempre calculado a partir do ponto aproximado, nunca
+  do exato — testado em `scripts/verify-busca.ts`. Mostrar distância até o
+  ponto exato, combinada com buscas repetidas a partir de pontos diferentes,
+  é o material bruto de um ataque de trilateração; distância até o ponto
+  aproximado não vaza nada além do que o próprio marcador no mapa já mostra
 
 ---
 

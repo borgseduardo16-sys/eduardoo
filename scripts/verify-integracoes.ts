@@ -43,7 +43,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import sharp from 'sharp';
-import { chromium, type Browser, type Page } from 'playwright';
+import { chromium, type Browser, type Page, type Locator } from 'playwright';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { startTestbed, sessionCookie, fakeJwt, type Testbed } from './testbed/server';
 
@@ -112,6 +112,8 @@ function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 
 /** Coordenada real do centro de Colatina/ES. */
 const PONTO = { lat: -19.5386, lng: -40.6295 };
+/** ~100 km de Colatina — serve para provar que raio EXCLUI, nao so inclui. */
+const LONGE = { lat: -20.3297, lng: -40.2925 };
 const GPS_EXIF = { lat: '19/1 32/1 1896/100', lng: '40/1 37/1 4620/100' };
 
 /** Foto como sai de um celular: grande, com GPS e identificacao do aparelho. */
@@ -160,6 +162,10 @@ let tmp = '';
 let rascunhoFotos = '';
 let rascunhoCep = '';
 let publicado = '';
+/** Anuncio barato, perto de `publicado` — alvo do filtro de preco. */
+let barato = '';
+/** Anuncio caro, a ~100 km — prova que o raio EXCLUI, nao so inclui. */
+let longeId = '';
 let baseUrl = '';
 
 async function main() {
@@ -214,11 +220,41 @@ async function main() {
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCD').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJ').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
   if (quais.includes('D')) await testeDPermissaoNavegador();
+  if (quais.includes('E')) await testeEBuscaComGps();
+  if (quais.includes('F')) await testeFFiltrosEOrdenacao();
+  if (quais.includes('G')) await testeGMapaMobile();
+  if (quais.includes('H')) await testeHGaleria();
+  if (quais.includes('I')) await testeIFavoritos();
+  if (quais.includes('J')) await testeJCompartilhar();
+}
+
+/** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
+async function aguardarCondicao(condicao: () => Promise<boolean>, nome: string, timeoutMs = 20_000) {
+  const ate = Date.now() + timeoutMs;
+  while (Date.now() < ate) {
+    if (await condicao()) { ok(nome); return; }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  bad(nome, 'condicao nao ficou verdadeira a tempo');
+}
+
+/** Espera um atributo do DOM assumir um valor — usado para `aria-pressed` do favorito. */
+async function aguardarAtributo(
+  locator: Locator, atributo: string, valor: string, nome: string, timeoutMs = 10_000,
+) {
+  const ate = Date.now() + timeoutMs;
+  let ultimo: string | null = null;
+  while (Date.now() < ate) {
+    ultimo = await locator.getAttribute(atributo);
+    if (ultimo === valor) { ok(nome); return; }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  bad(nome, `esperava ${atributo}="${valor}", veio "${ultimo}"`);
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +287,44 @@ async function seed() {
   rascunhoCep = await criar(`${tag}-cep`, 'Garagem para testar o CEP', 2);
   publicado = await criar(`${tag}-publicado`, 'Garagem coberta no Centro', 8);
 
-  ok('semente criada', 'dono + outro + 3 anuncios');
+  /*
+   * Dois anuncios a mais, ja PUBLICADOS direto por SQL — nao precisam
+   * repetir o caminho de upload/publicacao real, que ja e provado pelo
+   * `publicado` acima. Servem so de alvo real para busca, filtro e mapa:
+   * um barato e perto, um caro e longe.
+   */
+  const publicarDireto = async (
+    slug: string, titulo: string, tipo: string, precoCents: number,
+    ponto: { lat: number; lng: number }, cidade: string, feature: string,
+  ) => {
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO spaces
+        (owner_id, slug, type, title, description, district, city, state,
+         available_from, price_monthly_cents, size_m2, draft_step, location)
+      VALUES
+        (${donoId}, ${slug}, ${tipo}, ${titulo},
+         'Descricao com mais de vinte caracteres para passar na regra do banco.',
+         'Centro', ${cidade}, 'ES', CURRENT_DATE, ${precoCents}, 20, 8,
+         ST_SetSRID(ST_MakePoint(${ponto.lng}, ${ponto.lat}), 4326))
+      RETURNING id`;
+    const id = row!.id;
+    for (const n of [0, 1, 2]) {
+      await sql`INSERT INTO space_images (space_id, storage_path, position)
+        VALUES (${id}, ${`${donoId}/${id}/f${n}.jpg`}, ${n})`;
+    }
+    await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, ${feature})`;
+    await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
+    return id;
+  };
+
+  barato = await publicarDireto(
+    `${tag}-barato`, 'Vaga de moto barata no Centro', 'vaga_moto', 8000, PONTO, 'Colatina', 'coberto',
+  );
+  longeId = await publicarDireto(
+    `${tag}-longe`, 'Deposito grande em Vila Velha', 'deposito', 45000, LONGE, 'Vila Velha', 'seco_ventilado',
+  );
+
+  ok('semente criada', 'dono + outro + 5 anuncios (3 reais + 2 fixture)');
 }
 
 // ---------------------------------------------------------------------------
@@ -630,8 +703,20 @@ async function gravarEstados(page: Page): Promise<string[]> {
   return vistos;
 }
 
-async function novaAba(usuario: { id: string; email: string; token: string }): Promise<Page> {
-  const ctx = await browser!.newContext({ viewport: { width: 430, height: 900 } });
+async function novaAba(
+  usuario: { id: string; email: string; token: string },
+  opts?: {
+    viewport?: { width: number; height: number };
+    /** Geolocalizacao REAL do Chromium (mock da API do navegador, nao do app). */
+    geolocation?: { latitude: number; longitude: number };
+  },
+): Promise<Page> {
+  const ctx = await browser!.newContext({
+    viewport: opts?.viewport ?? { width: 430, height: 900 },
+    ...(opts?.geolocation
+      ? { geolocation: opts.geolocation, permissions: ['geolocation'] as const }
+      : {}),
+  });
   const cookie = sessionCookie(process.env.NEXT_PUBLIC_SUPABASE_URL!, usuario);
   await ctx.addCookies([{
     name: cookie.name, value: cookie.value, domain: '127.0.0.1', path: '/', sameSite: 'Lax',
@@ -719,9 +804,18 @@ async function testeAFotos() {
   assert('o rotulo de progresso apareceu',
     estados.includes('rotulo-enviando') || estados.includes('rotulo-verificando'),
     estados.join(', '));
-  assert('a confirmacao de sucesso apareceu',
-    estados.includes('sucesso-plural') || estados.includes('sucesso-singular'),
-    estados.join(', '));
+
+  /*
+   * A mensagem de sucesso so e definida DEPOIS que a resposta do upload volta
+   * pro navegador — e o banco (consultado pelo loop acima) pode mostrar as 3
+   * fotos uma fracao de segundo ANTES desse round-trip terminar e a tela
+   * repintar. Sem essa espera, a asserção corre contra o proprio navegador.
+   */
+  await aguardarCondicao(
+    async () => estados.includes('sucesso-plural') || estados.includes('sucesso-singular'),
+    'a confirmacao de sucesso apareceu',
+    10_000,
+  );
 
   expect('Storage recebeu 2 fotos + 2 miniaturas', testbed!.objects.size - antes, 4);
 
@@ -780,8 +874,25 @@ async function testeBMapa() {
   const html = await page.content();
   assert('pagina publica nao traz a rua do anuncio',
     !html.includes('Avenida Getulio Vargas'), 'rua ausente da listagem');
-  assert('pagina publica nao traz a coordenada exata',
-    !html.includes('-19.5386') && !html.includes('-40.6295'));
+
+  /*
+   * Comparar com a string literal "-19.5386" seria falso-positivo em
+   * potencial: outros anuncios da semente (ex.: `barato`) usam o MESMO ponto
+   * real de Colatina, e `fuzz_location()` sorteia um deslocamento por linha —
+   * nada garante que o `approx_location` de um deles nao comece,por acaso,
+   * com os mesmos 4 digitos decimais. O teste que importa e se o PONTO EXATO
+   * de CADA anuncio aparece na pagina, entao comparamos com o valor real de
+   * alta precisao vindo do banco (a chance de colisao por acaso e desprezivel).
+   */
+  const pontosExatos = await sql<{ lat: number; lng: number }[]>`
+    SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng
+    FROM spaces WHERE status='published' AND deleted_at IS NULL`;
+  const semColisao = pontosExatos.every((p) => {
+    const lat = Number(p.lat).toFixed(6);
+    const lng = Number(p.lng).toFixed(6);
+    return !html.includes(lat) && !html.includes(lng);
+  });
+  assert('pagina publica nao traz a coordenada exata de nenhum anuncio publicado', semColisao);
 
   // A capa do anuncio tem que aparecer no cartao da listagem.
   const [capa] = await sql<{ p: string }[]>`
@@ -811,9 +922,20 @@ async function testeBMapa() {
   assert('botao de abrir o mapa aparece', (await abrir.count()) > 0);
   await abrir.click();
 
-  await page.getByTestId('mapa-espacos').waitFor({ state: 'visible' });
-  await page.waitForFunction(`document.querySelectorAll('.myplace-map-pin').length > 0`,
-    undefined, { timeout: 40_000 });
+  /*
+   * No celular a pagina de resultados monta DOIS motores de mapa ao mesmo
+   * tempo: o do desktop (sempre montado, so escondido por CSS) e o do
+   * overlay do celular (so nasce ao abrir). Por isso toda consulta de
+   * marcador ou controle do mapa fica escopada dentro do overlay — sem isso
+   * o Playwright acusa elemento duplicado, e o teste falharia por causa da
+   * tela errada, nao de um bug real.
+   */
+  const overlay = page.getByTestId('mapa-mobile-overlay');
+  await overlay.getByTestId('mapa-espacos').waitFor({ state: 'visible' });
+  await page.waitForFunction(
+    `document.querySelectorAll('[data-testid="mapa-mobile-overlay"] .myplace-map-pin').length > 0`,
+    undefined, { timeout: 40_000 },
+  );
 
   const tiles = testbed!.tilesServidos().slice(antesTiles);
   assert('o navegador pediu tiles de verdade', tiles.length > 0, `${tiles.length} tiles`);
@@ -830,7 +952,7 @@ async function testeBMapa() {
   const publicados = await sql<{ slug: string; title: string; preco: number }[]>`
     SELECT slug, title, price_monthly_cents AS preco FROM spaces
     WHERE status='published' AND deleted_at IS NULL`;
-  const marcadores = await page.locator('.myplace-map-pin').all();
+  const marcadores = await overlay.locator('.myplace-map-pin').all();
   expect('um marcador por anuncio publicado', marcadores.length, publicados.length);
 
   const rotulos = await Promise.all(marcadores.map((m) => m.textContent()));
@@ -843,7 +965,7 @@ async function testeBMapa() {
     `rotulos=${JSON.stringify(rotulos.map((r) => limpar(r ?? '')))} esperado=${esperado}`);
 
   // --- arrastar pede tiles novos ---
-  const box = await page.getByTestId('mapa-espacos').boundingBox();
+  const box = await overlay.getByTestId('mapa-espacos').boundingBox();
   const antesArrastar = testbed!.tilesServidos().length;
   await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await page.mouse.down();
@@ -856,7 +978,7 @@ async function testeBMapa() {
 
   // --- zoom pede tiles de outro nivel ---
   const antesZoom = testbed!.tilesServidos().length;
-  const zoomIn = page.locator('.maplibregl-ctrl-zoom-in');
+  const zoomIn = overlay.locator('.maplibregl-ctrl-zoom-in');
   await zoomIn.click();
   await page.waitForTimeout(3_000);
   const novosZ = testbed!.tilesServidos().slice(antesZoom);
@@ -868,14 +990,28 @@ async function testeBMapa() {
    * zoom o marcador saiu da area visivel, e reabrir faz o mapa enquadrar os
    * anuncios de novo — que e o comportamento esperado de quem volta ao mapa.
    */
-  await page.getByRole('button', { name: 'Fechar mapa' }).click();
+  await overlay.getByTestId('fechar-mapa-mobile').click();
+  await overlay.waitFor({ state: 'detached' });
   await page.getByTestId('abrir-mapa').click();
-  await page.waitForFunction(`document.querySelectorAll('.myplace-map-pin').length > 0`,
-    undefined, { timeout: 40_000 });
+  await overlay.getByTestId('mapa-espacos').waitFor({ state: 'visible' });
+  await page.waitForFunction(
+    `document.querySelectorAll('[data-testid="mapa-mobile-overlay"] .myplace-map-pin').length > 0`,
+    undefined, { timeout: 40_000 },
+  );
   ok('fechar e reabrir o mapa reenquadra os anuncios');
 
-  // --- clicar no marcador abre o resumo e leva ao anuncio ---
-  await page.locator('.myplace-map-pin').first().click();
+  /*
+   * Clicar no marcador abre o resumo e leva ao anuncio.
+   *
+   * Nao usamos `.first()` aqui: `publicado` e `barato` ficam a poucas
+   * centenas de metros um do outro (mesmo ponto real da semente), e o
+   * enquadramento precisa afastar o zoom para caber o anuncio a ~100 km —
+   * nesse zoom os dois pinos proximos ficam praticamente sobrepostos na
+   * tela, e um clique no "primeiro" pode ser interceptado pelo outro por
+   * cima. Clicamos no pino do anuncio ISOLADO (o de Vila Velha, a 100 km de
+   * qualquer outro), que nunca tem esse problema de sobreposicao.
+   */
+  await overlay.getByRole('button', { name: /Deposito grande em Vila Velha/ }).click();
   const popup = page.locator('.myplace-popup');
   await popup.waitFor({ timeout: 15_000 });
   const textoPopup = (await popup.textContent()) ?? '';
@@ -1030,6 +1166,312 @@ async function testeDPermissaoNavegador() {
   ok('B consegue VER a foto do anuncio publicado de A');
 
   await page.screenshot({ path: join(tmp, 'teste-d-permissao.png'), fullPage: true });
+  await page.context().close();
+}
+
+async function testeEBuscaComGps() {
+  secao('TESTE E (navegador) - busca real a partir da home, com GPS real do Chromium');
+
+  const page = await novaAba(testbed!.users.get(outroId)!, {
+    viewport: { width: 1280, height: 900 },
+    geolocation: { latitude: PONTO.lat, longitude: PONTO.lng },
+  });
+  await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+
+  await page.getByTestId('usar-localizacao').click();
+  await page.getByText('Localização obtida').waitFor({ timeout: 15_000 });
+  ok('a pagina obteve a geolocalizacao real do navegador (mock so da API do Chromium)');
+
+  await page.getByRole('button', { name: 'Encontrar espaços' }).click();
+  await page.waitForURL(/\/espacos\?/, { timeout: 20_000 });
+
+  const url = new URL(page.url());
+  assert('a URL de resultados leva a coordenada real obtida, nao inventada',
+    url.searchParams.get('lat') === String(PONTO.lat) && url.searchParams.get('lng') === String(PONTO.lng),
+    url.search);
+  expect('o raio padrao de uma busca por GPS e 5 km', url.searchParams.get('raio'), '5000');
+
+  await page.getByTestId('resultado-card').first().waitFor({ timeout: 20_000 });
+  const titulosNaTela = await page.getByTestId('resultado-card').allTextContents();
+  assert('o anuncio barato e proximo aparece nos resultados',
+    titulosNaTela.some((t) => t.includes('Vaga de moto barata')), titulosNaTela.join(' | '));
+  assert('o anuncio publicado e proximo aparece nos resultados',
+    titulosNaTela.some((t) => t.includes('Garagem coberta no Centro')), '');
+  assert('o anuncio a ~100 km NAO aparece com o raio padrao de 5 km (raio EXCLUI, nao so inclui)',
+    !titulosNaTela.some((t) => t.includes('Deposito grande em Vila Velha')), '');
+
+  const cartoes = await page.getByTestId('resultado-card').count();
+  const distancias = await page.getByTestId('resultado-distancia').allTextContents();
+  expect('todo cartao com ponto de referencia mostra sua distancia', distancias.length, cartoes);
+  assert('as distancias mostradas tem o formato esperado',
+    distancias.every((d) => /^≈ /.test(d)), distancias.join(', '));
+
+  // Desktop: o mapa fixo ao lado mostra o ponto onde a pessoa buscou.
+  await page.waitForSelector('.myplace-ref-point', { timeout: 20_000 });
+  ok('o mapa mostra o ponto de referencia da busca (GPS), distinto dos anuncios');
+
+  await page.screenshot({ path: join(tmp, 'teste-e-busca-gps.png'), fullPage: true });
+  await page.context().close();
+}
+
+async function testeFFiltrosEOrdenacao() {
+  secao('TESTE F (navegador) - filtros e ordenacao estreitando resultados reais');
+
+  const page = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 1280, height: 900 } });
+  await page.goto(`${baseUrl}/espacos?lat=${PONTO.lat}&lng=${PONTO.lng}`, { waitUntil: 'domcontentloaded' });
+
+  await page.getByTestId('resultado-card').first().waitFor({ timeout: 20_000 });
+  expect('sem filtro de raio, os 3 anuncios publicados aparecem',
+    await page.getByTestId('resultado-card').count(), 3);
+
+  // --- ordenar por menor preco: o mais barato vem primeiro ---
+  await page.getByTestId('ordenar-select').selectOption('price_asc');
+  await page.waitForURL(/ordenar=price_asc/, { timeout: 15_000 });
+  await page.waitForFunction(
+    `(function(){var c=document.querySelector('[data-testid="resultado-card"]');
+      return !!c && c.textContent.indexOf('Vaga de moto barata') >= 0;})()`,
+    undefined, { timeout: 15_000 },
+  );
+  ok('ordenado por menor preco, o anuncio mais barato aparece primeiro');
+
+  // --- ordenar por maior preco: o mais caro (o de 100 km) vem primeiro ---
+  await page.getByTestId('ordenar-select').selectOption('price_desc');
+  await page.waitForURL(/ordenar=price_desc/, { timeout: 15_000 });
+  await page.waitForFunction(
+    `(function(){var c=document.querySelector('[data-testid="resultado-card"]');
+      return !!c && c.textContent.indexOf('Vila Velha') >= 0;})()`,
+    undefined, { timeout: 15_000 },
+  );
+  ok('ordenado por maior preco, o anuncio mais caro aparece primeiro');
+
+  // --- filtro de distancia: 10 km EXCLUI o anuncio a ~100 km ---
+  await page.getByTestId('abrir-filtros').click();
+  await page.getByRole('button', { name: 'Até 10 km' }).click();
+  await page.getByTestId('aplicar-filtros').click();
+  await page.waitForURL(/raio=10000/, { timeout: 15_000 });
+  await page.waitForFunction(
+    `document.querySelectorAll('[data-testid="resultado-card"]').length === 2`,
+    undefined, { timeout: 15_000 },
+  );
+  const textoComRaio = await page.getByTestId('resultado-card').allTextContents();
+  assert('o filtro de 10 km deixa so os 2 anuncios proximos', textoComRaio.length === 2, textoComRaio.join(' | '));
+  const aindaTemLonge = await page
+    .locator(`[data-testid="resultado-card"][data-space-id="${longeId}"]`).count();
+  expect('o anuncio a ~100 km (conferido pelo id, nao so pelo titulo) sumiu do filtro', aindaTemLonge, 0);
+
+  // --- filtro de preco maximo, empilhado sobre o de distancia ---
+  await page.getByTestId('abrir-filtros').click();
+  await page.getByLabel('Preço máximo').fill('100');
+  await page.getByTestId('aplicar-filtros').click();
+  await page.waitForURL(/precoMax=100/, { timeout: 15_000 });
+  await page.waitForFunction(
+    `document.querySelectorAll('[data-testid="resultado-card"]').length === 1`,
+    undefined, { timeout: 15_000 },
+  );
+  const unico = (await page.getByTestId('resultado-card').first().textContent()) ?? '';
+  assert('com raio de 10 km + preco ate R$100, so sobra o anuncio barato',
+    unico.includes('Vaga de moto barata'), unico.slice(0, 120));
+
+  await page.screenshot({ path: join(tmp, 'teste-f-filtros.png'), fullPage: true });
+  await page.context().close();
+}
+
+async function testeGMapaMobile() {
+  secao('TESTE G (navegador) - alternancia lista/mapa no celular, com tiles reais');
+
+  const antesTiles = testbed!.tilesServidos().length;
+  const page = await novaAba(testbed!.users.get(outroId)!, {
+    viewport: { width: 390, height: 844 },
+    geolocation: { latitude: PONTO.lat, longitude: PONTO.lng },
+  });
+  await page.goto(`${baseUrl}/espacos?lat=${PONTO.lat}&lng=${PONTO.lng}&raio=10000`,
+    { waitUntil: 'domcontentloaded' });
+
+  await page.getByTestId('resultado-card').first().waitFor({ timeout: 20_000 });
+  expect('2 anuncios dentro de 10 km', await page.getByTestId('resultado-card').count(), 2);
+
+  const abrirMapa = page.getByTestId('abrir-mapa');
+  await abrirMapa.waitFor({ state: 'visible' });
+  await abrirMapa.click();
+
+  const overlay = page.getByTestId('mapa-mobile-overlay');
+  await overlay.getByTestId('mapa-espacos').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.waitForFunction(
+    `document.querySelectorAll('[data-testid="mapa-mobile-overlay"] .myplace-map-pin').length > 0`,
+    undefined, { timeout: 40_000 },
+  );
+
+  const marcadores = await overlay.locator('.myplace-map-pin').count();
+  expect('um marcador por anuncio dentro do raio', marcadores, 2);
+
+  const tiles = testbed!.tilesServidos().slice(antesTiles);
+  assert('o mapa do celular pediu tiles reais', tiles.length > 0, `${tiles.length} tiles`);
+
+  await overlay.getByTestId('fechar-mapa-mobile').click();
+  await overlay.waitFor({ state: 'detached', timeout: 10_000 });
+  ok('fechar o mapa desmonta o motor de verdade (nao so esconde)');
+
+  await page.getByTestId('resultado-card').first().waitFor({ timeout: 10_000 });
+  ok('a lista volta a aparecer ao fechar o mapa');
+
+  await page.screenshot({ path: join(tmp, 'teste-g-mapa-mobile.png') });
+  await page.context().close();
+}
+
+async function testeHGaleria() {
+  secao('TESTE H (navegador) - galeria de fotos: abrir, navegar, fechar');
+
+  const [espaco] = await sql<{ slug: string }[]>`SELECT slug FROM spaces WHERE id=${publicado}`;
+  const page = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 430, height: 900 } });
+  await page.goto(`${baseUrl}/espacos/${espaco!.slug}`, { waitUntil: 'domcontentloaded' });
+
+  await page.waitForFunction(
+    `(function(){var i=document.querySelector('[data-testid="galeria-capa"] img');
+      return !!i && i.naturalWidth > 0;})()`,
+    undefined, { timeout: 40_000 },
+  );
+  ok('a capa da galeria carregou uma foto de verdade (URL assinada)');
+
+  await page.getByTestId('galeria-capa').click();
+  await page.getByTestId('galeria-modal').waitFor({ state: 'visible', timeout: 15_000 });
+  expect('abre na primeira foto', await page.getByTestId('galeria-contador').textContent(), '1 / 3');
+
+  await page.getByTestId('galeria-proxima').click();
+  expect('a seta avanca para a segunda foto', await page.getByTestId('galeria-contador').textContent(), '2 / 3');
+
+  await page.keyboard.press('ArrowRight');
+  expect('o teclado tambem avanca', await page.getByTestId('galeria-contador').textContent(), '3 / 3');
+
+  await page.getByTestId('galeria-proxima').click();
+  expect('depois da ultima foto, volta pra primeira (navegacao circular)',
+    await page.getByTestId('galeria-contador').textContent(), '1 / 3');
+
+  await page.keyboard.press('ArrowLeft');
+  expect('o teclado para a esquerda volta pra ultima foto',
+    await page.getByTestId('galeria-contador').textContent(), '3 / 3');
+
+  await page.screenshot({ path: join(tmp, 'teste-h-galeria.png') });
+
+  await page.keyboard.press('Escape');
+  await page.getByTestId('galeria-modal').waitFor({ state: 'detached', timeout: 10_000 });
+  ok('Escape fecha a visualizacao em tela cheia');
+
+  await page.getByTestId('galeria-capa').click();
+  await page.getByTestId('galeria-modal').waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByTestId('galeria-fechar').click();
+  await page.getByTestId('galeria-modal').waitFor({ state: 'detached', timeout: 10_000 });
+  ok('o botao de fechar (X) tambem funciona');
+
+  await page.context().close();
+}
+
+async function testeIFavoritos() {
+  secao('TESTE I (navegador) - favoritar, persistir apos recarregar, isolamento entre usuarios');
+
+  const pageOutro = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 1280, height: 900 } });
+  await pageOutro.goto(`${baseUrl}/espacos?lat=${PONTO.lat}&lng=${PONTO.lng}&raio=10000`,
+    { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByTestId('resultado-card').first().waitFor({ timeout: 20_000 });
+
+  const cardPublicado = () =>
+    pageOutro.locator('[data-testid="resultado-card"]', { hasText: 'Garagem coberta no Centro' });
+  const botaoPublicado = () => cardPublicado().getByTestId('botao-favoritar');
+
+  expect('o coracao comeca vazio para quem nunca favoritou',
+    await botaoPublicado().getAttribute('aria-pressed'), 'false');
+
+  await botaoPublicado().click();
+  await aguardarAtributo(botaoPublicado(), 'aria-pressed', 'true', 'clicar no coracao favorita na hora (otimista)');
+
+  await aguardarCondicao(async () => {
+    const [{ n }] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM favorites WHERE user_id=${outroId} AND space_id=${publicado}`;
+    return n === 1;
+  }, 'o favorito foi gravado no banco para o usuario certo');
+
+  // --- persiste depois de recarregar a pagina (nao e so estado local) ---
+  await pageOutro.reload({ waitUntil: 'domcontentloaded' });
+  await pageOutro.getByTestId('resultado-card').first().waitFor({ timeout: 20_000 });
+  expect('depois de recarregar, o coracao continua cheio',
+    await botaoPublicado().getAttribute('aria-pressed'), 'true');
+
+  // --- a pagina /favoritos mostra o que foi salvo ---
+  await pageOutro.goto(`${baseUrl}/favoritos`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByText('Garagem coberta no Centro').waitFor({ timeout: 20_000 });
+  ok('o anuncio favoritado aparece em /favoritos');
+
+  // --- isolamento entre usuarios: dono nao ve o favorito de outro ---
+  const pageDono = await novaAba(testbed!.users.get(donoId)!, { viewport: { width: 1280, height: 900 } });
+  await pageDono.goto(`${baseUrl}/espacos?lat=${PONTO.lat}&lng=${PONTO.lng}&raio=10000`,
+    { waitUntil: 'domcontentloaded' });
+  await pageDono.getByTestId('resultado-card').first().waitFor({ timeout: 20_000 });
+  const cardPublicadoDono = pageDono.locator('[data-testid="resultado-card"]', { hasText: 'Garagem coberta no Centro' });
+  expect('o favorito de outro usuario nao aparece para o dono',
+    await cardPublicadoDono.getByTestId('botao-favoritar').getAttribute('aria-pressed'), 'false');
+
+  // --- dono favorita um anuncio DIFERENTE, sem afetar o favorito de outro ---
+  const cardBaratoDono = pageDono.locator('[data-testid="resultado-card"]', { hasText: 'Vaga de moto barata no Centro' });
+  await cardBaratoDono.getByTestId('botao-favoritar').click();
+  await aguardarCondicao(async () => {
+    const [{ n }] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM favorites WHERE user_id=${donoId} AND space_id=${barato}`;
+    return n === 1;
+  }, 'o dono favoritou um anuncio diferente do de outro');
+
+  const cruzado = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM favorites WHERE user_id=${donoId} AND space_id=${publicado}`;
+  expect('o dono NAO favoritou o anuncio que outro favoritou (isolamento real no banco)', cruzado[0]!.n, 0);
+
+  // --- desfavoritar pela pagina /favoritos remove da lista depois de atualizar ---
+  await pageOutro.goto(`${baseUrl}/favoritos`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByText('Garagem coberta no Centro').waitFor({ timeout: 20_000 });
+  await pageOutro.getByTestId('botao-favoritar').click();
+  await aguardarCondicao(async () => {
+    const [{ n }] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM favorites WHERE user_id=${outroId} AND space_id=${publicado}`;
+    return n === 0;
+  }, 'o favorito foi removido do banco');
+  await pageOutro.getByText('Você ainda não salvou nenhum espaço.').waitFor({ timeout: 20_000 });
+  ok('desfavoritar em /favoritos remove o anuncio da lista depois de atualizar');
+
+  await pageOutro.screenshot({ path: join(tmp, 'teste-i-favoritos.png'), fullPage: true });
+  await pageOutro.context().close();
+  await pageDono.context().close();
+}
+
+async function testeJCompartilhar() {
+  secao('TESTE J (navegador) - compartilhar: fallback real de copiar link');
+
+  const [espaco] = await sql<{ slug: string }[]>`SELECT slug FROM spaces WHERE id=${publicado}`;
+  const page = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 430, height: 900 } });
+
+  /*
+   * Sem a API nativa de compartilhar do sistema, a interface tem que cair
+   * para a area de transferencia DE VERDADE — nao fingir sucesso. Forcamos a
+   * ausencia de `navigator.share` para testar exatamente esse caminho, em
+   * vez de depender de o Chromium desta maquina ter ou nao a API: e o mesmo
+   * papel que o mock de geolocalizacao ja cumpre em outros testes — controla
+   * uma capacidade real do navegador, nao finge o comportamento do app.
+   */
+  await page.addInitScript({
+    content: `Object.defineProperty(window.navigator, 'share', { value: undefined, configurable: true });`,
+  });
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseUrl });
+
+  await page.goto(`${baseUrl}/espacos/${espaco!.slug}`, { waitUntil: 'domcontentloaded' });
+
+  const esperado = `${baseUrl}/espacos/${espaco!.slug}`;
+  await page.getByTestId('botao-compartilhar').click();
+  await page.getByText('Link copiado').waitFor({ timeout: 10_000 });
+  ok('sem Web Share, o botao confirma que copiou o link');
+
+  const copiado = await page.evaluate(`navigator.clipboard.readText()`);
+  expect('o link copiado e exatamente a URL do anuncio', copiado, esperado);
+
+  await page.getByText('Compartilhar', { exact: true }).waitFor({ timeout: 5_000 });
+  ok('o botao volta ao texto original depois de copiar');
+
+  await page.screenshot({ path: join(tmp, 'teste-j-compartilhar.png') });
   await page.context().close();
 }
 

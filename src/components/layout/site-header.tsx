@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Heart } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/dal';
 import { signOutAction } from '@/lib/auth/actions';
 import { Logo } from '@/components/ui/logo';
@@ -28,6 +29,13 @@ export async function SiteHeader() {
                 className="hidden sm:inline-flex items-center h-10 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
               >
                 Meus espaços
+              </Link>
+              <Link
+                href="/favoritos"
+                aria-label="Favoritos"
+                className="inline-flex items-center justify-center size-10 rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)] text-[var(--content-muted)]"
+              >
+                <Heart className="size-[1.125rem]" aria-hidden />
               </Link>
               <Link
                 href="/minha-conta"

@@ -44,7 +44,7 @@ export default function Home() {
               {TIPOS_POPULARES.map((t) => (
                 <Link
                   key={t.value}
-                  href={`/buscar?tipo=${t.value}`}
+                  href={`/espacos?tipo=${t.value}`}
                   className="px-3.5 py-1.5 text-[0.8125rem] rounded-[var(--radius-pill)] border text-[var(--content-muted)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
                 >
                   {t.label}

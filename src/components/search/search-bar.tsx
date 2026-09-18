@@ -31,13 +31,34 @@ type GeoState =
  * de endereço continua ali e funcionando — nunca inventamos uma localização
  * nem deixamos o usuário sem saída.
  */
-export function SearchBar({ className, autoFocus = false }: { className?: string; autoFocus?: boolean }) {
+export function SearchBar({
+  className,
+  autoFocus = false,
+  initialTipo,
+  initialOnde,
+  initialGps,
+}: {
+  className?: string;
+  autoFocus?: boolean;
+  /** Prefill ao reabrir a busca na página de resultados — nunca na home. */
+  initialTipo?: string;
+  initialOnde?: string;
+  /**
+   * A busca atual já veio de coordenada real (GPS, CEP ou endereço
+   * geocodificado): mostra "Perto de você" e, se a pessoa buscar de novo sem
+   * tocar em nada, reenvia ESSA coordenada — nunca pedimos o GPS de novo
+   * sozinhos, e nunca inventamos 0,0 como marcador de "usando GPS".
+   */
+  initialGps?: { lat: number; lng: number };
+}) {
   const router = useRouter();
   const id = useId();
   const [pending, startTransition] = useTransition();
-  const [geo, setGeo] = useState<GeoState>({ status: 'idle' });
-  const [tipo, setTipo] = useState('');
-  const [onde, setOnde] = useState('');
+  const [geo, setGeo] = useState<GeoState>(
+    initialGps ? { status: 'granted', lat: initialGps.lat, lng: initialGps.lng } : { status: 'idle' },
+  );
+  const [tipo, setTipo] = useState(initialTipo ?? '');
+  const [onde, setOnde] = useState(initialOnde ?? '');
 
   function usarMinhaLocalizacao() {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
@@ -152,6 +173,7 @@ export function SearchBar({ className, autoFocus = false }: { className?: string
           type="button"
           onClick={usarMinhaLocalizacao}
           disabled={geo.status === 'locating'}
+          data-testid="usar-localizacao"
           className="inline-flex items-center gap-2 text-[0.875rem] text-[var(--content-muted)] hover:text-[var(--accent)] transition-colors disabled:opacity-60"
         >
           {geo.status === 'locating' ? (

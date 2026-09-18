@@ -15,8 +15,8 @@ As outras acompanham as fases seguintes — não crie nada antes da hora.
 | Supabase | Grátis | US$ 25/mês (Pro) | **Agora** |
 | Vercel | Grátis (Hobby) | US$ 20/mês (Pro — obrigatório para uso comercial) | Ao publicar |
 | Domínio `.com.br` | ~R$ 40/ano | — | Ao publicar |
-| MapTiler | Grátis até 100k carregamentos | ~US$ 25/mês | Fase 3 |
-| Google Geocoding | US$ 200/mês de crédito grátis | ~US$ 5 / 1.000 buscas | Fase 3 |
+| MapTiler | Grátis até 100k carregamentos | ~US$ 25/mês | Opcional — upgrade do mapa (OSM grátis já funciona) |
+| Google Geocoding | US$ 200/mês de crédito grátis | ~US$ 5 / 1.000 buscas | Opcional — upgrade da busca por texto (Nominatim grátis já funciona) |
 | Asaas | Sem mensalidade | Tarifa por transação | Fase 7 |
 | Resend | Grátis até 3.000 e-mails/mês | US$ 20/mês | Fase 6 |
 | Upstash Redis | Grátis até 10k comandos/dia | ~US$ 10/mês | Antes de produção |
@@ -279,10 +279,34 @@ CEP_VIACEP_BASE=https://viacep.com.br
 Há cache de 24 h em memória e limite de 40 consultas por minuto por IP na
 nossa rota, para não abusar de serviço doado.
 
-### 3.4 Geocodificação de endereço (Fase 3, opcional)
+### 3.4 Geocodificação de endereço (busca por texto livre)
 
-Converter endereço escrito em coordenada é diferente de consultar CEP, e para
-isso o gratuito não basta. Quando chegar a hora:
+Quando alguém digita um bairro, cidade ou endereço no campo "Onde?" da busca
+— em vez de usar o GPS ou um CEP — o servidor precisa converter esse texto
+numa coordenada para calcular distância. Isso é **geocodificação**, e é
+diferente de consultar CEP (que é uma tabela fechada de endereços).
+
+**Já funciona hoje, sem nenhuma ação sua.** `src/lib/maps/geocoding.ts` tenta,
+em ordem, o que estiver configurado, e cai para o gratuito quando nada está:
+
+1. **Google Geocoding API**, se `GEOCODING_PROVIDER=google` e
+   `GOOGLE_GEOCODING_API_KEY` estiverem definidos.
+2. **MapTiler Geocoding API**, se `GEOCODING_PROVIDER=maptiler` — reaproveita a
+   MESMA `NEXT_PUBLIC_MAPTILER_KEY` que já existe para os tiles do mapa
+   (§3.2); quem já configurou o MapTiler não precisa criar outra conta.
+3. **Nominatim (OpenStreetMap)**, sem chave nenhuma — é o que está valendo
+   agora, porque nenhum dos dois acima está configurado no seu ambiente.
+
+O Nominatim não exige conta nem chave, então não há nada bloqueando você aqui
+— mas ele **não é pensado para volume de produção**: a política de uso deles
+(https://operations.osmfoundation.org/policies/nominatim/) pede tráfego leve,
+um identificador descritivo (já enviado) e no máximo 1 requisição por
+segundo, que é exatamente o limite que o código aplica. Para uma cidade ou
+região pequena, tende a ser suficiente. Se a busca por texto crescer, migre
+para uma das opções pagas:
+
+**Upgrade opcional — Google Geocoding API** (melhor cobertura de endereço no
+Brasil):
 
 1. [console.cloud.google.com](https://console.cloud.google.com) → novo projeto
 2. Ative **Geocoding API**
@@ -293,9 +317,15 @@ isso o gratuito não basta. Quando chegar a hora:
    em laço vira fatura alta.
 6. Copie para `GOOGLE_GEOCODING_API_KEY` e ponha `GEOCODING_PROVIDER=google`
 
-Hoje **não é usado**: o ponto do anúncio vem do GPS do navegador ou do pino que
-o proprietário arrasta, que é mais confiável do que geocodificar endereço
-digitado à mão.
+**Upgrade opcional — MapTiler** (se você já usa MapTiler para os tiles do
+mapa, é só ligar): ponha `GEOCODING_PROVIDER=maptiler`. Nenhuma chave nova —
+usa a `NEXT_PUBLIC_MAPTILER_KEY` do §3.2.
+
+O ponto do **anúncio** (onde o proprietário marca o espaço) nunca passa por
+aqui — vem do GPS do navegador ou do pino que o proprietário arrasta no mapa,
+que é mais confiável do que geocodificar um endereço digitado à mão. A
+geocodificação desta seção serve só para a **busca**, do lado de quem procura
+um espaço.
 
 ---
 

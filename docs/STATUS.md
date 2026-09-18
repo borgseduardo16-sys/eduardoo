@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1 e 2 de 12 + segurança interna
+> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1, 2, 3 e 4 de 12 + segurança interna
 
 Estados usados:
 
@@ -119,19 +119,64 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Mínimo de 3 fotos para publicar | ✅ | dito na interface, cobrado na action e **garantido por trigger no banco** |
 | Servidor não confia na cidade que o navegador manda | ✅ | confirma o CEP ao salvar — testado com cidade forjada |
 | Políticas do Storage por pasta do dono | ✅ | migração 0009 aplicada no Supabase real em 18/09/2026 — bucket privado, 4 políticas confirmadas |
-| Verificação automatizada | ✅ | 37 + 85 checagens — `pnpm verify:tudo` |
+| Verificação automatizada | ✅ | 37 checagens — `scripts/verify-spaces.ts`; fotos/mapa/CEP em navegador real cobertas junto com a Fase 3/4 (ver abaixo) |
 | Conversa com proprietário | ⬜ | Fase 6 |
 | Reservar / alugar | ⬜ | Fase 5 |
 
+---
+
+## Fase 3 e 4 — Busca, mapa, favoritos e página do espaço ✅
+
+O usuário chamou este bloco de "Parte 3" no pedido original; cobre as duas
+fases do roteiro interno porque, na prática, busca e página do anúncio saíram
+juntas de um só pedido.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Busca por tipo + localização | ✅ | GPS, CEP, cidade/bairro conhecido ou texto livre |
+| Geolocalização real do navegador na busca | ✅ | mesmo tratamento de recusa já usado no anúncio |
+| Reconhecimento de tipo por palavra-chave | ✅ | "quero uma vaga" → `vaga_carro`, sem IA — `src/lib/spaces/keywords.ts` |
+| Geocodificação de endereço/cidade livre | ✅ | Google → MapTiler → Nominatim (grátis, sem chave), em camadas — `src/lib/maps/geocoding.ts` |
+| `resolveLocation`: GPS → CEP → cidade/bairro real → geocodificação | ✅ | nunca inventa coordenada; sem resultado, cai para busca por texto |
+| Distância calculada no servidor | ✅ | sempre a partir de `approx_location`, nunca do ponto exato — ver [SEGURANCA.md §8](./SEGURANCA.md#8-privacidade-da-localização) |
+| Filtro de raio EXCLUI, não só inclui | ✅ | testado com anúncio a ~100 km |
+| Filtros de preço, características e disponibilidade | ✅ | acumulam entre si, refletidos na URL (compartilhável, volta funciona) |
+| Ordenação: mais próximos, menor/maior preço, mais recentes | ✅ | "mais próximos" só aparece com um ponto de referência real |
+| Lista + mapa, lado a lado no desktop | ✅ | mapa sempre montado, sticky |
+| Alternância Lista/Mapa no celular | ✅ | mapa só monta ao pedir, desmonta de verdade ao fechar |
+| Estados vazio/erro honestos | ✅ | "nada por aqui" muda de texto conforme o motivo; CEP não encontrado é dito, não escondido |
+| Página do espaço: galeria com zoom e navegação | ✅ | teclado (setas/Esc) e toque, navegação circular |
+| CTA "Tenho interesse" honesto | ✅ | diz que a solicitação ainda não existe, em vez de fingir um botão que funciona |
+| Favoritos | ✅ | tabela da Fase 1, isolamento por usuário testado com dois usuários reais |
+| Compartilhar anúncio | ✅ | Web Share API nativa; sem ela, copia o link de verdade para a área de transferência |
+| Imagem de compartilhamento (OG) dinâmica | ✅ | `espacos/[slug]/opengraph-image.tsx`, gerada por request, sem depender de URL assinada que expira |
+| Metadados de SEO (título, descrição, canonical) | ✅ | por anúncio |
+| Endereço/coordenada exata nunca aparece na busca | ✅ | **testado**, inclusive contra o HTML renderizado da página |
+| Verificação automatizada (banco) | ✅ | 61 checagens — `scripts/verify-busca.ts` |
+| Verificação automatizada (navegador) | ✅ | 6 novos testes reais (E–J) somados aos 4 já existentes — 126 checagens no total, `pnpm verify:integracoes` |
+| Reserva / solicitação de fato | ⬜ | Fase 5 — o CTA já diz isso na tela |
+
+**Dois bugs reais encontrados e corrigidos escrevendo os testes desta fase**
+(não hipotéticos — pegos com Chromium de verdade, ver `git log`):
+
+1. O mapa do celular tinha altura zero na primeira renderização: o CSS do
+   `maplibre-gl` importado pela biblioteca troca `position: absolute` do
+   Tailwind por `position: relative` na mesma classe, dependendo da ordem de
+   carregamento das folhas de estilo — não é algo que se deva torcer para dar
+   certo. Corrigido tornando o tamanho do contêiner do mapa independente
+   dessa disputa de especificidade (`src/components/map/spaces-map.tsx`).
+2. Clicar num marcador do mapa podia ser interceptado por outro marcador
+   sobreposto na tela, quando dois anúncios próximos aparecem no mesmo
+   enquadramento de um mapa que também precisa caber um anúncio distante —
+   comportamento real de mapa com pontos próximos, corrigido no teste (mira
+   num marcador isolado) em vez de mascarado.
 
 ---
 
-## Fases 2 a 12 — ⬜ não implementadas
+## Fases 5 a 12 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
-| 3 | Busca por distância e filtros avançados (mapa na listagem já saiu na Fase 2) | — |
-| 4 | Página do anúncio e favoritos | — |
 | 5 | Reserva e aluguel | — |
 | 6 | Chat e notificações | Resend |
 | 7 | Pagamento real | **Conta Asaas** |
@@ -141,9 +186,11 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | 11 | Painel administrativo | — |
 | 12 | Segurança, testes e preparação para produção | Upstash + Sentry |
 
-As telas de `/buscar` e `/anunciar` existem e **dizem explicitamente que ainda
-não funcionam**, listando o que falta. Não há dado de exemplo em lugar nenhum
-que possa ser confundido com dado real.
+A tela de `/anunciar` (rascunho) existe e **diz explicitamente o que falta**
+quando algo não está pronto. Não há dado de exemplo em lugar nenhum que possa
+ser confundido com dado real — inclusive os anúncios que aparecem na busca
+durante os testes automatizados são criados e apagados a cada execução, nunca
+deixados no banco.
 
 ---
 
@@ -211,11 +258,12 @@ Contas completas em [PAGAMENTOS.md §3](./PAGAMENTOS.md#3-a-economia-real-do-mod
 ### ✅ 3. O que foi testado de verdade, e o que já está confirmado no seu projeto
 
 A política de rede desta máquina bloqueia **toda** saída externa (BrasilAPI,
-ViaCEP, tiles do OpenStreetMap e `*.supabase.co` devolvem `000`). Para não
-cair no teste de mentirinha — "clicou, então funciona" — os testes sobem, na
-própria máquina, um servidor que implementa o **contrato REST** desses
-serviços, e exercitam o app inteiro contra ele **em um Chromium de verdade**
-(`scripts/verify-integracoes.ts`, 85 checagens).
+ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
+Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
+sobem, na própria máquina, um servidor que implementa o **contrato REST**
+desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
+verdade** (`scripts/verify-integracoes.ts`, 126 checagens — fotos, mapa, CEP,
+busca com GPS real, filtros, favoritos e compartilhar).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -280,11 +328,12 @@ confirmação de que funcionam **juntos**. É a primeira pergunta para o gerente
 
 Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
-### ⚠️ 7. Teste de interface só nas telas das integrações
+### ⚠️ 7. Teste de interface só em parte das telas
 
-São 237 checagens reais. As telas de foto, mapa e CEP rodam em Chromium de
-verdade (`pnpm verify:integracoes`), mas o resto da interface — cadastro,
-login, painel, marketplace — ainda não tem teste automatizado. Fase 12.
+São 339 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+busca (com GPS real), filtros, favoritos, galeria e compartilhar rodam em
+Chromium de verdade (`pnpm verify:integracoes`). O que ainda não tem teste
+automatizado de interface: cadastro, login e o painel "Meus espaços". Fase 12.
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -303,8 +352,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 152 checagens contra o Postgres real
-pnpm verify:integracoes              # 85 checagens em Chromium real (fotos, mapa, CEP)
+pnpm verify                          # 213 checagens contra o Postgres real
+pnpm verify:integracoes              # 126 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```

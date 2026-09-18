@@ -127,6 +127,16 @@ Requisito explícito do produto, resolvido no modelo de dados:
 O deslocamento é determinístico por espaço — não sorteado a cada carregamento.
 Sorteio a cada requisição permitiria triangular o ponto real com poucas visitas.
 
+**Distância na busca segue a mesma regra.** Quando a busca mostra "≈ 1,2 km"
+num cartão de resultado, essa distância é sempre calculada a partir de
+`approx_location`, nunca de `location` (`src/lib/spaces/queries.ts`,
+`distanceExpr`). Isso não é um detalhe de implementação: mostrar a distância
+até o ponto exato permitiria, com buscas repetidas a partir de pontos de
+referência diferentes, triangular o endereço real por trilateração — o mesmo
+ataque que o deslocamento determinístico do mapa já existe para impedir.
+Calcular a partir do ponto aproximado não vaza nada de novo: é a mesma
+informação que o marcador no mapa público já mostra.
+
 ---
 
 ## 5. Dinheiro
@@ -166,14 +176,26 @@ src/
 │   ├── auth/                 dal.ts, actions.ts, schemas.ts, redirect.ts
 │   ├── safety/               denúncias, bloqueio, detector de contato, CPF/CNPJ
 │   ├── supabase/             server.ts, client.ts, admin.ts
+│   ├── spaces/                queries.ts, resolve-location.ts, keywords.ts, format.ts
+│   ├── maps/                  config.ts (tiles), geocoding.ts (texto → coordenada)
+│   ├── favorites/             queries.ts, actions.ts
 │   ├── env.ts  money.ts  rate-limit.ts  utils.ts
 └── proxy.ts
 
 drizzle/                      migrações SQL versionadas
 scripts/verify-schema.ts      invariantes centrais contra Postgres real
 scripts/verify-safety.ts      subsistema de segurança contra Postgres real
+scripts/verify-busca.ts       busca, distância, filtros e favoritos contra Postgres real
+scripts/verify-integracoes.ts fotos, mapa, CEP, busca e favoritos em Chromium real
 docs/                         esta documentação
 ```
+
+`src/lib/spaces/resolve-location.ts` é o orquestrador do campo "Onde?" da
+busca: tenta GPS → CEP → cidade/bairro já conhecido no banco → geocodificação
+(`lib/maps/geocoding.ts`, ver [SETUP.md §3.4](./SETUP.md#34-geocodificação-de-endereço-busca-por-texto-livre)),
+nessa ordem, da opção mais barata (sem rede) para a mais cara. Nunca inventa
+coordenada: quando nada resolve, devolve `source: 'unresolved'` e quem chama
+cai para busca por texto simples em vez de tela vazia.
 
 ---
 

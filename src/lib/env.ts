@@ -64,9 +64,9 @@ const INTEGRATIONS = {
     doc: 'docs/SETUP.md#4-asaas-pagamentos',
   },
   geocoding: {
-    label: 'Geocodificacao de enderecos',
+    label: 'Geocodificacao de enderecos (provedor pago, opcional)',
     vars: ['GEOCODING_PROVIDER'],
-    doc: 'docs/SETUP.md#3-mapas-e-geocodificacao',
+    doc: 'docs/SETUP.md#34-geocodificacao-de-endereco-opcional',
   },
   email: {
     label: 'Envio de email transacional (Resend)',

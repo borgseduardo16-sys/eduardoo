@@ -5,7 +5,9 @@ import { ArrowLeft } from 'lucide-react';
 import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { getCurrentUser } from '@/lib/auth/dal';
+import { isFavorited } from '@/lib/favorites/queries';
 import { computeTrustProfile } from '@/lib/safety/trust';
+import { serverEnv } from '@/lib/env';
 import type { SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -15,6 +17,8 @@ import { TrustBadges } from '@/components/safety/trust-badges';
 import { ReportDialog } from '@/components/safety/report-dialog';
 import { ProtectionNotice } from '@/components/safety/protection-notice';
 import { VisitChecklist } from '@/components/safety/visit-checklist';
+import { FavoriteButton } from '@/components/favorites/favorite-button';
+import { ShareButton } from '@/components/espacos/share-button';
 import { Alert } from '@/components/ui/alert';
 
 export const dynamic = 'force-dynamic';
@@ -28,9 +32,18 @@ export async function generateMetadata({
   const space = await getPublicSpaceBySlug(slug);
   if (!space) return { title: 'Espaço não encontrado' };
 
+  const descricao = space.description?.slice(0, 160) ?? undefined;
+  const url = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
+
   return {
     title: space.title,
-    description: space.description?.slice(0, 160) ?? undefined,
+    description: descricao,
+    alternates: { canonical: url },
+    // A imagem em si vem do arquivo opengraph-image.tsx desta mesma rota —
+    // o Next liga isso sozinho pela convenção de arquivo, sem precisar
+    // listar `images` aqui. O que fica explícito é o resto do cartão.
+    openGraph: { title: space.title, description: descricao, url, type: 'website' },
+    twitter: { card: 'summary_large_image', title: space.title, description: descricao },
   };
 }
 
@@ -47,10 +60,12 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
 
   if (!space) notFound();
 
-  const urls = await signImagePaths(
-    space.images.flatMap((i) => [i.storagePath, i.thumbPath].filter(Boolean) as string[]),
-  );
+  const [urls, favorited] = await Promise.all([
+    signImagePaths(space.images.flatMap((i) => [i.storagePath, i.thumbPath].filter(Boolean) as string[])),
+    viewer ? isFavorited(viewer.id, space.id) : Promise.resolve(false),
+  ]);
   const isOwner = viewer?.id === space.ownerId;
+  const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
 
   const trust = space.owner
     ? computeTrustProfile({
@@ -70,13 +85,27 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
       <SiteHeader />
 
       <main id="conteudo" className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10 space-y-8">
-        <Link
-          href="/espacos"
-          className="inline-flex items-center gap-1.5 text-[0.875rem] text-[var(--content-muted)] hover:text-[var(--content)]"
-        >
-          <ArrowLeft className="size-4" aria-hidden />
-          Todos os espaços
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link
+            href="/espacos"
+            className="inline-flex items-center gap-1.5 text-[0.875rem] text-[var(--content-muted)] hover:text-[var(--content)]"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            Todos os espaços
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <ShareButton title={space.title} url={shareUrl} />
+            {!isOwner && (
+              <FavoriteButton
+                spaceId={space.id}
+                initialFavorited={favorited}
+                loggedIn={Boolean(viewer)}
+                variant="page"
+              />
+            )}
+          </div>
+        </div>
 
         {isOwner && (
           <Alert tone="info" title="Este anúncio é seu">
@@ -111,7 +140,26 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
             })),
             features: space.features,
           }}
+          emptyPhotosText="O proprietário ainda não adicionou fotos deste espaço."
         />
+
+        {/*
+          "Tenho interesse" — a chamada principal da página, sem fingir uma
+          reserva que não existe ainda. Não é um botão morto: é um cartão que
+          diz com todas as letras o que falta e o que já dá pra fazer agora
+          (visitar o espaço, ver quem anuncia). A solicitação de fato entra
+          na próxima etapa — ver docs/STATUS.md.
+        */}
+        {!isOwner && (
+          <section className="rounded-[var(--radius-card)] border-2 border-dashed p-5 sm:p-6 space-y-2">
+            <p className="font-semibold text-[1.0625rem]">Tenho interesse neste espaço</p>
+            <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
+              A solicitação de aluguel pela plataforma ainda não está pronta — é a próxima etapa
+              do produto. Por enquanto, favorite o espaço para não perdê-lo de vista, e combine a
+              visita quando essa etapa estiver no ar.
+            </p>
+          </section>
+        )}
 
         {/* Onde fica — área, não ponto */}
         {space.approxLat != null && space.approxLng != null && (
@@ -147,16 +195,6 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
             />
           </section>
         )}
-
-        {/* Alugar ainda não existe — dizemos isso em vez de mostrar um botão morto. */}
-        <section className="rounded-[var(--radius-card)] border border-dashed p-5 text-center space-y-2">
-          <p className="font-medium">Reserva ainda não disponível</p>
-          <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed max-w-md mx-auto">
-            A conversa com o proprietário e o pagamento pela plataforma entram nas próximas
-            fases. Por enquanto os anúncios estão no ar para você conhecer o que existe na
-            sua região.
-          </p>
-        </section>
 
         <ProtectionNotice variant="card" />
 

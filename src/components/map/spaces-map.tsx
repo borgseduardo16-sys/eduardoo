@@ -12,6 +12,7 @@ import { LoaderCircle, LocateFixed, Map as MapIcon, X } from 'lucide-react';
 import { getTileSource, DEFAULT_CENTER, DEFAULT_ZOOM } from '@/lib/maps/config';
 import { formatBRL } from '@/lib/money';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 export type MapSpace = {
@@ -28,24 +29,41 @@ export type MapSpace = {
 };
 
 /**
- * Mapa do marketplace.
+ * O motor do mapa: inicializa, desenha marcadores, abre balão ao clicar.
  *
- * Os marcadores saem do banco: cada um e um anuncio `published`, na coordenada
- * APROXIMADA (`approx_location`, deslocada ~200-400m por trigger). O ponto
- * exato nao chega ao navegador — a consulta publica nem o seleciona.
+ * NÃO decide sozinho quando aparecer — isso é responsabilidade de quem
+ * renderiza (`ResultsMap` no desktop sempre montado; `MobileMapToggle` no
+ * celular, só quando a pessoa pede). Essa separação existe porque o
+ * comportamento certo é DIFERENTE nos dois casos: no desktop o mapa é parte
+ * fixa da tela de resultados (como Zillow/Airbnb); no celular, carregar
+ * tiles de um mapa que ninguém pediu gasta dado de graça, então ele só
+ * nasce quando a pessoa toca em "Ver mapa".
  *
- * Por isso os marcadores nao ficam mais precisos ao dar zoom: a imprecisao e
- * proposital. Quem reserva recebe o endereco exato depois.
- *
- * O mapa so monta quando a pessoa abre. Num celular, carregar tiles de um
- * mapa que ninguem pediu gasta dado de graca.
+ * Os marcadores saem do banco: cada um é um anúncio `published`, na
+ * coordenada APROXIMADA (`approx_location`, deslocada ~200-400m por
+ * trigger). O ponto exato nunca chega ao navegador — a consulta pública nem
+ * o seleciona. Por isso os marcadores não ficam mais precisos ao dar zoom:
+ * a imprecisão é proposital.
  */
-export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
-  const [aberto, setAberto] = useState(false);
-
+export function ResultsMap({
+  spaces,
+  referencePoint,
+  className,
+}: {
+  spaces: MapSpace[];
+  /**
+   * Onde a pessoa buscou (GPS, CEP ou endereço geocodificado). Mostrado como
+   * um ponto distinto dos anúncios. Ausente quando a busca foi só por texto
+   * (cidade/bairro batendo direto no banco) — nesse caso não existe um ponto
+   * exato para desenhar, só resultados.
+   */
+  referencePoint?: { lat: number; lng: number } | null;
+  className?: string;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const popupRef = useRef<Popup | null>(null);
+  const refMarkerRef = useRef<Marker | null>(null);
 
   const [ready, setReady] = useState(false);
   const [tileError, setTileError] = useState(false);
@@ -56,15 +74,17 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
     (s) => Number.isFinite(s.lat) && Number.isFinite(s.lng),
   );
 
+  // Inicializa o mapa uma vez, no primeiro render em que existe container.
   useEffect(() => {
-    if (!aberto || !containerRef.current || mapRef.current) return;
+    if (!containerRef.current || mapRef.current) return;
 
     const source = getTileSource();
+    const centro = referencePoint ?? DEFAULT_CENTER;
     const map = new MapLibreMap({
       container: containerRef.current,
       style: source.style as never,
-      center: [DEFAULT_CENTER.lng, DEFAULT_CENTER.lat],
-      zoom: DEFAULT_ZOOM,
+      center: [centro.lng, centro.lat],
+      zoom: referencePoint ? 13 : DEFAULT_ZOOM,
       attributionControl: { compact: true },
     });
 
@@ -77,13 +97,16 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
     return () => {
       popupRef.current?.remove();
       popupRef.current = null;
+      refMarkerRef.current = null;
       map.remove();
       mapRef.current = null;
       setReady(false);
     };
-  }, [aberto]);
+    // Só na montagem: o centro inicial não deve reagir a re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Marcadores + enquadramento.
+  // Marcadores dos anúncios + enquadramento.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -111,8 +134,8 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
           className: 'myplace-popup',
         })
           .setLngLat([s.lng, s.lat])
-          // Nos montamos o conteudo como no, e nao como string de HTML:
-          // titulo de anuncio e texto de usuario e nao deve virar markup.
+          // Montado como nó, e nao como string de HTML: titulo de anuncio e
+          // texto de usuario e nao deve virar markup.
           .setDOMContent(popupContent(s))
           .addTo(map);
       });
@@ -120,13 +143,19 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
       marcadores.push(marker);
     }
 
-    if (comCoordenada.length === 1) {
-      const so = comCoordenada[0]!;
-      map.jumpTo({ center: [so.lng, so.lat], zoom: 14 });
-    } else if (comCoordenada.length > 1) {
-      const bounds = new LngLatBounds();
-      for (const s of comCoordenada) bounds.extend([s.lng, s.lat]);
-      map.fitBounds(bounds, { padding: 56, maxZoom: 14, duration: 0 });
+    // O enquadramento so olha para os anuncios quando NAO ha um ponto de
+    // referencia: se a pessoa buscou "perto de mim", o mapa fica centrado
+    // nela, nao nos resultados — senao o ponto buscado sai da tela quando
+    // o resultado mais proximo esta a 4 km de distancia.
+    if (!referencePoint) {
+      if (comCoordenada.length === 1) {
+        const so = comCoordenada[0]!;
+        map.jumpTo({ center: [so.lng, so.lat], zoom: 14 });
+      } else if (comCoordenada.length > 1) {
+        const bounds = new LngLatBounds();
+        for (const s of comCoordenada) bounds.extend([s.lng, s.lat]);
+        map.fitBounds(bounds, { padding: 56, maxZoom: 15, duration: 0 });
+      }
     }
 
     return () => {
@@ -135,7 +164,28 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
     // `comCoordenada` e derivado de `spaces` em cada render; a dependencia
     // real e a lista de anuncios.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, spaces]);
+  }, [ready, spaces, referencePoint]);
+
+  // Ponto de referencia da busca — visualmente diferente dos precos.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    refMarkerRef.current?.remove();
+    refMarkerRef.current = null;
+
+    if (!referencePoint) return;
+
+    const el = document.createElement('div');
+    el.className = 'myplace-ref-point';
+    el.setAttribute('role', 'img');
+    el.setAttribute('aria-label', 'Local buscado');
+    refMarkerRef.current = new Marker({ element: el, anchor: 'center' })
+      .setLngLat([referencePoint.lng, referencePoint.lat])
+      .addTo(map);
+
+    map.easeTo({ center: [referencePoint.lng, referencePoint.lat], zoom: 13, duration: 500 });
+  }, [ready, referencePoint]);
 
   function usarGps() {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
@@ -167,45 +217,24 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
     );
   }
 
-  if (comCoordenada.length === 0) return null;
-
-  if (!aberto) {
-    return (
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => setAberto(true)}
-        data-testid="abrir-mapa"
-        className="w-full sm:w-auto"
-      >
-        <MapIcon className="size-4" aria-hidden />
-        Ver no mapa ({comCoordenada.length})
-      </Button>
-    );
-  }
-
   return (
-    <section aria-label="Mapa dos espaços" className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[0.8125rem] text-[var(--content-muted)]">
-          Cada marcador mostra a <strong className="font-medium">região</strong> do espaço, não o
-          endereço. O endereço exato é combinado após a reserva.
-        </p>
-        <button
-          type="button"
-          onClick={() => setAberto(false)}
-          className="shrink-0 inline-flex items-center gap-1 text-[0.8125rem] text-[var(--content-muted)] hover:text-[var(--content)]"
-        >
-          <X className="size-3.5" aria-hidden />
-          Fechar mapa
-        </button>
-      </div>
-
-      <div className="relative">
+    <div className={cn('relative flex flex-col gap-2', className)}>
+      <div className="relative flex-1 min-h-0">
         <div
           ref={containerRef}
           data-testid="mapa-espacos"
-          className="h-[22rem] sm:h-[26rem] w-full rounded-[var(--radius-card)] overflow-hidden border bg-[var(--surface-sunken)]"
+          /*
+           * `w-full h-full`, e nao so `absolute inset-0`: o proprio CSS do
+           * maplibre-gl define `.maplibregl-map { position: relative }`, e
+           * essa regra concorre com o `.absolute` do Tailwind pela mesma
+           * propriedade — quem carrega por ultimo no HTML vence, o que ja
+           * observamos na pratica vencer para o maplibre e colapsar este
+           * container pra altura 0. `w-full h-full` funciona nos dois casos
+           * (`position: absolute` ou `relative`), porque o pai imediato e um
+           * item flex com altura resolvida — nao depende de vencer a guerra
+           * de especificidade contra uma biblioteca externa.
+           */
+          className="absolute inset-0 w-full h-full rounded-[var(--radius-card)] overflow-hidden border bg-[var(--surface-sunken)]"
         />
 
         {!ready && !tileError && (
@@ -217,7 +246,7 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
 
         {tileError && (
           <div className="absolute inset-x-0 bottom-0 m-3 p-3 rounded-[var(--radius-field)] bg-[var(--surface)] border text-[0.8125rem] text-[var(--content-muted)]">
-            Parte do mapa não carregou. A lista abaixo continua completa.
+            Parte do mapa não carregou. A lista continua completa.
           </div>
         )}
 
@@ -229,12 +258,86 @@ export function SpacesMap({ spaces }: { spaces: MapSpace[] }) {
             </Button>
           </div>
         )}
+
+        {ready && comCoordenada.length > 0 && (
+          <p className="absolute right-3 bottom-3 max-w-[13rem] px-2.5 py-1.5 rounded-[var(--radius-field)] bg-[var(--surface)]/95 border text-[0.6875rem] leading-snug text-[var(--content-muted)]">
+            Marcadores mostram a região do espaço, não o endereço exato.
+          </p>
+        )}
       </div>
 
       {geoError && (
         <p role="alert" className="text-[0.8125rem] text-[var(--color-caution)]">{geoError}</p>
       )}
-    </section>
+    </div>
+  );
+}
+
+/**
+ * Alternância Lista/Mapa do celular.
+ *
+ * O mapa só monta quando a pessoa toca em "Ver mapa": nasce dentro de um
+ * overlay em tela cheia, e some (desmonta de verdade, não só CSS `hidden`)
+ * ao fechar — para não gastar tile de mapa que ninguém pediu.
+ */
+export function MobileMapToggle({
+  spaces,
+  referencePoint,
+}: {
+  spaces: MapSpace[];
+  referencePoint?: { lat: number; lng: number } | null;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const comCoordenada = spaces.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+
+  if (comCoordenada.length === 0) return null;
+
+  return (
+    <div className="lg:hidden">
+      {!aberto && (
+        <button
+          type="button"
+          onClick={() => setAberto(true)}
+          data-testid="abrir-mapa"
+          className={cn(
+            'fixed bottom-5 left-1/2 -translate-x-1/2 z-40',
+            'inline-flex items-center gap-2 h-11 px-5 rounded-[var(--radius-pill)]',
+            'bg-[var(--content)] text-[var(--surface)] shadow-[var(--shadow-raised)]',
+            'font-medium text-[0.875rem]',
+          )}
+        >
+          <MapIcon className="size-4" aria-hidden />
+          Ver mapa
+        </button>
+      )}
+
+      {aberto && (
+        <div
+          data-testid="mapa-mobile-overlay"
+          className="fixed inset-0 z-50 flex flex-col bg-[var(--surface)]"
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+            <p className="text-[0.8125rem] text-[var(--content-muted)]">
+              {comCoordenada.length} {comCoordenada.length === 1 ? 'espaço' : 'espaços'} no mapa
+            </p>
+            <button
+              type="button"
+              onClick={() => setAberto(false)}
+              data-testid="fechar-mapa-mobile"
+              className="inline-flex items-center gap-1.5 text-[0.875rem] font-medium"
+            >
+              <X className="size-4" aria-hidden />
+              Ver lista
+            </button>
+          </div>
+          <ResultsMap
+            spaces={spaces}
+            referencePoint={referencePoint}
+            className="flex-1 [&>div]:rounded-none [&>div>div]:rounded-none [&>div>div]:border-0"
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
