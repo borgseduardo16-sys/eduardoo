@@ -186,6 +186,10 @@ async function main() {
   process.env.CEP_BRASILAPI_BASE = testbed.url;
   process.env.CEP_VIACEP_BASE = testbed.url;
   delete process.env.NEXT_PUBLIC_MAPTILER_KEY;
+  process.env.ASAAS_API_BASE_URL = `${testbed.url}/v3`;
+  process.env.ASAAS_API_KEY = testbed.asaasApiKey;
+  process.env.ASAAS_ENV = 'sandbox';
+  process.env.ASAAS_WEBHOOK_TOKEN = `token-${tag}`;
 
   const dono = { id: donoId, email: `${tag}-dono@exemplo.invalid`, token: fakeJwt(donoId, 'dono') };
   const outro = {
@@ -220,7 +224,7 @@ async function main() {
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJK').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKL').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -232,6 +236,7 @@ async function main() {
   if (quais.includes('I')) await testeIFavoritos();
   if (quais.includes('J')) await testeJCompartilhar();
   if (quais.includes('K')) await testeKSolicitarEAceitar();
+  if (quais.includes('L')) await testeLPagamento();
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -1555,10 +1560,123 @@ async function testeKSolicitarEAceitar() {
   await pageDono.context().close();
 }
 
+/** CPF com digito verificador real — profiles.cpf_cnpj tem UNIQUE de verdade no banco. */
+function gerarCpfValido(): string {
+  const nove = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+  const calcularDv = (digs: number[], pesos: number[]) => {
+    const soma = digs.reduce((acc, d, i) => acc + d * pesos[i]!, 0);
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+  const dv1 = calcularDv(nove, [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const dv2 = calcularDv([...nove, dv1], [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return [...nove, dv1, dv2].join('');
+}
+
+async function testeLPagamento() {
+  secao('TESTE L (navegador) - proprietario configura recebimento, locatario paga');
+
+  const [espaco] = await sql<{ slug: string }[]>`SELECT slug FROM spaces WHERE id=${publicado}`;
+
+  // --- proprietario configura a conta de recebimento (subconta no dublê do Asaas) ---
+  const pageDono = await novaAba(testbed!.users.get(donoId)!, { viewport: { width: 900, height: 1100 } });
+  await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
+
+  await pageDono.getByText('Configurar conta de recebimento').click();
+  await pageDono.getByLabel('Nome completo').waitFor({ timeout: 10_000 });
+  await pageDono.getByLabel('Nome completo').fill('Proprietario Teste L');
+  await pageDono.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
+  await pageDono.getByLabel('E-mail').fill(`${tag}-dono@exemplo.invalid`);
+  await pageDono.getByLabel('Celular').fill('27999998888');
+  await pageDono.getByLabel('Renda ou faturamento mensal').fill('5000');
+  await pageDono.getByLabel('CEP').fill('29700000');
+  await pageDono.getByLabel('Número').fill('100');
+  await pageDono.getByLabel('Endereço').fill('Rua Teste');
+  await pageDono.getByLabel('Bairro').fill('Centro');
+  await pageDono.getByRole('button', { name: 'Criar conta de recebimento' }).click();
+
+  await pageDono.getByText('Conta configurada').waitFor({ timeout: 20_000 });
+  ok('proprietario configura a conta de recebimento pela interface');
+
+  const [contaNoBanco] = await sql<{ can_receive: boolean }[]>`
+    SELECT can_receive FROM owner_payout_accounts WHERE owner_id=${donoId}`;
+  expect('conta de recebimento gravada com can_receive=true', contaNoBanco?.can_receive, true);
+
+  // --- locatario solicita, proprietario aceita (fluxo ja coberto no TESTE K, aqui so pra chegar em "approved") ---
+  const pageOutro = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 430, height: 900 } });
+  await pageOutro.goto(`${baseUrl}/espacos/${espaco!.slug}/solicitar`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByLabel('A partir de quando?').waitFor({ timeout: 20_000 });
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  await pageOutro.getByLabel('A partir de quando?').fill(amanha.toISOString().slice(0, 10));
+  await pageOutro.getByRole('button', { name: 'Enviar solicitação' }).click();
+  await pageOutro.waitForURL(/\/reservas/, { timeout: 20_000 });
+
+  const [novaSolicitacao] = await sql<{ id: string }[]>`
+    SELECT id FROM bookings WHERE space_id=${publicado} AND renter_id=${outroId} AND status='requested'
+    ORDER BY requested_at DESC LIMIT 1`;
+  const bookingId = novaSolicitacao!.id;
+
+  await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByRole('button', { name: 'Aceitar' }).first().click();
+  await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
+
+  // --- locatario ve "Pagar agora" e vai para o checkout ---
+  await pageOutro.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByRole('link', { name: 'Pagar agora' }).click();
+  await pageOutro.waitForURL(/\/pagar$/, { timeout: 20_000 });
+  ok('locatario ve "Pagar agora" e chega na tela de checkout');
+
+  const resumoCheckout = await pageOutro.locator('main').textContent();
+  assert('a tela de checkout mostra o resumo com o total', (resumoCheckout ?? '').includes('Total, cobrado todo mês'),
+    resumoCheckout ?? '');
+
+  /*
+   * O redirecionamento final vai para a fatura HOSPEDADA PELO ASAAS — no
+   * dublê local isso e um endereco de mentira (http://127.0.0.1/fake-invoice/…)
+   * que nao tem nada escutando. Interceptamos essa navegacao especifica pra
+   * nao travar esperando uma pagina externa que so existiria com o Asaas de
+   * verdade — o que importa aqui e que o REDIRECIONAMENTO aconteceu, nao o
+   * conteudo da pagina de destino (que e responsabilidade do Asaas, nao nossa).
+   */
+  await pageOutro.route('http://127.0.0.1/fake-invoice/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/plain', body: 'Fatura simulada do Asaas (dublê de teste).' }));
+
+  await pageOutro.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
+  await pageOutro.getByRole('button', { name: 'Confirmar e ir para o pagamento' }).click();
+  await pageOutro.waitForURL(/fake-invoice/, { timeout: 20_000 });
+  ok('checkout confirmado redireciona pra fatura do gateway (interceptada no teste)');
+
+  const [bookingPago] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingId}`;
+  expect('reserva vira "awaiting_payment" depois do checkout', bookingPago!.status, 'awaiting_payment');
+
+  const [assinaturaCriada] = await sql<{ status: string }[]>`SELECT status FROM subscriptions WHERE booking_id=${bookingId}`;
+  expect('assinatura criada no banco', assinaturaCriada?.status, 'pending_authorization');
+
+  const [cobrancaCriada] = await sql<{ invoice_url: string | null }[]>`SELECT invoice_url FROM payments WHERE booking_id=${bookingId}`;
+  assert('cobranca criada com link de fatura', Boolean(cobrancaCriada?.invoice_url));
+
+  await pageOutro.screenshot({ path: join(tmp, 'teste-l-checkout.png'), fullPage: true });
+  await pageDono.screenshot({ path: join(tmp, 'teste-l-financeiro.png'), fullPage: true });
+  await pageOutro.context().close();
+  await pageDono.context().close();
+}
+
 // ---------------------------------------------------------------------------
 
 async function limpar() {
   try {
+    // payments/subscriptions.booking_id sao ON DELETE RESTRICT — saem antes
+    // de bookings. Nenhum webhook roda no TESTE L, entao nao ha lancamento no
+    // razao (esse sim de verdade nao apagavel — ver scripts/verify-payments.ts)
+    // travando essa limpeza.
+    await sql`DELETE FROM payments WHERE booking_id IN (
+      SELECT id FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId}))`;
+    await sql`DELETE FROM subscriptions WHERE booking_id IN (
+      SELECT id FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId}))`;
+    await sql`DELETE FROM owner_payout_accounts WHERE owner_id IN (${donoId}, ${outroId})`;
+    await sql`DELETE FROM renter_billing_profiles WHERE user_id IN (${donoId}, ${outroId})`;
+
     // bookings.space_id/renter_id/owner_id sao ON DELETE RESTRICT de proposito
     // (uma reserva nao pode sumir por baixo dos pes de quem alugou ou de quem
     // publicou) — por isso precisa sair ANTES dos espacos e dos perfis.

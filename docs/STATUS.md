@@ -276,7 +276,7 @@ Detalhes completos e a reconfirmação da documentação em
 | Checkout do locatário (`/reservas/[id]/pagar`) | ✅ | cria cliente Asaas + assinatura com split, grava localmente, redireciona para a fatura hospedada pelo Asaas — nenhum dado de cartão passa por este código |
 | CTA "Pagar agora" em `/reservas` | ✅ | aparece quando a reserva está `approved`, aguardando o locatário confirmar |
 | Servidor nunca confia em preço/status vindo do formulário | ✅ | o valor cobrado é sempre `bookings.total_charged_cents`, congelado no aceite — nunca recalculado a partir do que o formulário manda |
-| Verificação automatizada | ✅ | 63 checagens — `scripts/verify-payments.ts`, contra o Postgres real e um dublê local do Asaas (sem credencial real, mesmo padrão do CEP/mapa), incluindo tentativa de pagar a reserva de outra pessoa e de configurar a mesma conta duas vezes |
+| Verificação automatizada | ✅ | 63 checagens (`scripts/verify-payments.ts`, diretas) + 8 checagens em Chromium real (TESTE L, `pnpm verify:integracoes`) — o proprietário preenche o formulário de verdade, o locatário clica em "Pagar agora", digita o CPF e é redirecionado — contra o Postgres real e um dublê local do Asaas (sem credencial real, mesmo padrão do CEP/mapa) |
 | Credencial real / conta Asaas | 🔑 | chave sandbox já em `.env.local`; este ambiente não alcança a API real do Asaas pra testar a chamada de verdade (mesmo bloqueio de rede da documentação) — o primeiro teste real só acontece com internet normal, fora deste container |
 | Aprovação de KYC da subconta bloqueia recebimento? | ⚠️ | não confirmado (nem por busca) — a conta hoje entra como `can_receive=true` assim que criada, otimista; se o Asaas exigir aprovação antes, isso precisa mudar |
 | Pix Automático (débito recorrente sem ação mensal do locatário) | ⬜ | a assinatura de hoje usa o recurso padrão do Asaas (`billingType: UNDEFINED`, o locatário escolhe Pix/boleto/cartão a cada cobrança); Pix Automático é uma melhoria futura, não implementada |
@@ -383,9 +383,9 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 139 checagens — fotos, mapa, CEP,
-busca com GPS real, filtros, favoritos, compartilhar e o fluxo de solicitar,
-aceitar e cancelar aluguel).
+verdade** (`scripts/verify-integracoes.ts`, 147 checagens — fotos, mapa, CEP,
+busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
+aceitar e cancelar aluguel, e o de configurar recebimento e pagar).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -456,7 +456,7 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 458 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 466 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar e o fluxo de
 solicitar/aceitar/cancelar aluguel rodam em Chromium de verdade
 (`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
@@ -480,7 +480,7 @@ pessoas que se conheceram pela sua plataforma.
 pnpm install
 pnpm db:migrate                      # aplica o schema
 pnpm verify                          # 319 checagens contra o Postgres real
-pnpm verify:integracoes              # 139 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel)
+pnpm verify:integracoes              # 147 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```
