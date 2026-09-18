@@ -331,42 +331,113 @@ um espaço.
 
 ## 4. Asaas — pagamentos (Fase 7)
 
-**Leia [PAGAMENTOS.md](./PAGAMENTOS.md) antes.** Há uma conclusão sobre a
-margem do modelo 2%+2% que muda decisões de negócio.
+**PRECISA DA SUA AÇÃO — CONFIGURAÇÃO DO GATEWAY.** O cliente e o webhook já
+existem e estão testados sem dinheiro real (`pnpm tsx scripts/verify-payments.ts`,
+50 checagens — ver [STATUS.md](./STATUS.md)). O que falta agora só você
+consegue fazer: criar a conta e me passar a credencial.
 
-### 4.1 Sandbox primeiro
+**Leia [PAGAMENTOS.md](./PAGAMENTOS.md) primeiro** — tem a conta completa de
+quanto a plataforma realmente ganha com a taxa de 3%+3%, e a reconfirmação
+mais recente da documentação do Asaas (feita por busca, não leitura direta —
+a rede deste ambiente bloqueia `docs.asaas.com`; alguns nomes de campo ainda
+merecem sua conferência, ou do gerente, antes de produção).
 
-1. [sandbox.asaas.com](https://sandbox.asaas.com) → conta de teste
-2. **Configurações → Integrações → Chave de API** → `ASAAS_API_KEY`
-3. `ASAAS_ENV=sandbox`
-4. `ASAAS_WEBHOOK_TOKEN` — **você inventa** este valor (ex.: 32 caracteres
-   aleatórios). Ele vai no painel do Asaas e no `.env`; é como o servidor
-   confirma que o webhook veio mesmo de lá.
+### 4.1 Sandbox primeiro — sem dinheiro real
 
-### 4.2 Conta de produção
+1. Acesse **[sandbox.asaas.com](https://sandbox.asaas.com)** e crie uma
+   conta de teste — gratuita, e o sandbox nem verifica CPF/CNPJ (pode ser
+   fictício, desde que no formato certo).
+2. **Configurações → Integrações → Chave de API** → copie a chave. Começa
+   com `$aact_hmlg_...` (hmlg = homologação, ambiente de teste).
+3. Essa chave é **inteiramente secreta** — o Asaas não tem uma chave
+   "pública" separada (diferente de outros gateways que têm uma chave
+   publicável e uma secreta; aqui existe só uma, e ela nunca deve aparecer
+   no navegador nem em código versionado).
+4. No `.env.local` (raiz do projeto — **nunca vai para o GitHub**), três
+   linhas:
+   ```
+   ASAAS_API_KEY=$aact_hmlg_cole_a_sua_chave_aqui
+   ASAAS_ENV=sandbox
+   ASAAS_WEBHOOK_TOKEN=invente_aqui_uma_string_aleatoria_longa
+   ```
+   O `ASAAS_WEBHOOK_TOKEN` **você mesmo inventa** (não vem do painel do
+   Asaas — gere algo aleatório, ex. `openssl rand -hex 32` no terminal). O
+   MESMO valor vai depois no painel do Asaas, na configuração do webhook
+   (§4.3) — é assim que o servidor confirma que o aviso de pagamento veio
+   mesmo do Asaas, e não de alguém forjando a chamada.
 
-Vai exigir:
-- **CNPJ** (fortemente recomendado — PF em marketplace de dinheiro de terceiros
-  é problema)
-- Documento do sócio administrador e selfie
-- Dados bancários da empresa
-- Declaração de faturamento
-- Descrição da atividade
+### 4.2 Testar sem gastar nada — nem conta ainda
 
-Prazo de análise costuma ser de alguns dias úteis.
+```bash
+pnpm tsx scripts/verify-payments.ts
+```
 
-### 4.3 Perguntas a fazer ao gerente **antes** de programar
+Isso já roda 50 checagens contra um Asaas "de mentira" que imita o contrato
+real (mesma técnica usada para CEP e mapa neste projeto) — prova que o
+cliente monta a chamada certa e que o webhook nunca duplica cobrança, reserva
+ou repasse, sem precisar de conta nenhuma. Vale rodar antes de mexer em
+qualquer credencial, só para ver funcionando.
 
-Estão listadas em [PAGAMENTOS.md §4](./PAGAMENTOS.md#4-o-que-ainda-precisa-ser-confirmado-com-o-asaas).
-A mais importante:
+### 4.3 Configurar o webhook — só depois de ter uma URL pública
 
-> **Split de pagamento funciona junto com Pix Automático?**
+O Asaas avisa sua aplicação por HTTP quando um pagamento muda de status —
+isso exige uma URL alcançável pela internet, **não funciona com
+`localhost`**. Duas situações:
 
-Se a resposta for não, a arquitetura de cobrança muda — melhor descobrir em
-uma conversa do que depois de duas semanas de código.
+- **Ainda em desenvolvimento, sem deploy:** pule esta seção por agora — o
+  `verify-payments.ts` já testa o webhook de ponta a ponta sem precisar
+  disso.
+- **Depois de publicar na Vercel** (Fase 12), a URL é
+  `https://SEU-DOMINIO/api/webhooks/asaas`. No painel do Asaas:
+  1. **Configurações → Integrações → Webhooks** → **Novo Webhook**
+  2. **URL:** `https://SEU-DOMINIO/api/webhooks/asaas`
+  3. **Token de acesso:** cole o MESMO valor de `ASAAS_WEBHOOK_TOKEN` (§4.1)
+  4. **Eventos:** marque ao menos `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED`,
+     `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED`, `PAYMENT_DELETED` e
+     `PAYMENT_REPROVED_BY_RISK_ANALYSIS` — são os que o código de hoje já
+     sabe tratar (`src/lib/payments/webhook.ts`). Outros eventos chegam sem
+     erro, mas ficam marcados como "não tratado ainda".
 
-Peça também a liberação de **tokenização de cartão em produção**: a
-documentação diz que depende de análise prévia do gerente.
+### 4.4 Conta de produção — só depois do sandbox validado de ponta a ponta
+
+Migre para **[asaas.com](https://www.asaas.com)** (sem "sandbox.") só depois
+de testar o fluxo inteiro no sandbox. Vai exigir:
+
+- **CNPJ** (fortemente recomendado — pessoa física recebendo e repassando
+  dinheiro de terceiros num marketplace é problema jurídico, não só técnico)
+- Documento do sócio administrador e uma selfie de verificação
+- Dados bancários da empresa (para onde vão as retiradas da plataforma)
+- Declaração de faturamento e descrição da atividade
+
+Prazo de análise costuma ser de alguns dias úteis. A chave de produção
+começa com `$aact_prod_...`, numa conta **separada** do sandbox (dados,
+cobranças e chave são independentes) — só troque `ASAAS_ENV=production` e
+`ASAAS_API_KEY` depois da aprovação.
+
+### 4.5 Perguntas para o time comercial do Asaas **antes** de ativar produção
+
+A reconfirmação desta rodada ([PAGAMENTOS.md §4](./PAGAMENTOS.md#4-reconfirmação-em-18092026-e-o-que-ainda-falta))
+já indica que split funciona junto com assinaturas e Pix Automático, mas foi
+por busca, não leitura direta da documentação — vale confirmar com uma
+pessoa antes de apostar dinheiro real:
+
+1. **Split funciona junto com Pix Automático, na prática da sua conta?**
+2. **Tokenização de cartão em produção** — a documentação diz que depende de
+   liberação prévia do gerente.
+3. **Exigências contratuais para subcontas** (cada proprietário vai ter uma).
+4. **Tarifas reais da sua conta**, e quando a promoção inicial acaba.
+5. **O que acontece quando o valor do split é maior que o líquido da
+   cobrança** (aluguel muito baixo, ou tarifa subindo) — o que encontrei diz
+   que a API recusa a cobrança, mas vale confirmar.
+
+### 4.6 O que eu não faço, mesmo com a chave em mãos
+
+- Não coloco a chave secreta em nenhum arquivo que vá para o Git.
+- Não tento contornar verificação de identidade do Asaas.
+- Não testo com dinheiro real enquanto o fluxo não estiver validado no
+  sandbox.
+- Não decido política de reembolso/cancelamento — isso é decisão sua (ver
+  PAGAMENTOS.md, e a nota sobre mediação em [SEGURANCA.md](./SEGURANCA.md)).
 
 ---
 
