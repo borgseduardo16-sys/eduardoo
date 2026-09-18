@@ -289,13 +289,13 @@ conferir os nomes exatos de campo/endpoint abaixo contra a documentação viva.
 | Tabelas de pagamento, repasse e livro-razão | **IMPLEMENTADO** |
 | Idempotência de webhook | **IMPLEMENTADO** — chave única por evento, testado com reentrega real |
 | Livro-razão realmente append-only | **IMPLEMENTADO** — trigger recusa até `DELETE`, testado tentando de verdade |
-| Cliente Asaas (`src/lib/payments/asaas.ts`) | **IMPLEMENTADO, sem credencial real** — cliente, subconta, assinatura+split, estorno; testado contra dublê local (50 checagens, `scripts/verify-payments.ts`) |
+| Cliente Asaas (`src/lib/payments/asaas.ts`) | **IMPLEMENTADO, sem credencial real** — cliente, subconta, assinatura+split, estorno; testado contra dublê local (63 checagens, `scripts/verify-payments.ts`) |
 | Webhook (`/api/webhooks/asaas`) | **IMPLEMENTADO, sem credencial real** — autenticação por token, idempotente, nunca confia em redirecionamento do navegador |
-| Ligar a aceitação da reserva à criação da assinatura | **NÃO IMPLEMENTADO** — hoje nada chama `createSubscription` a partir do fluxo real |
-| Tela de checkout (resumo antes de pagar) | **NÃO IMPLEMENTADO** |
-| Tela de onboarding do proprietário (chama `createSubaccount`) | **NÃO IMPLEMENTADO** |
-| Criação de subconta e KYC do proprietário | **NÃO IMPLEMENTADO** — Fase 8 |
-| Cobrança real | **BLOQUEADO POR SERVIÇO EXTERNO** — depende da sua conta Asaas |
+| Ligar a aceitação da reserva à criação da assinatura | **IMPLEMENTADO** — `startCheckoutAction`, chamado a partir de `/reservas/[id]/pagar` |
+| Tela de checkout (resumo antes de pagar) | **IMPLEMENTADO** — `/reservas/[id]/pagar`, redireciona pra fatura hospedada pelo Asaas |
+| Tela de onboarding do proprietário (chama `createSubaccount`) | **IMPLEMENTADO** — dentro de `/meus-espacos/financeiro` |
+| Criação de subconta e KYC do proprietário | **IMPLEMENTADO, aprovação não confirmada** — a subconta é criada e marcada `can_receive=true` de imediato (decisão otimista, ver §4); se o Asaas exigir aprovação antes de aceitar split de verdade, precisa revisar |
+| Cobrança real | **BLOQUEADO POR SERVIÇO EXTERNO** — depende da sua conta Asaas e de testar fora deste ambiente (rede bloqueada aqui) |
 
 **Nenhum botão de pagamento existe hoje.** Não há checkout falso, não há
 "pagamento simulado", não há tela de sucesso sem cobrança. Quando existir, vai

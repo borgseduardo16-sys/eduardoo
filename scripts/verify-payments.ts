@@ -63,16 +63,46 @@ function secao(titulo: string) {
 
 // ---------------------------------------------------------------------------
 
+/*
+ * `profiles.cpf_cnpj` tem UNIQUE de verdade no banco — achado rodando este
+ * script duas vezes seguidas (2a rodada bateu de frente com o CPF fixo que a
+ * 1a rodada deixou gravado num perfil que nunca é apagado, pela mesma razão
+ * do `limpar()` parcial: uma vez ancorado por reserva com lançamento no
+ * razão, o perfil fica para sempre). Por isso o CPF de teste é gerado com
+ * dígito verificador real, novo a cada execução — nunca um valor fixo.
+ */
+function gerarCpfValido(): string {
+  const nove = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+  const calcularDv = (digs: number[], pesos: number[]) => {
+    const soma = digs.reduce((acc, d, i) => acc + d * pesos[i]!, 0);
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+  const dv1 = calcularDv(nove, [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const dv2 = calcularDv([...nove, dv1], [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return [...nove, dv1, dv2].join('');
+}
+
 const tag = `pg-${Date.now()}`;
+const cpfLocatario = gerarCpfValido();
+const cpfProprietarioSemConta = gerarCpfValido();
 const donoId = crypto.randomUUID();
+const donoSemContaId = crypto.randomUUID();
 const renterId = crypto.randomUUID();
 let testbed: Testbed;
+
+type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string; email: string };
+let identidadeAtual: Identidade = { id: '', role: 'user', fullName: '', email: '' };
+function entrarComo(id: string, role: Identidade['role'], fullName: string, email: string) {
+  identidadeAtual = { id, role, fullName, email };
+}
 
 async function seedPerfis() {
   await sql`INSERT INTO auth.users (id, email) VALUES
     (${donoId}, ${`${tag}-dono@exemplo.invalid`}),
+    (${donoSemContaId}, ${`${tag}-dono-sem-conta@exemplo.invalid`}),
     (${renterId}, ${`${tag}-renter@exemplo.invalid`})`;
-  await sql`UPDATE profiles SET role='owner' WHERE id=${donoId}`;
+  await sql`UPDATE profiles SET role='owner' WHERE id IN (${donoId}, ${donoSemContaId})`;
 }
 
 /*
@@ -90,14 +120,15 @@ async function seedPerfis() {
  * verify-busca.ts. Ja aconteceu uma vez nesta sessao; corrigido arquivando
  * as sobras manualmente E tirando a causa raiz aqui.
  */
-async function seedEspacoDeTeste(precoCents: number): Promise<string> {
+async function seedEspacoDeTeste(precoCents: number, ownerId: string = donoId): Promise<string> {
+  const slug = `${tag}-espaco-${crypto.randomUUID().slice(0, 8)}`;
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO spaces
       (owner_id, slug, type, title, description, district, city, state,
        available_from, price_monthly_cents, size_m2, draft_step,
        location, approx_location)
     VALUES
-      (${donoId}, ${`${tag}-espaco`}, 'garagem', 'Garagem para teste de pagamento (nao aparece em busca)',
+      (${ownerId}, ${slug}, 'garagem', 'Garagem para teste de pagamento (nao aparece em busca)',
        'Descricao com mais de vinte caracteres para passar na regra do banco.',
        'Bairro de teste', 'Municipio de teste', 'ES', CURRENT_DATE, ${precoCents}, 18, 8,
        ST_SetSRID(ST_MakePoint(-40.0001, -18.0001), 4326),
@@ -107,7 +138,11 @@ async function seedEspacoDeTeste(precoCents: number): Promise<string> {
 }
 
 /** Reserva ja aceita, pronta para entrar no fluxo de cobranca. */
-async function seedBookingAprovada(espacoId: string, precoCents: number) {
+async function seedBookingAprovada(
+  espacoId: string,
+  precoCents: number,
+  opts: { status?: string; ownerId?: string; sufixo?: string } = {},
+) {
   const amounts = computeBookingAmounts(precoCents, { renterFeeBps: 300, ownerFeeBps: 300 });
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO bookings
@@ -115,7 +150,8 @@ async function seedBookingAprovada(espacoId: string, precoCents: number) {
        monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
        owner_fee_cents, total_charged_cents, owner_payout_cents)
     VALUES
-      (${`MP-${tag}`}, ${espacoId}, ${renterId}, ${donoId}, 'awaiting_payment', CURRENT_DATE,
+      (${`MP-${tag}${opts.sufixo ?? ''}`}, ${espacoId}, ${renterId}, ${opts.ownerId ?? donoId},
+       ${opts.status ?? 'awaiting_payment'}, CURRENT_DATE,
        ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps},
        ${amounts.renterFeeCents}, ${amounts.ownerFeeCents}, ${amounts.totalChargedCents},
        ${amounts.ownerPayoutCents})
@@ -153,7 +189,7 @@ async function seedSubscriptionEPayment(bookingId: string, amountCents: number, 
 async function limpar() {
   const tentativas: [string, () => Promise<unknown>][] = [
     ['webhook_events', () => sql`DELETE FROM webhook_events WHERE provider_event_id LIKE ${`%${tag}%`}`],
-    ['owner_payout_accounts', () => sql`DELETE FROM owner_payout_accounts WHERE owner_id = ${donoId}`],
+    ['owner_payout_accounts', () => sql`DELETE FROM owner_payout_accounts WHERE owner_id IN (${donoId}, ${donoSemContaId})`],
     ['renter_billing_profiles', () => sql`DELETE FROM renter_billing_profiles WHERE user_id = ${renterId}`],
   ];
   for (const [tabela, executar] of tentativas) {
@@ -183,8 +219,54 @@ async function main() {
   process.env.ASAAS_ENV = 'sandbox';
   process.env.ASAAS_WEBHOOK_TOKEN = `token-${tag}`;
 
+  /*
+   * As actions de onboarding/checkout (secao 7) passam por requireUserOrThrow
+   * — mesmo dublê de sessao ja usado em verify-bookings.ts: identidade MUTAVEL
+   * (nao um mock novo por usuario), porque a action e importada uma vez so e
+   * teria a referencia velha se o mock fosse recriado a cada troca de usuario.
+   */
+  const dalPath = req.resolve('../src/lib/auth/dal.ts');
+  req.cache[dalPath] = {
+    id: dalPath, filename: dalPath, loaded: true,
+    exports: {
+      requireUserOrThrow: async () => {
+        if (!identidadeAtual.id) throw new Error('Voce precisa entrar para continuar.');
+        return {
+          id: identidadeAtual.id, role: identidadeAtual.role, email: identidadeAtual.email,
+          fullName: identidadeAtual.fullName, avatarPath: null, status: 'active',
+          statusReason: null, acceptedTermsAt: new Date(),
+        };
+      },
+      getCurrentUser: async () => null,
+    },
+  } as never;
+
+  const cachePath = req.resolve('next/cache');
+  req.cache[cachePath] = {
+    id: cachePath, filename: cachePath, loaded: true,
+    exports: { revalidatePath: () => {}, revalidateTag: () => {} },
+  } as never;
+
   const asaas = await import('../src/lib/payments/asaas');
   const { processAsaasWebhook } = await import('../src/lib/payments/webhook');
+  const { createPayoutAccountAction, startCheckoutAction } = await import('../src/lib/payments/actions');
+
+  /*
+   * `redirect()` lanca NEXT_REDIRECT — capturamos aqui, como ja e feito em
+   * verify-bookings.ts. Nao tentamos extrair a URL de destino do digest (e
+   * formato interno do Next, nao contrato publico) — confirmamos o destino
+   * consultando o banco depois, que e o dado que realmente importa.
+   */
+  async function chamarComRedirect<T>(fn: () => Promise<T>): Promise<{ redirecionou: true } | { redirecionou: false; resultado: T }> {
+    try {
+      const resultado = await fn();
+      return { redirecionou: false, resultado };
+    } catch (err) {
+      const digest = (err as { digest?: string }).digest ?? '';
+      if (!digest.startsWith('NEXT_REDIRECT')) throw err;
+      return { redirecionou: true };
+    }
+  }
 
   // =========================================================================
   secao('1. Cliente Asaas contra o testbed — monta requisicao, le resposta');
@@ -420,6 +502,88 @@ async function main() {
 
   const [pagamento3] = await sql<{ status: string }[]>`SELECT status FROM payments WHERE provider_payment_id=${providerPaymentId3}`;
   expect('pela rota HTTP de verdade, a cobranca tambem foi confirmada', pagamento3!.status, 'confirmed');
+
+  // =========================================================================
+  secao('7. Onboarding do proprietário e checkout do locatário — de ponta a ponta');
+  // =========================================================================
+
+  const espacoSemContaId = await seedEspacoDeTeste(precoCents, donoSemContaId);
+  const { bookingId: bookingSemConta } = await seedBookingAprovada(espacoSemContaId, precoCents, {
+    status: 'approved', ownerId: donoSemContaId, sufixo: '-semconta',
+  });
+
+  function formData(campos: Record<string, string>): FormData {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(campos)) fd.set(k, v);
+    return fd;
+  }
+
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
+  const checkoutSemContaDono = await startCheckoutAction(undefined, formData({
+    bookingId: bookingSemConta, cpfCnpj: cpfLocatario,
+  }));
+  assert('checkout bloqueado quando o proprietario nao tem conta de recebimento',
+    !checkoutSemContaDono.ok && (checkoutSemContaDono.message?.includes('não configurou') ?? false),
+    checkoutSemContaDono.message);
+
+  entrarComo(donoSemContaId, 'owner', 'Proprietario Sem Conta', `${tag}-dono-sem-conta@exemplo.invalid`);
+  const criarContaR1 = await chamarComRedirect(() => createPayoutAccountAction(undefined, formData({
+    fullName: 'Proprietario Sem Conta', cpfCnpj: cpfProprietarioSemConta, email: `${tag}-dono-sem-conta@exemplo.invalid`,
+    mobilePhone: '27999998888', incomeValueReais: '5000', postalCode: '29700000',
+    address: 'Rua Teste', addressNumber: '100', province: 'Centro',
+  })));
+  assert('criar conta de recebimento redireciona (sucesso)', criarContaR1.redirecionou);
+
+  const [contaCriada] = await sql<{ can_receive: boolean; provider_wallet_id: string | null }[]>`
+    SELECT can_receive, provider_wallet_id FROM owner_payout_accounts WHERE owner_id=${donoSemContaId}`;
+  assert('conta de recebimento gravada com can_receive=true', contaCriada?.can_receive === true);
+  assert('conta de recebimento tem walletId do gateway', Boolean(contaCriada?.provider_wallet_id));
+
+  const criarContaDuplicada = await chamarComRedirect(() => createPayoutAccountAction(undefined, formData({
+    fullName: 'X', cpfCnpj: '11144477735', email: 'x@x.invalid', mobilePhone: '27999998888',
+    incomeValueReais: '5000', postalCode: '29700000', address: 'Rua', addressNumber: '1', province: 'Centro',
+  })));
+  assert('criar conta de novo e recusado (ja existe)',
+    !criarContaDuplicada.redirecionou && !criarContaDuplicada.resultado.ok);
+
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
+  const checkoutOk = await chamarComRedirect(() => startCheckoutAction(undefined, formData({
+    bookingId: bookingSemConta, cpfCnpj: cpfLocatario,
+  })));
+  assert('checkout com proprietario configurado redireciona pra fatura do Asaas', checkoutOk.redirecionou);
+
+  const [bookingPosCheckout] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingSemConta}`;
+  expect('reserva vira "awaiting_payment" apos o checkout', bookingPosCheckout!.status, 'awaiting_payment');
+
+  const [subscriptionCriada] = await sql<{ status: string; amount_cents: number }[]>`
+    SELECT status, amount_cents FROM subscriptions WHERE booking_id=${bookingSemConta}`;
+  expect('assinatura criada como "pending_authorization"', subscriptionCriada?.status, 'pending_authorization');
+
+  const [paymentCriado] = await sql<{ status: string; invoice_url: string | null }[]>`
+    SELECT status, invoice_url FROM payments WHERE booking_id=${bookingSemConta}`;
+  expect('primeira cobranca criada como "pending"', paymentCriado?.status, 'pending');
+  assert('cobranca tem link de fatura do Asaas', paymentCriado?.invoice_url?.includes('fake-invoice') ?? false,
+    paymentCriado?.invoice_url ?? 'nenhum');
+
+  const [billingProfile] = await sql<{ provider_customer_id: string }[]>`
+    SELECT provider_customer_id FROM renter_billing_profiles WHERE user_id=${renterId}`;
+  assert('cliente Asaas do locatario foi criado e gravado', Boolean(billingProfile?.provider_customer_id));
+
+  const checkoutDeNovo = await startCheckoutAction(undefined, formData({ bookingId: bookingSemConta, cpfCnpj: cpfLocatario }));
+  assert('checkout de novo na mesma reserva (ja em awaiting_payment) e recusado',
+    !checkoutDeNovo.ok && (checkoutDeNovo.message?.includes('aguardando pagamento') ?? false), checkoutDeNovo.message);
+
+  const espacoOutro = await seedEspacoDeTeste(precoCents);
+  const { bookingId: bookingDeOutraPessoa } = await seedBookingAprovada(espacoOutro, precoCents, {
+    status: 'approved', sufixo: '-outrem',
+  });
+  entrarComo(donoSemContaId, 'user', 'Nao E O Locatario', `${tag}-dono-sem-conta@exemplo.invalid`);
+  const checkoutDeOutraPessoa = await startCheckoutAction(undefined, formData({
+    bookingId: bookingDeOutraPessoa, cpfCnpj: '11144477735',
+  }));
+  assert('quem nao e o locatario nao consegue pagar a reserva de outra pessoa',
+    !checkoutDeOutraPessoa.ok && (checkoutDeOutraPessoa.message?.includes('não encontrada') ?? false),
+    checkoutDeOutraPessoa.message);
 
   // ---------------------------------------------------------------------------
 

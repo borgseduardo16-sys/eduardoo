@@ -1,13 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Wallet } from 'lucide-react';
+import { Wallet, CircleCheck } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { listOwnerActiveBookings, listOwnerPayments } from '@/lib/bookings/queries';
+import { getOwnerPayoutAccount } from '@/lib/payments/queries';
 import { formatBRL } from '@/lib/money';
 import { formatBookingDate } from '@/lib/bookings/format';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { OwnerSubnav } from '@/components/layout/owner-subnav';
+import { PayoutAccountForm } from '@/components/payments/payout-account-form';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
 
@@ -16,9 +18,10 @@ export const dynamic = 'force-dynamic';
 
 export default async function FinanceiroPage() {
   const user = await requireUser('/meus-espacos/financeiro');
-  const [alugueis, pagamentos] = await Promise.all([
+  const [alugueis, pagamentos, contaDeRecebimento] = await Promise.all([
     listOwnerActiveBookings(user.id),
     listOwnerPayments(user.id),
+    getOwnerPayoutAccount(user.id),
   ]);
 
   const receitaMensalEsperada = alugueis.reduce((soma, a) => soma + a.ownerPayoutCents, 0);
@@ -34,6 +37,32 @@ export default async function FinanceiroPage() {
           <h1 className="text-[1.75rem] font-semibold">Financeiro</h1>
           <p className="text-[var(--content-muted)]">O que seus aluguéis aceitos representam, e o que já foi pago.</p>
         </header>
+
+        <section className="rounded-[var(--radius-card)] border p-5 sm:p-6 space-y-3">
+          <p className="text-[0.8125rem] font-medium uppercase tracking-wide text-[var(--content-subtle)]">
+            Conta de recebimento
+          </p>
+          {contaDeRecebimento?.canReceive ? (
+            <p className="flex items-center gap-2 text-[0.9375rem]">
+              <CircleCheck className="size-4 text-[var(--color-positive)]" aria-hidden />
+              Conta configurada — os repasses vão para ela automaticamente.
+            </p>
+          ) : (
+            <>
+              <p className="text-[0.875rem] text-[var(--content-muted)]">
+                Sem isso, nenhum pagamento dos seus aluguéis pode ser repassado. Configure agora.
+              </p>
+              <details className="pt-1">
+                <summary className="text-[0.875rem] font-medium text-[var(--accent)] cursor-pointer">
+                  Configurar conta de recebimento
+                </summary>
+                <div className="pt-4">
+                  <PayoutAccountForm nomeSugerido={user.fullName ?? undefined} emailSugerido={user.email} />
+                </div>
+              </details>
+            </>
+          )}
+        </section>
 
         <section className="rounded-[var(--radius-card)] border p-5 sm:p-6 space-y-1">
           <p className="text-[0.8125rem] text-[var(--content-muted)]">Repasse mensal esperado</p>

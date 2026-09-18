@@ -253,6 +253,23 @@ export async function getPayment(providerPaymentId: string): Promise<AsaasPaymen
 }
 
 /**
+ * Lista as cobrancas geradas por uma assinatura — usado logo depois de
+ * `createSubscription` pra achar a PRIMEIRA cobranca que o Asaas gerou
+ * sozinho. Nao confirmei por leitura direta da documentacao que este
+ * endpoint aceita `subscription` como filtro (busca so trouxe o padrao geral
+ * de filtro por query string dos outros endpoints de listagem) — e o
+ * caminho mais convencional/defensavel dado o que se sabe da API, mas
+ * precisa de confirmacao antes de credencial real.
+ */
+export async function listSubscriptionPayments(
+  providerSubscriptionId: string,
+): Promise<{ data: AsaasPayment[] }> {
+  return asaasFetch<{ data: AsaasPayment[] }>(
+    `/payments?subscription=${encodeURIComponent(providerSubscriptionId)}&limit=1`,
+  );
+}
+
+/**
  * Estorna uma cobranca. Sem `valueCents`, estorna o valor cheio.
  *
  * NAO decide politica de reembolso — so executa o que a camada de negocio

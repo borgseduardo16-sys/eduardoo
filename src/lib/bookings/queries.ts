@@ -118,6 +118,7 @@ const listSelection = {
   id: bookings.id,
   reference: bookings.reference,
   status: sql<string>`${bookings.status}::text`,
+  ownerId: bookings.ownerId,
   startDate: bookings.startDate,
   endDate: bookings.endDate,
   monthlyRentCents: bookings.monthlyRentCents,

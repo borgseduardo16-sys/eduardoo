@@ -68,7 +68,7 @@ export type Testbed = {
   asaasCustomers: Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>;
   asaasSubaccounts: Map<string, { id: string; apiKey: string; walletId: string }>;
   asaasSubscriptions: Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>;
-  asaasPayments: Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number }>;
+  asaasPayments: Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number; subscription: string | null }>;
   close: () => Promise<void>;
 };
 
@@ -88,7 +88,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const asaasCustomers = new Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>();
   const asaasSubaccounts = new Map<string, { id: string; apiKey: string; walletId: string }>();
   const asaasSubscriptions = new Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>();
-  const asaasPayments = new Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number }>();
+  const asaasPayments = new Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number; subscription: string | null }>();
 
   async function lerCorpo(req: IncomingMessage): Promise<Buffer> {
     const partes: Buffer[] = [];
@@ -384,7 +384,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
               asaasPayments.set(payId, {
                 id: payId, status: 'PENDING', value: corpo.value, netValue: null,
                 invoiceUrl: `http://127.0.0.1/fake-invoice/${payId}`, dueDate: corpo.nextDueDate,
-                refundedCents: 0,
+                refundedCents: 0, subscription: subId,
               });
 
               status = json(res, 200, { ...assinatura, firstPaymentId: payId });
@@ -398,6 +398,10 @@ export async function startTestbed(port = 0): Promise<Testbed> {
               asaasSubscriptions.set(id, { ...existente, status: 'CANCELLED' });
               status = json(res, 200, { deleted: true, id });
             }
+          } else if (req.method === 'GET' && rota === '/v3/payments') {
+            const subscriptionId = url.searchParams.get('subscription');
+            const lista = [...asaasPayments.values()].filter((p) => !subscriptionId || p.subscription === subscriptionId);
+            status = json(res, 200, { data: lista, totalCount: lista.length });
           } else if (req.method === 'GET' && /^\/v3\/payments\/[^/]+$/.test(rota)) {
             const id = rota.split('/').pop()!;
             const pagamento = asaasPayments.get(id);

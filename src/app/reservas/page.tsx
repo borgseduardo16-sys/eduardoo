@@ -12,6 +12,7 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { CancelBookingButton } from '@/components/bookings/cancel-booking-button';
 import { Badge } from '@/components/ui/badge';
+import { buttonVariants } from '@/components/ui/button';
 
 export const metadata: Metadata = { title: 'Minhas reservas' };
 export const dynamic = 'force-dynamic';
@@ -143,6 +144,12 @@ function ReservaCard({ r, coverUrl }: { r: ReservaRow; coverUrl: string | null }
 
       {r.ownerResponse && r.status === 'rejected' && (
         <p className="text-[0.8125rem] text-[var(--content-subtle)]">Motivo do proprietário: {r.ownerResponse}</p>
+      )}
+
+      {r.status === 'approved' && (
+        <Link href={`/reservas/${r.id}/pagar`} className={buttonVariants({ size: 'sm', className: 'w-fit' })}>
+          Pagar agora
+        </Link>
       )}
 
       <CancelBookingButton bookingId={r.id} status={r.status} label="Cancelar solicitação" />

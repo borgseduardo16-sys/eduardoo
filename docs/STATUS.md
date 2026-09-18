@@ -260,7 +260,7 @@ da confirmação aparecer. Apareceu de duas formas diferentes:
    (`Array.prototype.sort` é estável), com o cabeçalho de seção inserido
    conforme a posição — nenhum item muda de pai quando o status dele muda.
 
-### Cliente Asaas e webhook — código pronto, sem credencial real 🚧
+### Pagamento de ponta a ponta — código pronto, falta só a credencial real 🚧
 
 Detalhes completos e a reconfirmação da documentação em
 [PAGAMENTOS.md §4](./PAGAMENTOS.md#4-reconfirmação-em-18092026-e-o-que-ainda-falta).
@@ -272,10 +272,24 @@ Detalhes completos e a reconfirmação da documentação em
 | `PAYMENT_CONFIRMED` ativa a reserva; `PAYMENT_RECEIVED` gera o repasse | ✅ | decisão registrada em PAGAMENTOS.md §4 — o locatário não espera a plataforma receber pra usar o que já pagou |
 | Atraso (`PAYMENT_OVERDUE`) e recuperação | ✅ | reserva vira `past_due`, volta a `active` ao regularizar |
 | Tentativa de webhook com token forjado | ✅ | recusada com 401, **nenhum evento gravado** — testado tentando de verdade |
-| Verificação automatizada | ✅ | 50 checagens — `scripts/verify-payments.ts`, contra o Postgres real e um dublê local do Asaas (sem credencial real, mesmo padrão do CEP/mapa) |
-| Ligar isso ao fluxo real (aceitar reserva → criar assinatura) | ⬜ | próximo passo — hoje o cliente existe mas nada o chama a partir da tela |
-| Tela de checkout, onboarding do proprietário | ⬜ | |
-| Credencial real / conta Asaas | 🔑 | ver PAGAMENTOS.md — a leitura da documentação nesta rodada foi por busca (rede bloqueada pra `docs.asaas.com` neste ambiente), não confirmada linha a linha |
+| Onboarding do proprietário (`/meus-espacos/financeiro`) | ✅ | formulário cria a subconta no Asaas (`createSubaccount`), grava `walletId` — sem isso nenhum repasse tem para onde ir |
+| Checkout do locatário (`/reservas/[id]/pagar`) | ✅ | cria cliente Asaas + assinatura com split, grava localmente, redireciona para a fatura hospedada pelo Asaas — nenhum dado de cartão passa por este código |
+| CTA "Pagar agora" em `/reservas` | ✅ | aparece quando a reserva está `approved`, aguardando o locatário confirmar |
+| Servidor nunca confia em preço/status vindo do formulário | ✅ | o valor cobrado é sempre `bookings.total_charged_cents`, congelado no aceite — nunca recalculado a partir do que o formulário manda |
+| Verificação automatizada | ✅ | 63 checagens — `scripts/verify-payments.ts`, contra o Postgres real e um dublê local do Asaas (sem credencial real, mesmo padrão do CEP/mapa), incluindo tentativa de pagar a reserva de outra pessoa e de configurar a mesma conta duas vezes |
+| Credencial real / conta Asaas | 🔑 | chave sandbox já em `.env.local`; este ambiente não alcança a API real do Asaas pra testar a chamada de verdade (mesmo bloqueio de rede da documentação) — o primeiro teste real só acontece com internet normal, fora deste container |
+| Aprovação de KYC da subconta bloqueia recebimento? | ⚠️ | não confirmado (nem por busca) — a conta hoje entra como `can_receive=true` assim que criada, otimista; se o Asaas exigir aprovação antes, isso precisa mudar |
+| Pix Automático (débito recorrente sem ação mensal do locatário) | ⬜ | a assinatura de hoje usa o recurso padrão do Asaas (`billingType: UNDEFINED`, o locatário escolhe Pix/boleto/cartão a cada cobrança); Pix Automático é uma melhoria futura, não implementada |
+
+**Dois bugs reais encontrados rodando o próprio teste repetidamente** (não
+hipotéticos): (1) o espaço de teste usava a mesma coordenada de um fixture de
+`verify-busca.ts` e, uma vez com lançamento no razão, ficava ancorado no
+banco para sempre — contaminava contagens de busca de execuções futuras;
+corrigido na raiz (espaço fica `draft`, nunca `published`) e as sobras já
+existentes foram arquivadas manualmente. (2) `profiles.cpf_cnpj` tem
+`UNIQUE` de verdade no banco — um CPF de teste fixo, reusado em toda
+execução, colidia com o perfil (também permanente) de uma execução anterior;
+corrigido gerando um CPF válido novo a cada rodada.
 
 ---
 
@@ -284,10 +298,10 @@ Detalhes completos e a reconfirmação da documentação em
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
 | 6 | Chat e notificações (além do sistema interno já usado nas solicitações) | Resend |
-| 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** — cliente e webhook já existem (ver Fase 5), falta ligar ao fluxo, checkout e credencial real |
-| 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** |
-| 9 | Painel do proprietário completo (valores recebidos/pendentes/histórico) | Fase 7 — hoje tem espaços, solicitações e reservas; falta a parte com dinheiro de verdade |
-| 10 | Painel do locatário completo (pagamentos, próximo pagamento) | Fase 7 — hoje tem reservas; falta a parte com dinheiro de verdade |
+| 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** — código completo (ver Fase 5), falta só a credencial real testada com internet normal |
+| 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** — comportamento durante aprovação ainda não confirmado |
+| 9 | Painel do proprietário completo (valores recebidos/pendentes/histórico) | Fase 7 — hoje tem espaços, solicitações, reservas e onboarding de recebimento; falta o histórico com dinheiro de verdade |
+| 10 | Painel do locatário completo (pagamentos, próximo pagamento) | Fase 7 — hoje tem reservas e checkout; falta o histórico com dinheiro de verdade |
 | 11 | Painel administrativo | — |
 | 12 | Segurança, testes e preparação para produção | Upstash + Sentry |
 
@@ -442,7 +456,7 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 445 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 458 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar e o fluxo de
 solicitar/aceitar/cancelar aluguel rodam em Chromium de verdade
 (`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
@@ -465,7 +479,7 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 306 checagens contra o Postgres real
+pnpm verify                          # 319 checagens contra o Postgres real
 pnpm verify:integracoes              # 139 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
