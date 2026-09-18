@@ -13,6 +13,7 @@ import { settingInt } from '@/lib/settings';
 import { findPendingRequestBySameRenter, listOtherPendingRequestsForSpace } from './queries';
 import { requestBookingSchema, respondBookingSchema, cancelBookingSchema } from './schemas';
 import { buildBookingReference } from './reference';
+import { postBookingSystemMessage } from '@/lib/messaging/system';
 
 /*
  * `postgres` so anexa `PostgresError` como propriedade do export default
@@ -369,6 +370,21 @@ export async function respondToBookingRequestAction(
   revalidatePath('/meus-espacos/solicitacoes');
   revalidatePath('/reservas');
   revalidatePath('/espacos');
+
+  // A partir de uma reserva aceita, as duas partes quase sempre precisam
+  // combinar algo (acesso, horário) — por isso cria a conversa se ainda não
+  // existir, diferente do cancelamento (ver postBookingSystemMessage).
+  await postBookingSystemMessage({
+    spaceId: booking.spaceId,
+    renterId: booking.renterId,
+    ownerId: booking.ownerId,
+    spaceTitle: space.title,
+    actorId: user.id,
+    recipientId: booking.renterId,
+    body: 'Reserva aceita. A partir de agora vocês podem combinar os detalhes por aqui.',
+    createIfMissing: true,
+  });
+
   return { ok: true, bookingId };
 }
 
@@ -400,8 +416,16 @@ export async function cancelBookingAction(
   const { bookingId, reason } = parsed.data;
 
   const [booking] = await db
-    .select({ id: bookings.id, ownerId: bookings.ownerId, renterId: bookings.renterId, status: bookings.status })
+    .select({
+      id: bookings.id,
+      ownerId: bookings.ownerId,
+      renterId: bookings.renterId,
+      status: bookings.status,
+      spaceId: bookings.spaceId,
+      spaceTitle: spaces.title,
+    })
     .from(bookings)
+    .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
     .where(eq(bookings.id, bookingId))
     .limit(1);
 
@@ -445,5 +469,20 @@ export async function cancelBookingAction(
   revalidatePath('/meus-espacos/solicitacoes');
   revalidatePath('/reservas');
   revalidatePath('/espacos');
+
+  // Diferente do aceite, so publica se ja existia conversa — cancelar nao
+  // e motivo pra abrir um canal novo so pra anunciar isso (ver
+  // postBookingSystemMessage).
+  await postBookingSystemMessage({
+    spaceId: booking.spaceId,
+    renterId: booking.renterId,
+    ownerId: booking.ownerId,
+    spaceTitle: booking.spaceTitle,
+    actorId: user.id,
+    recipientId: outraParte,
+    body: `Reserva cancelada por ${autor?.fullName ?? 'a outra parte'}.`,
+    createIfMissing: false,
+  });
+
   return { ok: true, bookingId };
 }

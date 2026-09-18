@@ -22,6 +22,8 @@
  *                       POST /v3/subscriptions, DELETE /v3/subscriptions/:id,
  *                       GET/POST /v3/payments/:id(/refund) — exige header
  *                       `access_token` batendo com o combinado no teste.
+ *   - Resend          — POST /emails — exige header `authorization: Bearer
+ *                       <chave>` batendo com o combinado no teste.
  *
  * O que isto PROVA: que o nosso codigo monta a requisicao certa, trata a
  * resposta certa, grava no banco certo e mostra a imagem certa.
@@ -69,6 +71,10 @@ export type Testbed = {
   asaasSubaccounts: Map<string, { id: string; apiKey: string; walletId: string }>;
   asaasSubscriptions: Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>;
   asaasPayments: Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number; subscription: string | null }>;
+  /** Chave que o testbed exige no header `authorization: Bearer <chave>` das chamadas Resend. */
+  resendApiKey: string;
+  /** Todo e-mail que o app tentou enviar de verdade, na ordem em que chegou. */
+  emailsSent: { id: string; from: string; to: string[]; subject: string; html: string; text: string }[];
   close: () => Promise<void>;
 };
 
@@ -84,11 +90,12 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const tileCache = new Map<string, Buffer>();
   const assinaturas = new Map<string, { path: string; expiraEm: number }>();
 
-  const estado = { cepFora: false, brasilApiFora: false, asaasApiKey: randomUUID() };
+  const estado = { cepFora: false, brasilApiFora: false, asaasApiKey: randomUUID(), resendApiKey: randomUUID() };
   const asaasCustomers = new Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>();
   const asaasSubaccounts = new Map<string, { id: string; apiKey: string; walletId: string }>();
   const asaasSubscriptions = new Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>();
   const asaasPayments = new Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number; subscription: string | null }>();
+  const emailsSent: { id: string; from: string; to: string[]; subject: string; html: string; text: string }[] = [];
 
   async function lerCorpo(req: IncomingMessage): Promise<Buffer> {
     const partes: Buffer[] = [];
@@ -425,6 +432,36 @@ export async function startTestbed(port = 0): Promise<Testbed> {
           }
         }
 
+        // ---------------------------------------------------------------
+        // Resend — exige Authorization: Bearer <chave>
+        // ---------------------------------------------------------------
+        else if (req.method === 'POST' && rota === '/emails') {
+          const auth = req.headers.authorization ?? '';
+          const token = auth.replace(/^Bearer\s+/i, '');
+          if (token !== estado.resendApiKey) {
+            status = json(res, 401, {
+              statusCode: 401, name: 'validation_error', message: 'API key is invalid',
+            });
+          } else {
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+              from?: string; to?: string[]; subject?: string; html?: string; text?: string;
+            };
+            if (!corpo.from || !corpo.to?.length || !corpo.subject) {
+              status = json(res, 422, {
+                statusCode: 422, name: 'validation_error',
+                message: 'from, to e subject sao obrigatorios',
+              });
+            } else {
+              const id = randomUUID();
+              emailsSent.push({
+                id, from: corpo.from, to: corpo.to, subject: corpo.subject,
+                html: corpo.html ?? '', text: corpo.text ?? '',
+              });
+              status = json(res, 200, { id });
+            }
+          }
+        }
+
         else {
           status = json(res, 404, { error: 'rota nao implementada no testbed', rota });
         }
@@ -464,6 +501,8 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     asaasSubaccounts,
     asaasSubscriptions,
     asaasPayments,
+    resendApiKey: estado.resendApiKey,
+    emailsSent,
     tilesServidos: () => tiles.slice(),
     close: () =>
       new Promise<void>((resolve) => {

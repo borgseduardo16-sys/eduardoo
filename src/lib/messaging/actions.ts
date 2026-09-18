@@ -9,7 +9,8 @@ import { requireUserOrThrow } from '@/lib/auth/dal';
 import { isBlockedBetween } from '@/lib/safety/queries';
 import { detectContactInfo, buildFlagReason } from '@/lib/safety/contact-detection';
 import { startConversationSchema, sendMessageSchema } from './schemas';
-import { findConversation, getConversationForUser } from './queries';
+import { getOrCreateConversation, getConversationForUser } from './queries';
+import { notifyNewMessage } from './notify';
 
 export type MessagingActionState = { ok: boolean; message?: string };
 
@@ -48,26 +49,10 @@ export async function startConversationAction(
     return { ok: false, message: 'Não é possível iniciar esta conversa.' };
   }
 
-  const existente = await findConversation(spaceId, user.id);
-  if (existente) {
-    redirect(`/mensagens/${existente.id}`);
-  }
-
-  const [nova] = await db
-    .insert(conversations)
-    .values({ spaceId, renterId: user.id, ownerId: espaco.ownerId })
-    .onConflictDoNothing({ target: [conversations.spaceId, conversations.renterId] })
-    .returning({ id: conversations.id });
-
-  if (!nova) {
-    // corrida: duas abas criando ao mesmo tempo — a que perdeu so busca a que ganhou.
-    const criadaPelaOutra = await findConversation(spaceId, user.id);
-    if (criadaPelaOutra) redirect(`/mensagens/${criadaPelaOutra.id}`);
-    return { ok: false, message: 'Não foi possível iniciar a conversa. Tente novamente.' };
-  }
+  const conversationId = await getOrCreateConversation(spaceId, user.id, espaco.ownerId);
 
   revalidatePath('/mensagens');
-  redirect(`/mensagens/${nova.id}`);
+  redirect(`/mensagens/${conversationId}`);
 }
 
 /**
@@ -121,6 +106,15 @@ export async function sendMessageAction(
 
   revalidatePath(`/mensagens/${conversationId}`);
   revalidatePath('/mensagens');
+
+  await notifyNewMessage({
+    recipientId: destinatarioId,
+    conversationId,
+    senderName: user.fullName ?? 'Alguém',
+    spaceTitle: conversa.spaceTitle,
+    preview: body,
+  });
+
   return { ok: true };
 }
 

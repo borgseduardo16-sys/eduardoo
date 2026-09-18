@@ -443,6 +443,11 @@ pessoa antes de apostar dinheiro real:
 
 ## 5. Resend — e-mails (Fase 6)
 
+O código já está pronto e testado contra um dublê local do Resend (mesmo
+padrão do Asaas — ver `scripts/testbed/server.ts`); falta só a conta real.
+Sem estas variáveis, o chat continua funcionando normalmente — só não avisa
+por e-mail quem recebeu uma mensagem (ver `src/lib/messaging/notify.ts`).
+
 1. [resend.com](https://resend.com) → conta
 2. **Domains** → adicione seu domínio e configure os registros **SPF, DKIM e
    DMARC** no DNS. Sem isso o e-mail cai em spam — inclusive o de confirmação

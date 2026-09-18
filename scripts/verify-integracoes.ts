@@ -190,6 +190,9 @@ async function main() {
   process.env.ASAAS_API_KEY = testbed.asaasApiKey;
   process.env.ASAAS_ENV = 'sandbox';
   process.env.ASAAS_WEBHOOK_TOKEN = `token-${tag}`;
+  process.env.RESEND_API_BASE_URL = testbed.url;
+  process.env.RESEND_API_KEY = testbed.resendApiKey;
+  process.env.EMAIL_FROM = 'MyPlace <nao-responda@teste.invalid>';
 
   const dono = { id: donoId, email: `${tag}-dono@exemplo.invalid`, token: fakeJwt(donoId, 'dono') };
   const outro = {
@@ -248,6 +251,18 @@ async function aguardarCondicao(condicao: () => Promise<boolean>, nome: string, 
     await new Promise((r) => setTimeout(r, 250));
   }
   bad(nome, 'condicao nao ficou verdadeira a tempo');
+}
+
+/**
+ * Numero de conversas nao lidas do cabecalho (`SiteHeader`), lido do
+ * `aria-label` de verdade — nao assume 0: outra carta do alfabeto pode ter
+ * deixado esta MESMA identidade (donoId/outroId sao compartilhados entre
+ * A-M de proposito) com conversa nao lida de um cenario nao relacionado.
+ */
+async function naoLidasDoCabecalho(page: Page): Promise<number> {
+  const label = await page.getByRole('link', { name: /Mensagens/ }).getAttribute('aria-label');
+  const m = label?.match(/Mensagens, (\d+) não/);
+  return m ? Number(m[1]) : 0;
 }
 
 /** Espera um atributo do DOM assumir um valor — usado para `aria-pressed` do favorito. */
@@ -1539,6 +1554,18 @@ async function testeKSolicitarEAceitar() {
   await pageOutro.getByText('Aceita').waitFor({ timeout: 20_000 });
   ok('locatario ve a reserva como "Aceita" depois do proprietario aceitar');
 
+  /*
+   * O aceite tambem publica uma mensagem de sistema na conversa (Fase 6,
+   * src/lib/messaging/system.ts) — cria o canal se nao existia nenhum ainda,
+   * que e exatamente o caso aqui (TESTE K nunca abriu o chat pra este par).
+   * Confere que isso realmente chegou na tela, nao so no banco.
+   */
+  await pageOutro.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByText('Reserva aceita.').waitFor({ timeout: 20_000 });
+  ok('o aceite cria a conversa sozinho e a mensagem de sistema aparece na inbox do locatario');
+  assert('o e-mail de aviso da mensagem de sistema foi "enviado" (capturado pelo testbed)',
+    testbed!.emailsSent.some((e) => e.to.includes(`${tag}-outro@exemplo.invalid`) && e.html.includes('Reserva aceita')));
+
   // --- financeiro do proprietario reflete o aluguel aceito ---
   await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
   await pageDono.getByText('Nenhum pagamento processado ainda').waitFor({ timeout: 20_000 });
@@ -1705,6 +1732,9 @@ async function testeMChat() {
   const valorCaixaAposEnvio = await pageOutro.getByRole('textbox', { name: 'Mensagem' }).inputValue();
   expect('caixa de mensagem volta vazia depois do envio', valorCaixaAposEnvio, '');
 
+  assert('a mensagem enviada pela interface disparou um e-mail de aviso (capturado pelo testbed)',
+    testbed!.emailsSent.some((e) => e.to.includes(`${tag}-dono@exemplo.invalid`) && e.html.includes('A vaga ainda')));
+
   // --- proprietario ve a conversa na inbox, com previa e indicador de nao lida ---
   const pageDono = await novaAba(testbed!.users.get(donoId)!, { viewport: { width: 900, height: 1000 } });
   await pageDono.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
@@ -1713,6 +1743,15 @@ async function testeMChat() {
 
   await pageDono.getByLabel(/Mensagens, \d+ não lidas?/).waitFor({ timeout: 10_000 });
   ok('indicador de nao lidas aparece no cabecalho do proprietario');
+
+  /*
+   * O NUMERO antes de abrir, nao so "existe" — donoId/outroId sao
+   * compartilhados entre A-M de proposito (simulam uma sessao continua), e
+   * TESTE K/L ja podem ter deixado outras conversas nao lidas destas mesmas
+   * identidades. O que este teste PROVA e que abrir ESTA conversa reduz a
+   * contagem em exatamente 1 (a dela), nao que o total absoluto vira zero.
+   */
+  const naoLidoDonoAntes = await naoLidasDoCabecalho(pageDono);
 
   await pageDono.getByRole('link').filter({ hasText: espaco!.title }).click();
   await pageDono.waitForURL(/\/mensagens\/[0-9a-f-]+$/, { timeout: 20_000 });
@@ -1723,15 +1762,17 @@ async function testeMChat() {
   await pageDono.getByText('Sim, ainda está disponível!').waitFor({ timeout: 20_000 });
   ok('proprietario responde pela interface');
 
-  // --- abrir a conversa marcou como lida: o indicador do proprietario some ---
+  // --- abrir a conversa marcou ELA como lida: a contagem do proprietario cai em 1 ---
   await pageDono.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
-  const naoLidoDonoDepois = await pageDono.getByLabel(/Mensagens, \d+ não lidas?/).count();
-  expect('indicador de nao lidas do proprietario some apos abrir a conversa', naoLidoDonoDepois, 0);
+  const naoLidoDonoDepois = await naoLidasDoCabecalho(pageDono);
+  expect('indicador de nao lidas do proprietario cai em 1 apos abrir esta conversa',
+    naoLidoDonoDepois, Math.max(0, naoLidoDonoAntes - 1));
 
   // --- locatario ve a resposta chegar: indicador de nao lida no cabecalho ANTES de abrir ---
   await pageOutro.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
   await pageOutro.getByLabel(/Mensagens, \d+ não lidas?/).waitFor({ timeout: 10_000 });
   ok('locatario ve o indicador de nao lida assim que a resposta chega, antes de abrir');
+  const naoLidoLocatarioAntes = await naoLidasDoCabecalho(pageOutro);
 
   await pageOutro.getByRole('link').filter({ hasText: espaco!.title }).click();
   await pageOutro.waitForURL(/\/mensagens\/[0-9a-f-]+$/, { timeout: 20_000 });
@@ -1739,8 +1780,9 @@ async function testeMChat() {
   ok('locatario ve a resposta do proprietario na thread');
 
   await pageOutro.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
-  const naoLidoLocatarioDepois = await pageOutro.getByLabel(/Mensagens, \d+ não lidas?/).count();
-  expect('indicador de nao lidas do locatario some apos abrir a conversa', naoLidoLocatarioDepois, 0);
+  const naoLidoLocatarioDepois = await naoLidasDoCabecalho(pageOutro);
+  expect('indicador de nao lidas do locatario cai em 1 apos abrir esta conversa',
+    naoLidoLocatarioDepois, Math.max(0, naoLidoLocatarioAntes - 1));
 
   await pageOutro.screenshot({ path: join(tmp, 'teste-m-chat-locatario.png'), fullPage: true });
   await pageDono.screenshot({ path: join(tmp, 'teste-m-chat-dono.png'), fullPage: true });

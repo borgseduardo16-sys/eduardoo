@@ -18,6 +18,8 @@ req.cache[req.resolve('server-only')] = {
 
 import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
+import { computeBookingAmounts } from '../src/lib/money';
+import { startTestbed, type Testbed } from './testbed/server';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -58,6 +60,7 @@ const donoBId = crypto.randomUUID(); // dono do espaco B, usado no teste de bloq
 
 let espacoAId = '';
 let espacoBId = '';
+let testbed: Testbed;
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string };
 let identidadeAtual: Identidade = { id: '', role: 'user', fullName: '' };
@@ -111,7 +114,14 @@ async function seed() {
 }
 
 async function main() {
+  testbed = await startTestbed();
+  ok('testbed no ar', testbed.url);
+
   await seed();
+
+  process.env.RESEND_API_BASE_URL = testbed.url;
+  process.env.RESEND_API_KEY = testbed.resendApiKey;
+  process.env.EMAIL_FROM = 'MyPlace <nao-responda@teste.invalid>';
 
   const dalPath = req.resolve('../src/lib/auth/dal.ts');
   req.cache[dalPath] = {
@@ -161,6 +171,7 @@ async function main() {
     countUnreadConversations,
   } = await import('../src/lib/messaging/queries');
   const { blockUserAction } = await import('../src/lib/safety/actions');
+  const { respondToBookingRequestAction, cancelBookingAction } = await import('../src/lib/bookings/actions');
 
   /**
    * `startConversationAction` redireciona no caminho de sucesso (mesmo padrao
@@ -413,6 +424,136 @@ async function main() {
   fdMsgAindaFunciona.set('body', 'Combinado, pode vir amanhã de manhã.');
   const rMsgAindaFunciona = await sendMessageAction(undefined, fdMsgAindaFunciona);
   assert('conversas nao envolvidas no bloqueio continuam funcionando', rMsgAindaFunciona.ok, JSON.stringify(rMsgAindaFunciona));
+
+  // =========================================================================
+  secao('8. Notificacao por e-mail de mensagem nova (Resend, contra o testbed)');
+  // =========================================================================
+
+  entrarComo(locatarioId, 'user', 'Locatario Interessado');
+  const emailsAntes8 = testbed.emailsSent.length;
+  const fdMsgEmail = new FormData();
+  fdMsgEmail.set('conversationId', r1.conversationId!);
+  fdMsgEmail.set('body', 'Mensagem de teste pro e-mail.');
+  const rMsgEmail = await sendMessageAction(undefined, fdMsgEmail);
+  assert('mensagem enviada com Resend configurado', rMsgEmail.ok, JSON.stringify(rMsgEmail));
+
+  expect('um e-mail novo foi "enviado" (capturado pelo testbed)', testbed.emailsSent.length, emailsAntes8 + 1);
+  const emailRecebido = testbed.emailsSent[testbed.emailsSent.length - 1]!;
+  expect('e-mail foi para o dono (destinatario certo)', emailRecebido.to, [`${tag}-dono@exemplo.invalid`]);
+  assert('assunto menciona quem mandou e o espaco',
+    emailRecebido.subject.includes('Locatario Interessado') && emailRecebido.subject.includes(`Garagem ${tag}-a`),
+    emailRecebido.subject);
+  assert('corpo do e-mail contem o link direto pra conversa',
+    emailRecebido.html.includes(`/mensagens/${r1.conversationId}`), emailRecebido.html);
+
+  // --- sem RESEND_API_KEY configurada: o chat continua funcionando, so nao envia e-mail ---
+  const chaveOriginal = process.env.RESEND_API_KEY;
+  delete process.env.RESEND_API_KEY;
+  const emailsAntesSemChave = testbed.emailsSent.length;
+  const fdMsgSemChave = new FormData();
+  fdMsgSemChave.set('conversationId', r1.conversationId!);
+  fdMsgSemChave.set('body', 'Mensagem sem credencial de e-mail configurada.');
+  const rMsgSemChave = await sendMessageAction(undefined, fdMsgSemChave);
+  assert('mensagem enviada MESMO sem Resend configurado — o chat nao depende do e-mail',
+    rMsgSemChave.ok, JSON.stringify(rMsgSemChave));
+  expect('nenhum e-mail foi enviado sem a credencial (e nao quebrou a action)',
+    testbed.emailsSent.length, emailsAntesSemChave);
+  process.env.RESEND_API_KEY = chaveOriginal;
+
+  // =========================================================================
+  secao('9. Mensagens de sistema disparadas pela reserva (aceite/cancelamento)');
+  // =========================================================================
+
+  async function seedBookingRequested(espacoId: string, sufixo: string) {
+    const precoCents = 20000;
+    const amounts = computeBookingAmounts(precoCents, { renterFeeBps: 300, ownerFeeBps: 300 });
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO bookings
+        (reference, space_id, renter_id, owner_id, status, start_date,
+         monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+         owner_fee_cents, total_charged_cents, owner_payout_cents)
+      VALUES
+        (${`MP-${tag}-${sufixo}`}, ${espacoId}, ${locatarioId}, ${donoId},
+         'requested', CURRENT_DATE,
+         ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps},
+         ${amounts.renterFeeCents}, ${amounts.ownerFeeCents}, ${amounts.totalChargedCents},
+         ${amounts.ownerPayoutCents})
+      RETURNING id`;
+    return row!.id;
+  }
+
+  // --- aceite: nenhuma conversa existia -> a action CRIA uma e posta o aviso ---
+  const espacoSistemaId = await criarPublicado(donoId, `${tag}-sistema`);
+  const bookingSistemaId = await seedBookingRequested(espacoSistemaId, 'sis');
+
+  const [{ n: conversaAntesDoAceite }] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM conversations WHERE space_id=${espacoSistemaId} AND renter_id=${locatarioId}`;
+  expect('nenhuma conversa existia antes do aceite', conversaAntesDoAceite, 0);
+
+  entrarComo(donoId, 'owner', 'Dono');
+  const emailsAntesAceite = testbed.emailsSent.length;
+  const fdAceitarSistema = new FormData();
+  fdAceitarSistema.set('bookingId', bookingSistemaId);
+  fdAceitarSistema.set('decision', 'accept');
+  const rAceitarSistema = await respondToBookingRequestAction(undefined, fdAceitarSistema);
+  assert('dono aceita a reserva de teste', rAceitarSistema.ok, JSON.stringify(rAceitarSistema));
+
+  const [conversaCriadaPeloAceite] = await sql<{ id: string }[]>`
+    SELECT id FROM conversations WHERE space_id=${espacoSistemaId} AND renter_id=${locatarioId} LIMIT 1`;
+  assert('o aceite CRIOU a conversa (nenhuma existia antes)', Boolean(conversaCriadaPeloAceite));
+  const conversaSistemaId = conversaCriadaPeloAceite!.id;
+
+  const mensagensSistemaAposAceite = await listMessages(conversaSistemaId);
+  expect('uma mensagem de sistema apareceu na conversa', mensagensSistemaAposAceite.length, 1);
+  const msgAceite = mensagensSistemaAposAceite[0]!;
+  assert('mensagem esta marcada como isSystem', msgAceite.isSystem);
+  expect('remetente da mensagem de sistema e quem agiu (o dono)', msgAceite.senderId, donoId);
+  assert('corpo menciona que a reserva foi aceita', msgAceite.body.includes('aceita'), msgAceite.body);
+
+  expect('e-mail da mensagem de sistema foi enviado a quem NAO agiu (o locatario)',
+    testbed.emailsSent.length, emailsAntesAceite + 1);
+  const emailAceite = testbed.emailsSent[testbed.emailsSent.length - 1]!;
+  expect('e-mail foi para o locatario', emailAceite.to, [`${tag}-locatario@exemplo.invalid`]);
+
+  // --- cancelamento: a conversa JA existe -> reusa, nao cria outra ---
+  entrarComo(locatarioId, 'user', 'Locatario Interessado');
+  const emailsAntesCancelar = testbed.emailsSent.length;
+  const fdCancelarSistema = new FormData();
+  fdCancelarSistema.set('bookingId', bookingSistemaId);
+  fdCancelarSistema.set('reason', 'Mudei de ideia.');
+  const rCancelarSistema = await cancelBookingAction(undefined, fdCancelarSistema);
+  assert('locatario cancela a reserva ja aceita', rCancelarSistema.ok, JSON.stringify(rCancelarSistema));
+
+  const mensagensSistemaAposCancelar = await listMessages(conversaSistemaId);
+  expect('duas mensagens de sistema agora (aceite + cancelamento)', mensagensSistemaAposCancelar.length, 2);
+  const msgCancelar = mensagensSistemaAposCancelar[1]!;
+  assert('segunda mensagem tambem e de sistema', msgCancelar.isSystem);
+  expect('remetente da mensagem de cancelamento e quem cancelou (o locatario)', msgCancelar.senderId, locatarioId);
+  assert('corpo menciona cancelamento e quem cancelou',
+    msgCancelar.body.includes('cancelada') && msgCancelar.body.includes('Locatario Interessado'), msgCancelar.body);
+
+  const [{ n: aindaUmaConversaSo }] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM conversations WHERE space_id=${espacoSistemaId} AND renter_id=${locatarioId}`;
+  expect('cancelamento NAO criou uma segunda conversa (reusou a existente)', aindaUmaConversaSo, 1);
+
+  expect('e-mail do cancelamento foi para quem NAO agiu (o dono)', testbed.emailsSent.length, emailsAntesCancelar + 1);
+  const emailCancelar = testbed.emailsSent[testbed.emailsSent.length - 1]!;
+  expect('e-mail foi para o dono', emailCancelar.to, [`${tag}-dono@exemplo.invalid`]);
+
+  // --- cancelamento SEM conversa previa -> nao cria uma so pra avisar ---
+  const espacoSemConversaId = await criarPublicado(donoId, `${tag}-sem-conversa`);
+  const bookingSemConversaId = await seedBookingRequested(espacoSemConversaId, 'semc');
+
+  entrarComo(locatarioId, 'user', 'Locatario Interessado');
+  const fdCancelarSemConversa = new FormData();
+  fdCancelarSemConversa.set('bookingId', bookingSemConversaId);
+  const rCancelarSemConversa = await cancelBookingAction(undefined, fdCancelarSemConversa);
+  assert('locatario cancela solicitacao pendente (sem conversa nenhuma)',
+    rCancelarSemConversa.ok, JSON.stringify(rCancelarSemConversa));
+
+  const [{ n: nenhumaConversaCriada }] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM conversations WHERE space_id=${espacoSemConversaId}`;
+  expect('cancelar sem conversa previa NAO cria uma nova (so aceite cria)', nenhumaConversaCriada, 0);
 }
 
 async function limpar() {
@@ -425,6 +566,10 @@ async function limpar() {
       OR renter_id IN (${locatarioId},${terceiroId})`;
     await sql`DELETE FROM user_blocks WHERE blocker_id IN (${locatarioId},${terceiroId})
       OR blocked_id IN (${donoId},${donoBId})`;
+    // bookings.space_id/renter_id/owner_id sao ON DELETE RESTRICT — saem
+    // antes de spaces/profiles (mesmo motivo de verify-bookings.ts).
+    await sql`DELETE FROM bookings WHERE renter_id IN (${donoId},${locatarioId},${terceiroId},${donoBId})
+      OR owner_id IN (${donoId},${locatarioId},${terceiroId},${donoBId})`;
     await sql`DELETE FROM spaces WHERE owner_id IN (${donoId},${donoBId})`;
     await sql.begin(async (tx) => {
       await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
@@ -436,6 +581,7 @@ async function limpar() {
   } catch (err) {
     console.log(`  \x1b[2mlimpeza: ${String(err).slice(0, 200)}\x1b[0m`);
   }
+  await testbed?.close();
   await sql.end({ timeout: 5 });
 }
 

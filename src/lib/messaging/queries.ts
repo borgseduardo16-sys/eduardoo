@@ -14,6 +14,38 @@ export async function findConversation(spaceId: string, renterId: string) {
 }
 
 /**
+ * Acha a conversa do par (espaço, locatário) ou cria uma nova — devolve
+ * sempre o id. Uso interno: NÃO valida quem pode iniciar conversa (espaço
+ * publicado, bloqueio entre as partes). Quem chama decide isso antes:
+ * `startConversationAction` checa explicitamente; o fluxo de reserva
+ * (`src/lib/messaging/system.ts`) confia que a própria reserva já provou
+ * que as partes não estão bloqueadas (trigger `bookings_guard_block`) — e,
+ * mesmo assim, a criação continua protegida pelo trigger
+ * `conversations_guard_block` no banco.
+ */
+export async function getOrCreateConversation(
+  spaceId: string,
+  renterId: string,
+  ownerId: string,
+): Promise<string> {
+  const existente = await findConversation(spaceId, renterId);
+  if (existente) return existente.id;
+
+  const [nova] = await db
+    .insert(conversations)
+    .values({ spaceId, renterId, ownerId })
+    .onConflictDoNothing({ target: [conversations.spaceId, conversations.renterId] })
+    .returning({ id: conversations.id });
+  if (nova) return nova.id;
+
+  // Corrida: outra chamada criou entre o SELECT e o INSERT acima.
+  const criadaPelaOutra = await findConversation(spaceId, renterId);
+  if (criadaPelaOutra) return criadaPelaOutra.id;
+
+  throw new Error('Não foi possível criar a conversa.');
+}
+
+/**
  * Inbox: todas as conversas de um usuário (como locatário OU proprietário),
  * mais recentes primeiro, com prévia da última mensagem e contagem de não lidas.
  */

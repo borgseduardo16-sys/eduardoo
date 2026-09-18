@@ -313,8 +313,10 @@ bloqueio, denúncia — em vez de duplicar qualquer regra.
 | Bloqueio encerra a conversa | ✅ | trigger do banco (`user_blocks_close_conversations`, já existia desde a Fase de segurança) — testado disparando um bloqueio de verdade e conferindo `closed_at` |
 | Bloqueio impede nova conversa | ✅ | testado |
 | Validação de mensagem (vazia, 4000 caracteres) | ✅ | |
-| Verificação automatizada (banco) | ✅ | 48 checagens — `scripts/verify-messaging.ts` |
-| Verificação automatizada (navegador) | ✅ | TESTE M — iniciar conversa, aviso ao digitar, enviar, indicador de não lida nos dois lados, responder, marcar como lida; 13 checagens somadas às 147 já existentes |
+| Notificação por e-mail de mensagem nova (Resend) | ✅ | `src/lib/email/resend.ts` + `src/lib/messaging/notify.ts` — best-effort de propósito: sem `RESEND_API_KEY` configurada (ver [SETUP.md §5](./SETUP.md#5-resend--e-mails-fase-6)), o chat continua funcionando normalmente, só não manda o e-mail — testado nos dois cenários |
+| Mensagem de sistema na reserva ("reserva aceita"/"cancelada") | ✅ | `src/lib/messaging/system.ts` — aceite CRIA a conversa se ainda não existir (as partes quase sempre vão precisar combinar algo); cancelamento só publica numa conversa que já existia, não abre canal novo só pra avisar isso |
+| Verificação automatizada (banco) | ✅ | 75 checagens — `scripts/verify-messaging.ts` (era 48; +27 de e-mail e mensagem de sistema) |
+| Verificação automatizada (navegador) | ✅ | TESTE M — iniciar conversa, aviso ao digitar, enviar (com e-mail capturado pelo dublê), indicador de não lida nos dois lados, responder, marcar como lida — 14 checagens; TESTE K ganhou mais 2 (mensagem de sistema do aceite + e-mail) — 163 no total em `pnpm verify:integracoes` |
 
 **Um bug real encontrado testando o bloqueio de ponta a ponta** (não
 hipotético — apareceu ao chamar `blockUserAction` pela primeira vez fora do
@@ -329,6 +331,18 @@ inteira. Corrigido nas duas cópias: `clientIp()` agora devolve `null`
 nesse caso (a coluna aceita), e os limites de taxa — que só usam o IP como
 parte de uma chave de texto — trocam o `null` por um valor de agrupamento
 só ali, não no que vai para o banco.
+
+**Um teste frágil encontrado ligando a mensagem de sistema ao TESTE K**
+(não um bug do produto — do próprio teste): `donoId`/`outroId` são
+compartilhados de propósito entre os TESTES A a M (simulam uma sessão
+contínua). O TESTE M assumia que, depois de abrir a própria conversa, a
+contagem de não lidas do cabeçalho ia pra **zero** — só que agora o aceite e
+o cancelamento do TESTE K também deixam mensagem de sistema não lida para
+essas mesmas identidades, e o TESTE K nunca abre o chat pra lê-las. A
+contagem real (1, vindo do TESTE K) estava certa; a asserção é que assumia
+um estado global que não existe mais. Corrigido tornando o TESTE M robusto
+a isso: em vez de esperar exatamente zero, confere que abrir a conversa
+derruba a contagem em exatamente 1 — a dela, não o total absoluto.
 
 ---
 
@@ -421,9 +435,10 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 160 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 163 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
-aceitar e cancelar aluguel, o de configurar recebimento e pagar, e o chat).
+aceitar e cancelar aluguel, o de configurar recebimento e pagar, e o chat
+com e-mail de aviso e mensagem de sistema).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -494,7 +509,7 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 527 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 557 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar, o fluxo de
 solicitar/aceitar/cancelar aluguel e o chat rodam em Chromium de verdade
 (`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
@@ -517,8 +532,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 367 checagens contra o Postgres real
-pnpm verify:integracoes              # 160 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat)
+pnpm verify                          # 394 checagens contra o Postgres real
+pnpm verify:integracoes              # 163 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```
