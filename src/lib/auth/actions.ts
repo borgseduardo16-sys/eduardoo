@@ -26,12 +26,20 @@ export type ActionState = {
 
 const TERMS_VERSION = '2026-09-16';
 
-/** IP do cliente atras do proxy da hospedagem. */
-async function clientIp(): Promise<string> {
+/**
+ * IP do cliente atras do proxy da hospedagem.
+ *
+ * Devolve null quando nao ha cabecalho de proxy — `audit_logs.ip` e coluna
+ * `inet` e so aceita endereco valido ou NULL; um texto como "desconhecido"
+ * quebraria o INSERT (22P02, invalid input syntax for type inet). Para os
+ * limites de taxa (que usam o IP so como parte de uma chave de texto), quem
+ * chama troca o null por um valor de agrupamento na propria chave.
+ */
+async function clientIp(): Promise<string | null> {
   const h = await headers();
   const forwarded = h.get('x-forwarded-for');
   if (forwarded) return forwarded.split(',')[0]!.trim();
-  return h.get('x-real-ip') ?? 'desconhecido';
+  return h.get('x-real-ip') || null;
 }
 
 function tooManyRequests(seconds: number): ActionState {
@@ -64,7 +72,7 @@ export async function signUpAction(
     return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
-  const ip = await clientIp();
+  const ip = (await clientIp()) ?? 'sem-ip';
   const limit = rateLimit(`signup:${ip}`, AUTH_LIMITS.signUp);
   if (!limit.allowed) return tooManyRequests(limit.retryAfterSeconds);
 
@@ -124,7 +132,7 @@ export async function signInAction(
     return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
-  const ip = await clientIp();
+  const ip = (await clientIp()) ?? 'sem-ip';
   // Limita por IP e tambem por e-mail: so por IP, uma botnet contorna;
   // so por e-mail, da para bloquear a conta de outra pessoa de proposito.
   const byIp = rateLimit(`signin:ip:${ip}`, AUTH_LIMITS.signIn);
@@ -188,7 +196,7 @@ export async function requestPasswordResetAction(
     return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
-  const ip = await clientIp();
+  const ip = (await clientIp()) ?? 'sem-ip';
   const limit = rateLimit(`reset:${ip}`, AUTH_LIMITS.passwordReset);
   if (!limit.allowed) return tooManyRequests(limit.retryAfterSeconds);
 

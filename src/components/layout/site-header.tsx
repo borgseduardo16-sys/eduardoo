@@ -1,12 +1,14 @@
 import Link from 'next/link';
-import { Heart } from 'lucide-react';
+import { Heart, MessageCircle } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/dal';
 import { signOutAction } from '@/lib/auth/actions';
+import { countUnreadConversations } from '@/lib/messaging/queries';
 import { Logo } from '@/components/ui/logo';
 import { Button } from '@/components/ui/button';
 
 export async function SiteHeader() {
   const user = await getCurrentUser();
+  const naoLidas = user ? await countUnreadConversations(user.id) : 0;
 
   return (
     <header className="sticky top-0 z-40 border-b bg-[var(--surface)]/85 backdrop-blur-md">
@@ -35,6 +37,16 @@ export async function SiteHeader() {
                 className="hidden sm:inline-flex items-center h-10 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
               >
                 Minhas reservas
+              </Link>
+              <Link
+                href="/mensagens"
+                aria-label={naoLidas > 0 ? `Mensagens, ${naoLidas} não lidas` : 'Mensagens'}
+                className="relative inline-flex items-center justify-center size-10 rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)] text-[var(--content-muted)]"
+              >
+                <MessageCircle className="size-[1.125rem]" aria-hidden />
+                {naoLidas > 0 && (
+                  <span className="absolute top-1.5 right-1.5 size-2 rounded-full bg-[var(--color-critical)]" aria-hidden />
+                )}
               </Link>
               <Link
                 href="/favoritos"

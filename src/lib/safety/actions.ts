@@ -20,9 +20,15 @@ export type SafetyActionState = {
   fieldErrors?: Record<string, string[]>;
 };
 
-async function clientIp(): Promise<string> {
+/**
+ * `audit_logs.ip` e coluna `inet` — so aceita endereco valido ou NULL.
+ * Sem cabecalho de proxy (ex.: chamada direta, sem `x-forwarded-for`/
+ * `x-real-ip`), NULL e o unico valor que a coluna aceita; um texto como
+ * "desconhecido" quebraria o INSERT (22P02, invalid input syntax for type inet).
+ */
+async function clientIp(): Promise<string | null> {
   const h = await headers();
-  return h.get('x-forwarded-for')?.split(',')[0]?.trim() ?? h.get('x-real-ip') ?? 'desconhecido';
+  return h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || null;
 }
 
 /** Le um numero de platform_settings, com queda para o padrao se faltar. */

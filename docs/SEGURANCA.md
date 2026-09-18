@@ -419,19 +419,19 @@ nunca apareça inteiro em log, tela de suporte ou mensagem de erro:
 | Limites anti-abuso | ✅ | ✅ | — |
 | Bloqueio de usuário | ✅ trigger | ✅ | ✅ |
 | Lista de bloqueios | ✅ | ✅ | ✅ `/minha-conta/seguranca` |
-| Detector de contato | — | ✅ | ⬜ Fase 6 (depende do chat) |
+| Detector de contato | — | ✅ | ✅ Fase 6 — ligado no chat de verdade |
 | Validação CPF/CNPJ | — | ✅ | ⬜ Fase 8 (depende do KYC) |
 | Contagem de reincidência | ✅ trigger | — | ⬜ Fase 11 |
 | Aplicação automática dos limites | — | ⬜ | ⬜ Fase 11 |
 | Fila de moderação | ✅ índice | ⬜ | ⬜ Fase 11 |
 | Incentivo a fechar no app | — | ✅ | ✅ home, `/protecao`, rodapé |
 | Checklist de visita | — | ✅ | ✅ interativo, salvo no navegador |
-| Aviso escalonado de pagamento por fora | — | ✅ | ⬜ Fase 6 (depende do chat) |
+| Aviso escalonado de pagamento por fora | — | ✅ | ✅ Fase 6 — no chat, ao digitar |
 | Níveis de confiança | ✅ | ✅ | ✅ componente pronto |
 | Contagem de locações concluídas | ✅ trigger | — | ⬜ aparece com os anúncios (Fase 2) |
 
-O componente de denúncia (`ReportDialog`) está pronto e funcional, mas só
-aparece na tela quando existirem anúncios e mensagens para denunciar — Fases 2 e 6.
+O componente de denúncia (`ReportDialog`) está pronto e funcional, e já
+aparece nas telas de anúncio (Fase 2) e de conversa (Fase 6).
 
 ---
 

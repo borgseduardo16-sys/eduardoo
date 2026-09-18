@@ -21,6 +21,7 @@ import { ProtectionNotice } from '@/components/safety/protection-notice';
 import { VisitChecklist } from '@/components/safety/visit-checklist';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { ShareButton } from '@/components/espacos/share-button';
+import { StartConversationButton } from '@/components/messaging/start-conversation-button';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
@@ -167,12 +168,15 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
                 <p className="text-[0.875rem] text-[var(--content-muted)]">
                   Código {existingBooking.reference}.
                 </p>
-                <Link
-                  href="/reservas"
-                  className="inline-flex items-center gap-1.5 h-11 px-5 font-medium rounded-[var(--radius-field)] border hover:bg-[var(--surface-sunken)] transition-colors"
-                >
-                  Ver em “Minhas reservas”
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href="/reservas"
+                    className="inline-flex items-center gap-1.5 h-11 px-5 font-medium rounded-[var(--radius-field)] border hover:bg-[var(--surface-sunken)] transition-colors"
+                  >
+                    Ver em “Minhas reservas”
+                  </Link>
+                  <StartConversationButton spaceId={space.id} />
+                </div>
               </>
             ) : (
               <>
@@ -181,9 +185,21 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
                   Envie uma solicitação de aluguel com o período que você precisa. O
                   proprietário recebe, avalia e decide se aceita antes de qualquer cobrança.
                 </p>
-                <Link href={`/espacos/${space.slug}/solicitar`} className={buttonVariants({ size: 'lg' })}>
-                  Solicitar aluguel
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`/espacos/${space.slug}/solicitar`} className={buttonVariants({ size: 'lg' })}>
+                    Solicitar aluguel
+                  </Link>
+                  {viewer ? (
+                    <StartConversationButton spaceId={space.id} />
+                  ) : (
+                    <Link
+                      href={`/entrar?next=${encodeURIComponent(`/espacos/${space.slug}`)}`}
+                      className={buttonVariants({ variant: 'secondary', size: 'lg' })}
+                    >
+                      Entrar para conversar
+                    </Link>
+                  )}
+                </div>
               </>
             )}
           </section>

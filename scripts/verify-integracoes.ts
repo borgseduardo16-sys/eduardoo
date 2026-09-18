@@ -224,7 +224,7 @@ async function main() {
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKL').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLM').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -237,6 +237,7 @@ async function main() {
   if (quais.includes('J')) await testeJCompartilhar();
   if (quais.includes('K')) await testeKSolicitarEAceitar();
   if (quais.includes('L')) await testeLPagamento();
+  if (quais.includes('M')) await testeMChat();
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -1658,6 +1659,91 @@ async function testeLPagamento() {
 
   await pageOutro.screenshot({ path: join(tmp, 'teste-l-checkout.png'), fullPage: true });
   await pageDono.screenshot({ path: join(tmp, 'teste-l-financeiro.png'), fullPage: true });
+  await pageOutro.context().close();
+  await pageDono.context().close();
+}
+
+async function testeMChat() {
+  secao('TESTE M (navegador) - chat real entre locatario e proprietario');
+
+  // Usa `barato`, nao `publicado`: os testes K e L ja deixam `publicado` com
+  // reserva em andamento, e o chat nao deveria depender disso pra funcionar
+  // (nem pra ser testado isoladamente com SOMENTE=M).
+  const [espaco] = await sql<{ slug: string; title: string }[]>`
+    SELECT slug, title FROM spaces WHERE id=${barato}`;
+
+  // --- locatario inicia a conversa pela pagina do anuncio ---
+  const pageOutro = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 430, height: 900 } });
+  await pageOutro.goto(`${baseUrl}/espacos/${espaco!.slug}`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByRole('button', { name: 'Falar com o proprietário' }).click();
+  await pageOutro.waitForURL(/\/mensagens\/[0-9a-f-]+$/, { timeout: 20_000 });
+  ok('locatario inicia a conversa pela pagina do anuncio e cai na thread');
+
+  const [conversaNoBanco] = await sql<{ id: string }[]>`
+    SELECT id FROM conversations WHERE space_id=${barato} AND renter_id=${outroId} LIMIT 1`;
+  assert('a conversa foi gravada no banco', Boolean(conversaNoBanco));
+  const conversationId = conversaNoBanco!.id;
+
+  // --- aviso de troca de contato aparece AO DIGITAR, antes de enviar ---
+  await pageOutro.getByRole('textbox', { name: 'Mensagem' }).fill('Me chama no zap: 27999998888');
+  await pageOutro.getByText('Troca de contato detectada').waitFor({ timeout: 10_000 });
+  ok('aviso de troca de contato aparece enquanto a pessoa digita, antes de enviar');
+  await pageOutro.getByRole('textbox', { name: 'Mensagem' }).fill('');
+
+  // --- locatario manda a primeira mensagem (sem dado de contato) ---
+  await pageOutro.getByRole('textbox', { name: 'Mensagem' }).fill('Oi! A vaga ainda está disponível?');
+  await pageOutro.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await pageOutro.getByText('Oi! A vaga ainda está disponível?').waitFor({ timeout: 20_000 });
+  ok('mensagem enviada aparece na tela de quem mandou');
+
+  await aguardarCondicao(async () => {
+    const [r] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM messages WHERE conversation_id=${conversationId}`;
+    return (r?.n ?? 0) === 1;
+  }, 'mensagem gravada no banco');
+
+  const valorCaixaAposEnvio = await pageOutro.getByRole('textbox', { name: 'Mensagem' }).inputValue();
+  expect('caixa de mensagem volta vazia depois do envio', valorCaixaAposEnvio, '');
+
+  // --- proprietario ve a conversa na inbox, com previa e indicador de nao lida ---
+  const pageDono = await novaAba(testbed!.users.get(donoId)!, { viewport: { width: 900, height: 1000 } });
+  await pageDono.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByText('Oi! A vaga ainda está disponível?').waitFor({ timeout: 20_000 });
+  ok('proprietario ve a previa da mensagem na inbox');
+
+  await pageDono.getByLabel(/Mensagens, \d+ não lidas?/).waitFor({ timeout: 10_000 });
+  ok('indicador de nao lidas aparece no cabecalho do proprietario');
+
+  await pageDono.getByRole('link').filter({ hasText: espaco!.title }).click();
+  await pageDono.waitForURL(/\/mensagens\/[0-9a-f-]+$/, { timeout: 20_000 });
+
+  // --- proprietario responde ---
+  await pageDono.getByRole('textbox', { name: 'Mensagem' }).fill('Sim, ainda está disponível!');
+  await pageDono.getByRole('button', { name: 'Enviar', exact: true }).click();
+  await pageDono.getByText('Sim, ainda está disponível!').waitFor({ timeout: 20_000 });
+  ok('proprietario responde pela interface');
+
+  // --- abrir a conversa marcou como lida: o indicador do proprietario some ---
+  await pageDono.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
+  const naoLidoDonoDepois = await pageDono.getByLabel(/Mensagens, \d+ não lidas?/).count();
+  expect('indicador de nao lidas do proprietario some apos abrir a conversa', naoLidoDonoDepois, 0);
+
+  // --- locatario ve a resposta chegar: indicador de nao lida no cabecalho ANTES de abrir ---
+  await pageOutro.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByLabel(/Mensagens, \d+ não lidas?/).waitFor({ timeout: 10_000 });
+  ok('locatario ve o indicador de nao lida assim que a resposta chega, antes de abrir');
+
+  await pageOutro.getByRole('link').filter({ hasText: espaco!.title }).click();
+  await pageOutro.waitForURL(/\/mensagens\/[0-9a-f-]+$/, { timeout: 20_000 });
+  await pageOutro.getByText('Sim, ainda está disponível!').waitFor({ timeout: 20_000 });
+  ok('locatario ve a resposta do proprietario na thread');
+
+  await pageOutro.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
+  const naoLidoLocatarioDepois = await pageOutro.getByLabel(/Mensagens, \d+ não lidas?/).count();
+  expect('indicador de nao lidas do locatario some apos abrir a conversa', naoLidoLocatarioDepois, 0);
+
+  await pageOutro.screenshot({ path: join(tmp, 'teste-m-chat-locatario.png'), fullPage: true });
+  await pageDono.screenshot({ path: join(tmp, 'teste-m-chat-dono.png'), fullPage: true });
   await pageOutro.context().close();
   await pageDono.context().close();
 }

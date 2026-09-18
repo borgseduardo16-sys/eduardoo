@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1 a 4 de 12 + segurança interna · **Fase 5 em andamento:** reserva e aluguel sem pagamento
+> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1 a 6 de 12 + segurança interna · **Fase 5 depende só da credencial Asaas real** (código e testes prontos)
 
 Estados usados:
 
@@ -72,13 +72,13 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Incentivo visual a fechar no app | ✅ | home, `/protecao`, rodapé |
 | Página pública de proteção | ✅ | `/protecao` |
 | Checklist de visita | ✅ | 4 grupos, muda por tipo de espaço, salvo no navegador |
-| Aviso escalonado de pagamento por fora | ✅ | componente pronto; liga no chat (Fase 6) |
+| Aviso escalonado de pagamento por fora | ✅ | componente ligado no chat de verdade (Fase 6) — aparece enquanto a pessoa digita, testado em navegador real |
 | Níveis de confiança do perfil | ✅ | denúncia procedente domina histórico longo |
 | Contagem de locações concluídas | ✅ | trigger; conta os dois lados |
 | Verificação de documento no perfil | ✅ banco | preenchido pelo KYC na Fase 8 |
 | Aplicação automática de suspensão | ⬜ | limites já configurados; a ação entra na Fase 11 |
 | Fila de moderação | ⬜ | índice pronto; painel é Fase 11 |
-| Detector ligado ao chat | ⬜ | depende do chat (Fase 6) |
+| Detector ligado ao chat | ✅ | Fase 6 — sinaliza `flagged_at`/`flag_reason` a cada mensagem enviada de verdade |
 
 ---
 
@@ -120,7 +120,7 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Servidor não confia na cidade que o navegador manda | ✅ | confirma o CEP ao salvar — testado com cidade forjada |
 | Políticas do Storage por pasta do dono | ✅ | migração 0009 aplicada no Supabase real em 18/09/2026 — bucket privado, 4 políticas confirmadas |
 | Verificação automatizada | ✅ | 37 checagens — `scripts/verify-spaces.ts`; fotos/mapa/CEP em navegador real cobertas junto com a Fase 3/4 (ver abaixo) |
-| Conversa com proprietário | ⬜ | Fase 6 |
+| Conversa com proprietário | ✅ | Fase 6, ver seção própria abaixo |
 | Reservar / alugar (solicitação, aceite, cancelamento) | ✅ | Fase 5, ver seção própria abaixo — falta só o pagamento (Fase 7) |
 
 ---
@@ -293,11 +293,49 @@ corrigido gerando um CPF válido novo a cada rodada.
 
 ---
 
-## Fases 6 a 12 — ⬜ não implementadas
+## Fase 6 — Chat real entre locatário e proprietário ✅
+
+Chat de verdade, no contexto de um anúncio: uma conversa por (espaço,
+locatário), sempre visível pelos dois lados. Reusa integralmente o que a
+Fase 1 (segurança interna) já tinha construído — detector de contato,
+bloqueio, denúncia — em vez de duplicar qualquer regra.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Iniciar conversa (`/espacos/[slug]`) | ✅ | botão "Falar com o proprietário"; reabrir a mesma conversa não duplica (`UNIQUE (space_id, renter_id)`) |
+| Inbox (`/mensagens`) | ✅ | prévia da última mensagem, contagem de não lidas, mais recente primeiro |
+| Thread (`/mensagens/[id]`) | ✅ | bolhas próprio/outro, mensagem do sistema, mensagem escondida por moderação mostra só o aviso |
+| Autorização | ✅ | só quem participa (locatário ou dono) vê a conversa — na DAL, testado com um terceiro tentando acessar |
+| Indicador de não lidas no cabeçalho | ✅ | ponto vermelho + contagem no `aria-label`, testado em navegador real nos dois lados |
+| Marcar como lida | ✅ | ao abrir a thread |
+| Detector de dados de contato ligado de verdade | ✅ | sinaliza (`flagged_at`/`flag_reason`), **não bloqueia o envio** — mesma decisão de produto documentada em `contact-detection.ts` |
+| Aviso ao digitar (`OffPlatformWarning`) | ✅ | aparece antes de enviar, escalonado (contato vs. pedido de pagamento), testado em navegador real |
+| Bloqueio encerra a conversa | ✅ | trigger do banco (`user_blocks_close_conversations`, já existia desde a Fase de segurança) — testado disparando um bloqueio de verdade e conferindo `closed_at` |
+| Bloqueio impede nova conversa | ✅ | testado |
+| Validação de mensagem (vazia, 4000 caracteres) | ✅ | |
+| Verificação automatizada (banco) | ✅ | 48 checagens — `scripts/verify-messaging.ts` |
+| Verificação automatizada (navegador) | ✅ | TESTE M — iniciar conversa, aviso ao digitar, enviar, indicador de não lida nos dois lados, responder, marcar como lida; 13 checagens somadas às 147 já existentes |
+
+**Um bug real encontrado testando o bloqueio de ponta a ponta** (não
+hipotético — apareceu ao chamar `blockUserAction` pela primeira vez fora do
+navegador real): `clientIp()`, em `src/lib/safety/actions.ts` **e**
+`src/lib/auth/actions.ts` (duas cópias da mesma função, mesmo defeito),
+caía para o texto `"desconhecido"` quando a requisição não tinha
+`x-forwarded-for`/`x-real-ip`. `audit_logs.ip` é coluna `inet` — só aceita
+endereço válido ou `NULL`; aquele texto quebrava o `INSERT` com
+`22P02 invalid input syntax for type inet`, ou seja, denunciar, bloquear,
+cadastrar ou entrar sem esses cabeçalhos de proxy presentes derrubava a ação
+inteira. Corrigido nas duas cópias: `clientIp()` agora devolve `null`
+nesse caso (a coluna aceita), e os limites de taxa — que só usam o IP como
+parte de uma chave de texto — trocam o `null` por um valor de agrupamento
+só ali, não no que vai para o banco.
+
+---
+
+## Fases 7 a 12 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
-| 6 | Chat e notificações (além do sistema interno já usado nas solicitações) | Resend |
 | 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** — código completo (ver Fase 5), falta só a credencial real testada com internet normal |
 | 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** — comportamento durante aprovação ainda não confirmado |
 | 9 | Painel do proprietário completo (valores recebidos/pendentes/histórico) | Fase 7 — hoje tem espaços, solicitações, reservas e onboarding de recebimento; falta o histórico com dinheiro de verdade |
@@ -383,9 +421,9 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 147 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 160 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
-aceitar e cancelar aluguel, e o de configurar recebimento e pagar).
+aceitar e cancelar aluguel, o de configurar recebimento e pagar, e o chat).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -456,9 +494,9 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 466 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
-busca (com GPS real), filtros, favoritos, galeria, compartilhar e o fluxo de
-solicitar/aceitar/cancelar aluguel rodam em Chromium de verdade
+São 527 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+busca (com GPS real), filtros, favoritos, galeria, compartilhar, o fluxo de
+solicitar/aceitar/cancelar aluguel e o chat rodam em Chromium de verdade
 (`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
 interface: cadastro, login e o painel "Meus espaços". Fase 12.
 
@@ -479,8 +517,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 319 checagens contra o Postgres real
-pnpm verify:integracoes              # 147 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar)
+pnpm verify                          # 367 checagens contra o Postgres real
+pnpm verify:integracoes              # 160 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```
