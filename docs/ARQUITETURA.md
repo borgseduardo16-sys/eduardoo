@@ -191,7 +191,7 @@ Honestidade sobre os buracos conhecidos:
    funciona em serverless**, onde cada instância tem o próprio contador.
    Produção exige Upstash Redis. Está declarado em `src/lib/rate-limit.ts`.
 2. **Sem monitoramento de erro.** Sentry ainda não integrado.
-3. **Cobertura de teste desigual.** São 232 checagens contra Postgres real,
+3. **Cobertura de teste desigual.** São 237 checagens contra Postgres real,
    e as três integrações (Storage, mapa, CEP) rodam num Chromium de verdade
    via Playwright (`pnpm verify:tudo`). Ainda falta teste de unidade de
    componente (Vitest) e cobertura de UI além dessas telas.

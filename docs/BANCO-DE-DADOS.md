@@ -279,15 +279,15 @@ Mudar a taxa é um `UPDATE`, não um deploy — e fica registrado em `audit_logs
 
 ## Verificação
 
-Nada acima é promessa. Os scripts rodam **232 checagens contra um Postgres
+Nada acima é promessa. Os scripts rodam **237 checagens contra um Postgres
 real**, provando que cada regra citada aqui bloqueia mesmo o dado inválido:
 
 ```bash
 pnpm tsx scripts/verify-schema.ts        # 29 — invariantes centrais
 pnpm tsx scripts/verify-safety.ts        # 72 — segurança entre usuários
-pnpm tsx scripts/verify-spaces.ts        # 34 — anúncios e permissões
+pnpm tsx scripts/verify-spaces.ts        # 37 — anúncios, capa e permissões
 pnpm tsx scripts/verify-images.ts        # 14 — EXIF e processamento
-pnpm tsx scripts/verify-integracoes.ts   # 83 — Storage, mapa e CEP em navegador real
+pnpm tsx scripts/verify-integracoes.ts   # 85 — Storage, mapa e CEP em navegador real
 ```
 
 Ele cria dados, tenta violar cada invariante, confirma que o banco recusa, e

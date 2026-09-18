@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 17/09/2026 · **Fases concluídas:** 1 e 2 de 12 + segurança interna
+> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1 e 2 de 12 + segurança interna
 
 Estados usados:
 
@@ -118,8 +118,8 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Recomendação de 5 fotos | ✅ | orienta sem travar rascunho |
 | Mínimo de 3 fotos para publicar | ✅ | dito na interface, cobrado na action e **garantido por trigger no banco** |
 | Servidor não confia na cidade que o navegador manda | ✅ | confirma o CEP ao salvar — testado com cidade forjada |
-| Políticas do Storage por pasta do dono | ⚠️ | escritas na migração 0009; aplicam quando o SQL roda no Supabase (schema `storage`) |
-| Verificação automatizada | ✅ | 34 + 83 checagens — `pnpm verify:tudo` |
+| Políticas do Storage por pasta do dono | ✅ | migração 0009 aplicada no Supabase real em 18/09/2026 — bucket privado, 4 políticas confirmadas |
+| Verificação automatizada | ✅ | 37 + 85 checagens — `pnpm verify:tudo` |
 | Conversa com proprietário | ⬜ | Fase 6 |
 | Reservar / alugar | ⬜ | Fase 5 |
 
@@ -130,7 +130,7 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
-| 3 | Busca por distância, filtros avançados, mapa na listagem | MapTiler (opcional) |
+| 3 | Busca por distância e filtros avançados (mapa na listagem já saiu na Fase 2) | — |
 | 4 | Página do anúncio e favoritos | — |
 | 5 | Reserva e aluguel | — |
 | 6 | Chat e notificações | Resend |
@@ -208,14 +208,22 @@ O que continua valendo:
 
 Contas completas em [PAGAMENTOS.md §3](./PAGAMENTOS.md#3-a-economia-real-do-modelo-3--3).
 
-### ⚠️ 3. O que foi testado de verdade, e o que ainda depende de você
+### ✅ 3. O que foi testado de verdade, e o que já está confirmado no seu projeto
 
 A política de rede desta máquina bloqueia **toda** saída externa (BrasilAPI,
 ViaCEP, tiles do OpenStreetMap e `*.supabase.co` devolvem `000`). Para não
 cair no teste de mentirinha — "clicou, então funciona" — os testes sobem, na
 própria máquina, um servidor que implementa o **contrato REST** desses
 serviços, e exercitam o app inteiro contra ele **em um Chromium de verdade**
-(`scripts/verify-integracoes.ts`, 83 checagens).
+(`scripts/verify-integracoes.ts`, 85 checagens).
+
+**18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
+projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
+existem agora: o bucket `space-images` privado (8 MB, jpeg/png/webp), as
+4 políticas que travam cada usuário na própria pasta, e as 2 triggers que
+impedem publicar sem foto. O que essa migração NÃO inclui — porque não é SQL,
+é o app rodando — é alguém ter efetivamente subido uma foto pela tela e visto
+ela aparecer. Isso continua descrito na tabela abaixo.
 
 | O que | Testado assim | O que isso prova | O que não prova |
 |-------|---------------|------------------|-----------------|
@@ -225,8 +233,12 @@ serviços, e exercitam o app inteiro contra ele **em um Chromium de verdade**
 
 **O mesmo teste roda contra os serviços reais**: com `NEXT_PUBLIC_SUPABASE_URL`,
 `SUPABASE_SERVICE_ROLE_KEY` e as bases de CEP apontando para a produção, nada
-no script muda. É o que fecha essa lacuna na sua máquina — veja
-[SETUP.md](./SETUP.md#9-rodar-os-testes-contra-os-servicos-reais).
+no script muda. Se você tiver Node instalado numa máquina com internet, é o
+que fecha esta última lacuna — veja
+[SETUP.md](./SETUP.md#9-rodar-os-testes-contra-os-servicos-reais). Sem isso,
+a forma mais simples de ver funcionando é publicar o app (Vercel, Fase 12) e
+testar pela tela: criar um rascunho, subir uma foto de verdade e ver ela
+aparecer no anúncio.
 
 O **processamento** das fotos (remoção de EXIF/GPS, redimensionamento,
 miniatura) e a **validação** por magic bytes rodam localmente e sempre foram
@@ -270,7 +282,7 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só nas telas das integrações
 
-São 232 checagens reais. As telas de foto, mapa e CEP rodam em Chromium de
+São 237 checagens reais. As telas de foto, mapa e CEP rodam em Chromium de
 verdade (`pnpm verify:integracoes`), mas o resto da interface — cadastro,
 login, painel, marketplace — ainda não tem teste automatizado. Fase 12.
 
@@ -291,8 +303,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 149 checagens contra o Postgres real
-pnpm verify:integracoes              # 83 checagens em Chromium real (fotos, mapa, CEP)
+pnpm verify                          # 152 checagens contra o Postgres real
+pnpm verify:integracoes              # 85 checagens em Chromium real (fotos, mapa, CEP)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```
