@@ -1,8 +1,11 @@
 # Pagamentos — análise dos gateways e economia real do modelo
 
-> **Última revisão:** 16/09/2026 (taxas atualizadas para 3% + 3%)
-> Preços e recursos de gateway mudam. Antes de assinar contrato, confirme tudo
-> em [docs.asaas.com](https://docs.asaas.com) e com o gerente comercial.
+> **Última revisão:** 18/09/2026 — reconfirmação da escolha e resolução da
+> dúvida sobre split + Pix Automático (ver §4). **Feita por busca, não por
+> leitura direta da documentação** — o ambiente desta sessão bloqueia acesso
+> a `docs.asaas.com` (testado e confirmado, não é suposição). Antes de
+> assinar contrato ou tocar em credencial real, confirme tudo em
+> [docs.asaas.com](https://docs.asaas.com) e com o gerente comercial.
 
 ---
 
@@ -191,22 +194,87 @@ defesas estão descritas em [SEGURANCA.md](./SEGURANCA.md): endereço exato só
 liberado após reserva aceita, conversa dentro da plataforma, e detector que
 avisa quem está prestes a aceitar um pagamento por fora.
 
-## 4. O que ainda precisa ser confirmado com o Asaas
+## 4. Reconfirmação em 18/09/2026, e o que ainda falta
 
-Não consegui confirmar estes pontos apenas com a documentação pública. São
-perguntas para o suporte/gerente **antes** de começar a Fase 7:
+### Como esta rodada foi feita — leia antes de confiar nela
 
-1. **Split funciona junto com Pix Automático?** Split em assinaturas está
-   documentado, e Pix Automático está documentado — mas não achei confirmação
-   explícita dos dois **juntos**. Se não funcionarem juntos, o plano muda.
-2. **Tokenização de cartão em produção** exige liberação do gerente, sujeita a
-   análise prévia. Isso está na documentação.
-3. **Criação de subcontas white-label** — quais são as exigências contratuais.
-4. **Tarifas reais** da sua conta, e a partir de quando a promoção acaba.
-5. **Comportamento quando o `fixedValue` do split é maior que o `netValue`** —
-   em aluguel muito baixo, ou se a tarifa subir. Precisamos saber se o Asaas
-   recusa a cobrança ou repassa menos.
-6. **Chargeback em transação com split já liquidado** — quem arca.
+O ambiente onde rodo tem uma política de rede que **bloqueia `docs.asaas.com`
+por completo** — testado de duas formas independentes: uma sub-tarefa minha
+tentou buscar 5 páginas específicas da documentação e todas retornaram
+`EGRESS_BLOCKED` ("Access to docs.asaas.com is blocked by the network egress
+proxy"); eu mesmo tentei um `curl` direto pela mesma sessão e recebi
+`CONNECT tunnel failed, response 403` do proxy da organização. Não é um erro
+de TLS ou configuração corrigível — é bloqueio deliberado de política, e por
+instrução do projeto eu não contorno isso (nunca desabilito verificação de
+TLS nem tento outra rota para escapar de um bloqueio de política).
+
+A única ferramenta que respondeu foi a **busca web** (que roda do lado do
+Anthropic, fora do proxy desta sessão) — então tudo abaixo vem de **trechos
+indexados/resumidos de busca**, não da página crua lida diretamente. Cruzei
+cada ponto com múltiplas buscas e, quando possível, com várias páginas
+citando a mesma coisa — mas isto **não substitui** ler `docs.asaas.com`
+direto. Antes de mandar dinheiro de verdade por este gateway, alguém com
+acesso à internet normal (você, ou uma sessão sem esse bloqueio) precisa
+conferir os nomes exatos de campo/endpoint abaixo contra a documentação viva.
+
+### O que ficou confirmado nesta rodada
+
+1. **Split funciona junto com Pix Automático — SIM.** Resultado de busca
+   citando `docs.asaas.com/docs/diferença-entre-pix-automático-e-assinaturas-1`
+   e páginas relacionadas: *"Você pode usar ambas as funcionalidades
+   [Assinaturas e Pix Automático] com split de pagamento para automatizar
+   divisões de valores em cobranças recorrentes."* Isso resolve a maior
+   incerteza da revisão anterior — mas por vir de resumo de busca, e não de
+   leitura direta da página, ainda merece uma conferência antes da Fase 7.
+2. **Formato do split, com nomes de campo exatos** (de exemplos JSON
+   encontrados via busca, citando `docs.asaas.com/docs/split`): o array vai
+   no campo `split` (cobrança avulsa) — visto também como `splits` num
+   exemplo de Checkout, o que sugere o nome do campo pode variar por
+   endpoint e precisa ser confirmado por endpoint, não assumido igual em
+   todos. Cada item tem `walletId` e **ou** `fixedValue` **ou**
+   `percentualValue` (não `percentage` — o nome exato importa). `fixedValue`
+   aceita só duas casas decimais.
+3. **`fixedValue` + `percentualValue` somando mais que o `netValue`: a API
+   recusa com exceção**, não repassa parcial nem ignora silenciosamente —
+   resolve a pergunta 5 da revisão anterior. Confirma que preciso validar no
+   meu lado ANTES de enviar, pra dar um erro claro em vez de deixar o Asaas
+   recusar sem explicação pro usuário.
+4. **Criação de subconta**: endpoint `POST /v3/accounts`. A resposta traz
+   `apiKey` e `walletId`; a `apiKey` **só é devolvida uma vez**, na criação —
+   precisa ser guardada (cifrada) imediatamente, porque não é possível
+   consultá-la de novo depois. Isso muda o desenho: a criação da subconta do
+   proprietário é um momento crítico de guardar segredo, não algo que dá pra
+   refazer se falhar a gravação.
+5. **Eventos de webhook, com nomes exatos** (cruzado em várias páginas):
+   `PAYMENT_CREATED` → `PAYMENT_AWAITING_RISK_ANALYSIS` (cartão em análise) →
+   `PAYMENT_APPROVED_BY_RISK_ANALYSIS` / `PAYMENT_REPROVED_BY_RISK_ANALYSIS` →
+   `PAYMENT_AUTHORIZED` (cartão autorizado, aguardando captura) →
+   `PAYMENT_CONFIRMED` → `PAYMENT_RECEIVED`. **Detalhe que muda o desenho do
+   webhook:** `PAYMENT_CONFIRMED` significa "pagamento feito, mas o saldo
+   ainda não está disponível" — diferente de `PAYMENT_RECEIVED` ("recebido").
+
+   **Decisão tomada ao implementar** (`src/lib/payments/webhook.ts`): a
+   reserva vira `active` (e o endereço exato libera) no `PAYMENT_CONFIRMED`
+   — é o sinal de que o locatário cumpriu a parte dele, e ele não deveria
+   esperar a plataforma receber o dinheiro pra poder usar o que já pagou. O
+   **repasse ao proprietário**, esse sim, só é criado no `PAYMENT_RECEIVED`
+   — só ali existe dinheiro disponível de verdade pra repassar. É uma
+   decisão de modelagem técnica razoável, não a política financeira em si;
+   vale revisar com o gerente do Asaas antes de produção.
+
+### O que ainda precisa de confirmação direta (não resolvido por busca)
+
+1. **Tokenização de cartão em produção** exige liberação do gerente, sujeita
+   a análise prévia — informação que já vinha da documentação, sem mudança.
+2. **Criação de subcontas white-label** — quais são as exigências
+   contratuais. Busca não trouxe detalhe contratual, só o endpoint técnico.
+3. **Tarifas reais** da sua conta, e a partir de quando a promoção acaba —
+   isso só a sua conta comercial responde, nunca a documentação pública.
+4. **Chargeback em transação com split já liquidado** — quem arca. Não
+   apareceu em nenhum resultado de busca.
+5. **Os nomes exatos de campo acima** (`split` vs `splits`,
+   `percentualValue`, o corpo completo de `POST /v3/accounts`) — confirmados
+   por trecho de busca, não por leitura direta da página viva.
 
 ---
 
@@ -219,9 +287,14 @@ perguntas para o suporte/gerente **antes** de começar a Fase 7:
 | Taxas configuráveis sem deploy | **IMPLEMENTADO** — `platform_settings`, hoje em 3% + 3% |
 | Aluguel mínimo | **IMPLEMENTADO** — R$ 35,00, acima do equilíbrio nos dois meios |
 | Tabelas de pagamento, repasse e livro-razão | **IMPLEMENTADO** |
-| Idempotência de webhook | **IMPLEMENTADO** — chave única por evento |
-| Integração com o Asaas | **NÃO IMPLEMENTADO** — Fase 7 |
-| Criação de subconta e KYC | **NÃO IMPLEMENTADO** — Fase 8 |
+| Idempotência de webhook | **IMPLEMENTADO** — chave única por evento, testado com reentrega real |
+| Livro-razão realmente append-only | **IMPLEMENTADO** — trigger recusa até `DELETE`, testado tentando de verdade |
+| Cliente Asaas (`src/lib/payments/asaas.ts`) | **IMPLEMENTADO, sem credencial real** — cliente, subconta, assinatura+split, estorno; testado contra dublê local (50 checagens, `scripts/verify-payments.ts`) |
+| Webhook (`/api/webhooks/asaas`) | **IMPLEMENTADO, sem credencial real** — autenticação por token, idempotente, nunca confia em redirecionamento do navegador |
+| Ligar a aceitação da reserva à criação da assinatura | **NÃO IMPLEMENTADO** — hoje nada chama `createSubscription` a partir do fluxo real |
+| Tela de checkout (resumo antes de pagar) | **NÃO IMPLEMENTADO** |
+| Tela de onboarding do proprietário (chama `createSubaccount`) | **NÃO IMPLEMENTADO** |
+| Criação de subconta e KYC do proprietário | **NÃO IMPLEMENTADO** — Fase 8 |
 | Cobrança real | **BLOQUEADO POR SERVIÇO EXTERNO** — depende da sua conta Asaas |
 
 **Nenhum botão de pagamento existe hoje.** Não há checkout falso, não há

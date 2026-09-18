@@ -260,6 +260,23 @@ da confirmação aparecer. Apareceu de duas formas diferentes:
    (`Array.prototype.sort` é estável), com o cabeçalho de seção inserido
    conforme a posição — nenhum item muda de pai quando o status dele muda.
 
+### Cliente Asaas e webhook — código pronto, sem credencial real 🚧
+
+Detalhes completos e a reconfirmação da documentação em
+[PAGAMENTOS.md §4](./PAGAMENTOS.md#4-reconfirmação-em-18092026-e-o-que-ainda-falta).
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Cliente Asaas (`src/lib/payments/asaas.ts`) | ✅ | cliente, subconta, assinatura com split, busca de cobrança, estorno, cancelamento |
+| Webhook (`POST /api/webhooks/asaas`) | ✅ | autentica por token (header `asaas-access-token`), idempotente de verdade — reentrega do mesmo evento testada e comprovada sem duplicar nada |
+| `PAYMENT_CONFIRMED` ativa a reserva; `PAYMENT_RECEIVED` gera o repasse | ✅ | decisão registrada em PAGAMENTOS.md §4 — o locatário não espera a plataforma receber pra usar o que já pagou |
+| Atraso (`PAYMENT_OVERDUE`) e recuperação | ✅ | reserva vira `past_due`, volta a `active` ao regularizar |
+| Tentativa de webhook com token forjado | ✅ | recusada com 401, **nenhum evento gravado** — testado tentando de verdade |
+| Verificação automatizada | ✅ | 50 checagens — `scripts/verify-payments.ts`, contra o Postgres real e um dublê local do Asaas (sem credencial real, mesmo padrão do CEP/mapa) |
+| Ligar isso ao fluxo real (aceitar reserva → criar assinatura) | ⬜ | próximo passo — hoje o cliente existe mas nada o chama a partir da tela |
+| Tela de checkout, onboarding do proprietário | ⬜ | |
+| Credencial real / conta Asaas | 🔑 | ver PAGAMENTOS.md — a leitura da documentação nesta rodada foi por busca (rede bloqueada pra `docs.asaas.com` neste ambiente), não confirmada linha a linha |
+
 ---
 
 ## Fases 6 a 12 — ⬜ não implementadas
@@ -267,7 +284,7 @@ da confirmação aparecer. Apareceu de duas formas diferentes:
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
 | 6 | Chat e notificações (além do sistema interno já usado nas solicitações) | Resend |
-| 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** |
+| 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** — cliente e webhook já existem (ver Fase 5), falta ligar ao fluxo, checkout e credencial real |
 | 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** |
 | 9 | Painel do proprietário completo (valores recebidos/pendentes/histórico) | Fase 7 — hoje tem espaços, solicitações e reservas; falta a parte com dinheiro de verdade |
 | 10 | Painel do locatário completo (pagamentos, próximo pagamento) | Fase 7 — hoje tem reservas; falta a parte com dinheiro de verdade |
@@ -410,10 +427,14 @@ pode prometer isso. Antes disso, prometer seria publicidade enganosa.
 **O mesmo vale para cobertura de danos**, que exigiria seguro ou fundo de
 garantia — decisão de negócio, não de engenharia.
 
-### ⚠️ 5. Split + Pix Automático não confirmado
+### ⚠️ 5. Split + Pix Automático — indício forte, não confirmação direta
 
-Os dois recursos são documentados pelo Asaas separadamente; não achei
-confirmação de que funcionam **juntos**. É a primeira pergunta para o gerente.
+**18/09/2026:** encontrei confirmação de que os dois funcionam juntos, mas
+por busca (resumo indexado citando a documentação), não por ter lido a
+página oficial direto — o ambiente desta sessão bloqueia `docs.asaas.com`
+por política de rede (testado com `curl`, resposta `403` do proxy; não é
+algo que eu deva tentar contornar). Detalhes e o que ainda falta confirmar
+por leitura direta em [PAGAMENTOS.md §4](./PAGAMENTOS.md#4-reconfirmação-em-18092026-e-o-que-ainda-falta).
 
 ### ⚠️ 6. Sem monitoramento de erro
 
@@ -421,7 +442,7 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 395 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 445 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar e o fluxo de
 solicitar/aceitar/cancelar aluguel rodam em Chromium de verdade
 (`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
@@ -444,7 +465,7 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 256 checagens contra o Postgres real
+pnpm verify                          # 306 checagens contra o Postgres real
 pnpm verify:integracoes              # 139 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000

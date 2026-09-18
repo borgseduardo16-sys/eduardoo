@@ -18,6 +18,10 @@
  *   - Tiles de mapa   — GET /tiles/{z}/{x}/{y}.png, PNG gerado de verdade
  *   - CEP             — GET /api/cep/v2/:cep (formato BrasilAPI)
  *                       GET /ws/:cep/json/   (formato ViaCEP)
+ *   - Asaas           — POST /v3/customers, POST /v3/accounts,
+ *                       POST /v3/subscriptions, DELETE /v3/subscriptions/:id,
+ *                       GET/POST /v3/payments/:id(/refund) — exige header
+ *                       `access_token` batendo com o combinado no teste.
  *
  * O que isto PROVA: que o nosso codigo monta a requisicao certa, trata a
  * resposta certa, grava no banco certo e mostra a imagem certa.
@@ -59,6 +63,12 @@ export type Testbed = {
    */
   geocodes: Map<string, { lat: number; lon: number; display_name: string }>;
   tilesServidos: () => { z: number; x: number; y: number }[];
+  /** Chave que o testbed exige no header `access_token` das chamadas Asaas. */
+  asaasApiKey: string;
+  asaasCustomers: Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>;
+  asaasSubaccounts: Map<string, { id: string; apiKey: string; walletId: string }>;
+  asaasSubscriptions: Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>;
+  asaasPayments: Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number }>;
   close: () => Promise<void>;
 };
 
@@ -74,7 +84,11 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const tileCache = new Map<string, Buffer>();
   const assinaturas = new Map<string, { path: string; expiraEm: number }>();
 
-  const estado = { cepFora: false, brasilApiFora: false };
+  const estado = { cepFora: false, brasilApiFora: false, asaasApiKey: randomUUID() };
+  const asaasCustomers = new Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>();
+  const asaasSubaccounts = new Map<string, { id: string; apiKey: string; walletId: string }>();
+  const asaasSubscriptions = new Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>();
+  const asaasPayments = new Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number }>();
 
   async function lerCorpo(req: IncomingMessage): Promise<Buffer> {
     const partes: Buffer[] = [];
@@ -307,6 +321,106 @@ export async function startTestbed(port = 0): Promise<Testbed> {
           status = json(res, 200, achado ? [achado[1]] : []);
         }
 
+        // ---------------------------------------------------------------
+        // Asaas — todas as rotas exigem o access_token combinado
+        // ---------------------------------------------------------------
+        else if (rota.startsWith('/v3/')) {
+          const token = req.headers['access_token'];
+          if (token !== estado.asaasApiKey) {
+            status = json(res, 401, {
+              errors: [{ code: 'invalid_access_token', description: 'access_token invalido ou ausente' }],
+            });
+          } else if (req.method === 'POST' && rota === '/v3/customers') {
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+              name?: string; cpfCnpj?: string; email?: string;
+            };
+            if (!corpo.name || !corpo.cpfCnpj) {
+              status = json(res, 400, { errors: [{ code: 'invalid_customer', description: 'name e cpfCnpj sao obrigatorios' }] });
+            } else {
+              const id = `cus_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+              const cliente = { id, name: corpo.name, cpfCnpj: corpo.cpfCnpj, email: corpo.email ?? null };
+              asaasCustomers.set(id, cliente);
+              status = json(res, 200, cliente);
+            }
+          } else if (req.method === 'POST' && rota === '/v3/accounts') {
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+              name?: string; cpfCnpj?: string; incomeValue?: number;
+            };
+            if (!corpo.name || !corpo.cpfCnpj || corpo.incomeValue === undefined) {
+              status = json(res, 400, {
+                errors: [{ code: 'invalid_account', description: 'name, cpfCnpj e incomeValue sao obrigatorios' }],
+              });
+            } else {
+              const id = `acc_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+              const conta = { id, apiKey: `$testbed_key_${randomUUID()}`, walletId: randomUUID() };
+              asaasSubaccounts.set(id, conta);
+              status = json(res, 200, conta);
+            }
+          } else if (req.method === 'POST' && rota === '/v3/subscriptions') {
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+              customer?: string; value?: number; nextDueDate?: string; billingType?: string;
+              split?: { walletId: string; fixedValue?: number; percentualValue?: number }[];
+            };
+            if (!corpo.customer || !corpo.value || !corpo.nextDueDate) {
+              status = json(res, 400, {
+                errors: [{ code: 'invalid_subscription', description: 'customer, value e nextDueDate sao obrigatorios' }],
+              });
+            } else if (!asaasCustomers.has(corpo.customer)) {
+              status = json(res, 400, { errors: [{ code: 'invalid_customer', description: 'customer nao existe' }] });
+            } else if (corpo.split?.some((s) => !asaasSubaccounts.has(
+              [...asaasSubaccounts.values()].find((c) => c.walletId === s.walletId)?.id ?? '',
+            ))) {
+              status = json(res, 400, { errors: [{ code: 'invalid_wallet', description: 'walletId do split nao existe' }] });
+            } else {
+              const subId = `sub_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+              const assinatura = {
+                id: subId, status: 'ACTIVE', nextDueDate: corpo.nextDueDate,
+                value: corpo.value, customer: corpo.customer,
+              };
+              asaasSubscriptions.set(subId, assinatura);
+
+              // Criar assinatura gera a primeira cobranca — como o Asaas real.
+              const payId = `pay_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+              asaasPayments.set(payId, {
+                id: payId, status: 'PENDING', value: corpo.value, netValue: null,
+                invoiceUrl: `http://127.0.0.1/fake-invoice/${payId}`, dueDate: corpo.nextDueDate,
+                refundedCents: 0,
+              });
+
+              status = json(res, 200, { ...assinatura, firstPaymentId: payId });
+            }
+          } else if (req.method === 'DELETE' && /^\/v3\/subscriptions\/[^/]+$/.test(rota)) {
+            const id = rota.split('/').pop()!;
+            const existente = asaasSubscriptions.get(id);
+            if (!existente) {
+              status = json(res, 404, { errors: [{ code: 'not_found', description: 'assinatura nao encontrada' }] });
+            } else {
+              asaasSubscriptions.set(id, { ...existente, status: 'CANCELLED' });
+              status = json(res, 200, { deleted: true, id });
+            }
+          } else if (req.method === 'GET' && /^\/v3\/payments\/[^/]+$/.test(rota)) {
+            const id = rota.split('/').pop()!;
+            const pagamento = asaasPayments.get(id);
+            status = pagamento
+              ? json(res, 200, pagamento)
+              : json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+          } else if (req.method === 'POST' && /^\/v3\/payments\/[^/]+\/refund$/.test(rota)) {
+            const id = rota.split('/').slice(-2)[0]!;
+            const pagamento = asaasPayments.get(id);
+            if (!pagamento) {
+              status = json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+            } else {
+              const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { value?: number };
+              const valorReais = corpo.value ?? pagamento.value;
+              const atualizado = { ...pagamento, status: 'REFUNDED', refundedCents: Math.round(valorReais * 100) };
+              asaasPayments.set(id, atualizado);
+              status = json(res, 200, atualizado);
+            }
+          } else {
+            status = json(res, 404, { errors: [{ code: 'not_found', description: `rota Asaas nao implementada no testbed: ${rota}` }] });
+          }
+        }
+
         else {
           status = json(res, 404, { error: 'rota nao implementada no testbed', rota });
         }
@@ -341,6 +455,11 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     set brasilApiFora(v: boolean) {
       estado.brasilApiFora = v;
     },
+    asaasApiKey: estado.asaasApiKey,
+    asaasCustomers,
+    asaasSubaccounts,
+    asaasSubscriptions,
+    asaasPayments,
     tilesServidos: () => tiles.slice(),
     close: () =>
       new Promise<void>((resolve) => {
