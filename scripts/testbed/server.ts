@@ -24,6 +24,10 @@
  *                       `access_token` batendo com o combinado no teste.
  *   - Resend          — POST /emails — exige header `authorization: Bearer
  *                       <chave>` batendo com o combinado no teste.
+ *   - Upstash Redis   — POST /pipeline (contrato REST real, confirmado por
+ *                       busca) — INCR/EXPIRE/TTL o bastante para provar que
+ *                       o limitador de taxa usa um contador COMPARTILHADO
+ *                       quando configurado, nao um `Map` por processo.
  *
  * O que isto PROVA: que o nosso codigo monta a requisicao certa, trata a
  * resposta certa, grava no banco certo e mostra a imagem certa.
@@ -75,6 +79,10 @@ export type Testbed = {
   resendApiKey: string;
   /** Todo e-mail que o app tentou enviar de verdade, na ordem em que chegou. */
   emailsSent: { id: string; from: string; to: string[]; subject: string; html: string; text: string }[];
+  /** Token que o testbed exige no header `Authorization: Bearer <token>` do pipeline Redis. */
+  upstashToken: string;
+  /** Estado do "Redis" — pra teste inspecionar o contador direto, sem depender so da resposta HTTP. */
+  redisStore: Map<string, { count: number; expiresAt: number }>;
   close: () => Promise<void>;
 };
 
@@ -90,7 +98,11 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const tileCache = new Map<string, Buffer>();
   const assinaturas = new Map<string, { path: string; expiraEm: number }>();
 
-  const estado = { cepFora: false, brasilApiFora: false, asaasApiKey: randomUUID(), resendApiKey: randomUUID() };
+  const estado = {
+    cepFora: false, brasilApiFora: false,
+    asaasApiKey: randomUUID(), resendApiKey: randomUUID(), upstashToken: randomUUID(),
+  };
+  const redisStore = new Map<string, { count: number; expiresAt: number }>();
   const asaasCustomers = new Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>();
   const asaasSubaccounts = new Map<string, { id: string; apiKey: string; walletId: string }>();
   const asaasSubscriptions = new Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>();
@@ -462,6 +474,47 @@ export async function startTestbed(port = 0): Promise<Testbed> {
           }
         }
 
+        // ---------------------------------------------------------------
+        // Upstash Redis — POST /pipeline, exige Authorization: Bearer <token>
+        // ---------------------------------------------------------------
+        else if (req.method === 'POST' && rota === '/pipeline') {
+          const auth = req.headers.authorization ?? '';
+          const token = auth.replace(/^Bearer\s+/i, '');
+          if (token !== estado.upstashToken) {
+            status = json(res, 401, { error: 'Unauthorized' });
+          } else {
+            const comandos = JSON.parse((await lerCorpo(req)).toString() || '[]') as unknown[][];
+            const agora = Date.now();
+            const respostas = comandos.map((cmd) => {
+              const [nome, chave, ...args] = cmd as [string, string, ...unknown[]];
+              const atual = redisStore.get(chave);
+              const expirado = !atual || atual.expiresAt <= agora;
+
+              if (nome === 'INCR') {
+                const novo = expirado ? 1 : atual.count + 1;
+                redisStore.set(chave, { count: novo, expiresAt: expirado ? 0 : atual!.expiresAt });
+                return { result: novo };
+              }
+              if (nome === 'EXPIRE') {
+                const segundos = Number(args[0]);
+                const nx = args[1] === 'NX';
+                const linha = redisStore.get(chave);
+                if (!linha) return { result: 0 };
+                if (nx && linha.expiresAt > agora) return { result: 0 };
+                linha.expiresAt = agora + segundos * 1000;
+                return { result: 1 };
+              }
+              if (nome === 'TTL') {
+                const linha = redisStore.get(chave);
+                if (!linha || linha.expiresAt <= agora) return { result: -2 };
+                return { result: Math.ceil((linha.expiresAt - agora) / 1000) };
+              }
+              return { error: `comando nao implementado no testbed: ${nome}` };
+            });
+            status = json(res, 200, respostas);
+          }
+        }
+
         else {
           status = json(res, 404, { error: 'rota nao implementada no testbed', rota });
         }
@@ -503,6 +556,8 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     asaasPayments,
     resendApiKey: estado.resendApiKey,
     emailsSent,
+    upstashToken: estado.upstashToken,
+    redisStore,
     tilesServidos: () => tiles.slice(),
     close: () =>
       new Promise<void>((resolve) => {

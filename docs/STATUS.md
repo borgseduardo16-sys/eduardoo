@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 19/09/2026 · **Fases concluídas:** 1 a 6, 9, 10 e 11 de 12 + segurança interna · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
+> **Atualizado em:** 19/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 12 de 12 + segurança interna · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
 
 Estados usados:
 
@@ -419,13 +419,37 @@ dado pessoal além do necessário.
 
 ---
 
-## Fases 7, 8 e 12 — ⬜ não implementadas
+## Fase 12 — Preparação para produção ✅ *(código pronto, falta a conta real dos dois serviços)*
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Rate limiting compartilhado (Upstash) | ✅ | `src/lib/rate-limit.ts` usa o Redis do Upstash (contador via REST, `INCR`+`EXPIRE NX`+`TTL`) quando configurado; cai sozinho para o `Map` em memória sem as credenciais — nunca finge ter proteção compartilhada que não tem |
+| Fallback resiliente | ✅ | Se o Upstash falhar no meio de uma requisição (rede, erro do serviço), a ação protegida (login, denúncia, etc.) continua funcionando via limitador local, em vez de quebrar por causa de uma camada extra de proteção |
+| Monitoramento de erro (Sentry) | ✅ | `src/instrumentation.ts` + `src/instrumentation-client.ts` + `sentry.server.config.ts`/`sentry.edge.config.ts`, `next.config.ts` envolvido com `withSentryConfig` — sem `NEXT_PUBLIC_SENTRY_DSN` o próprio SDK não envia nada (não é um `try/catch` escondendo a ausência) |
+| Checklist de prontidão executável | ✅ | `pnpm check:producao`, novo — lê o `.env.local` real e confere integrações configuradas, `NEXT_PUBLIC_SITE_URL`/`DATABASE_URL` fora de localhost, e se existe ao menos um administrador no banco; o que exige julgamento humano (documento jurídico, plano pago, backup testado) aparece como lembrete, não como aprovado |
+| Verificação automatizada | ✅ | `scripts/verify-rate-limit.ts`, novo — 14 checagens contra um dublê do contrato REST do Upstash (`scripts/testbed/server.ts` ganhou `POST /pipeline`): prova que o contador é **compartilhado de verdade** manipulando o "Redis" por fora e confirmando que a chamada seguinte enxerga a mudança — um `Map` em memória jamais veria isso |
+
+**Por que provar "compartilhado" e não só "chama a API certa"**: o risco real do
+limitador em memória não é ele "não funcionar" — é ele *parecer* funcionar em
+todo teste local (onde só existe uma instância) e falhar exatamente em
+produção, onde existem várias. O teste manipula o estado do "Redis" fora do
+processo do limitador e confirma que a chamada seguinte reage a isso —
+provando que a fonte da verdade é externa, o mesmo formato de corrida que uma
+segunda instância serverless causaria.
+
+O e-mail, o pagamento e o mapa já seguiam esse padrão (dublê do contrato REST
+real); a diferença aqui é que rate limiting é sobre **estado compartilhado**,
+não só sobre "chegou a resposta certa" — por isso o teste precisa provar
+compartilhamento, não só sucesso de uma chamada isolada.
+
+---
+
+## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
 | 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** — código completo (ver Fase 5), falta só a credencial real testada com internet normal |
 | 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** — comportamento durante aprovação ainda não confirmado |
-| 12 | Segurança, testes e preparação para produção | Upstash + Sentry |
 
 A tela de `/anunciar` (rascunho) existe e **diz explicitamente o que falta**
 quando algo não está pronto. Não há dado de exemplo em lugar nenhum que possa
@@ -471,13 +495,18 @@ características — que são configuração, não conteúdo fictício.
 
 ## Riscos conhecidos
 
-### ⚠️ 1. Rate limiting não serve para produção
+### ✅ 1. Rate limiting — código pronto para produção, falta a conta Upstash
 
-`src/lib/rate-limit.ts` mantém contadores **em memória**. Em serverless cada
-instância tem o próprio mapa, então o limite real vira (limite × instâncias).
+`src/lib/rate-limit.ts` usa um contador **compartilhado no Upstash Redis**
+quando `UPSTASH_REDIS_REST_URL`/`_TOKEN` estão configurados — testado de
+verdade em `scripts/verify-rate-limit.ts` (14 checagens, prova o
+compartilhamento manipulando o "Redis" por fora do processo). **Sem essas
+variáveis**, cai sozinho para um `Map` **em memória**, que em serverless não
+protege nada (cada instância tem o próprio mapa, o limite real vira
+limite × instâncias).
 
-**Impacto:** proteção contra força bruta no login é ilusória.
-**Solução:** Upstash Redis ([SETUP.md §6](./SETUP.md#6-upstash--rate-limiting-antes-de-produção)).
+**Impacto sem a conta real:** proteção contra força bruta no login é ilusória.
+**Solução:** criar a conta Upstash ([SETUP.md §6](./SETUP.md#6-upstash--rate-limiting-antes-de-produção)) — nenhuma linha de código muda.
 **Mitigação atual:** o Supabase Auth aplica limites próprios do lado dele.
 
 ### ⚠️ 2. A margem é fina, mesmo a 3%+3%
@@ -573,20 +602,25 @@ por política de rede (testado com `curl`, resposta `403` do proxy; não é
 algo que eu deva tentar contornar). Detalhes e o que ainda falta confirmar
 por leitura direta em [PAGAMENTOS.md §4](./PAGAMENTOS.md#4-reconfirmação-em-18092026-e-o-que-ainda-falta).
 
-### ⚠️ 6. Sem monitoramento de erro
+### ✅ 6. Monitoramento de erro — código pronto, falta o projeto Sentry real
 
-Sentry não integrado. Em produção você descobriria falhas pelo cliente.
+`src/instrumentation.ts`/`instrumentation-client.ts` já inicializam o Sentry
+(servidor, edge e navegador) e `next.config.ts` já sobe source map quando
+`SENTRY_AUTH_TOKEN` existir. Sem `NEXT_PUBLIC_SENTRY_DSN`, o próprio SDK não
+envia nada — o build e o app funcionam normalmente, só não há para onde
+mandar o erro. Falta só criar o projeto em [sentry.io](https://sentry.io) e
+colar o DSN ([SETUP.md §7](./SETUP.md#7-sentry-erros-antes-de-produção)).
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 642 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 656 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar, o fluxo de
 solicitar/aceitar/cancelar aluguel, o chat, os paineis financeiros (com
 webhook de pagamento disparado pela rota HTTP real) e o painel administrativo
 (fila de moderação, resolver denúncia, suspensão manual, o 404 pra quem não
 é admin) rodam em Chromium de verdade (`pnpm verify:integracoes`). O que
 ainda não tem teste automatizado de interface: cadastro, login e o painel
-"Meus espaços". Fase 12.
+"Meus espaços".
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -605,9 +639,10 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 458 checagens contra o Postgres real
+pnpm verify                          # 472 checagens contra o Postgres real
 pnpm verify:integracoes              # 184 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo)
 pnpm check                           # typecheck + lint + build
+pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real
 pnpm dev                             # http://localhost:3000
 ```
 

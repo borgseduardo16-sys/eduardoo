@@ -73,7 +73,7 @@ export async function signUpAction(
   }
 
   const ip = (await clientIp()) ?? 'sem-ip';
-  const limit = rateLimit(`signup:${ip}`, AUTH_LIMITS.signUp);
+  const limit = await rateLimit(`signup:${ip}`, AUTH_LIMITS.signUp);
   if (!limit.allowed) return tooManyRequests(limit.retryAfterSeconds);
 
   const supabase = await createClient();
@@ -135,9 +135,9 @@ export async function signInAction(
   const ip = (await clientIp()) ?? 'sem-ip';
   // Limita por IP e tambem por e-mail: so por IP, uma botnet contorna;
   // so por e-mail, da para bloquear a conta de outra pessoa de proposito.
-  const byIp = rateLimit(`signin:ip:${ip}`, AUTH_LIMITS.signIn);
+  const byIp = await rateLimit(`signin:ip:${ip}`, AUTH_LIMITS.signIn);
   if (!byIp.allowed) return tooManyRequests(byIp.retryAfterSeconds);
-  const byEmail = rateLimit(`signin:email:${parsed.data.email}`, AUTH_LIMITS.signIn);
+  const byEmail = await rateLimit(`signin:email:${parsed.data.email}`, AUTH_LIMITS.signIn);
   if (!byEmail.allowed) return tooManyRequests(byEmail.retryAfterSeconds);
 
   const supabase = await createClient();
@@ -197,7 +197,7 @@ export async function requestPasswordResetAction(
   }
 
   const ip = (await clientIp()) ?? 'sem-ip';
-  const limit = rateLimit(`reset:${ip}`, AUTH_LIMITS.passwordReset);
+  const limit = await rateLimit(`reset:${ip}`, AUTH_LIMITS.passwordReset);
   if (!limit.allowed) return tooManyRequests(limit.retryAfterSeconds);
 
   const supabase = await createClient();

@@ -103,7 +103,7 @@ export async function createReportAction(
     };
   }
 
-  const burst = rateLimit(`report:${user.id}`, { limit: 3, windowSeconds: 60 });
+  const burst = await rateLimit(`report:${user.id}`, { limit: 3, windowSeconds: 60 });
   if (!burst.allowed) {
     return { ok: false, message: 'Aguarde um instante antes de enviar outra denúncia.' };
   }

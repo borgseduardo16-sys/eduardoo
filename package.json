@@ -2,7 +2,7 @@
   "name": "myplace",
   "version": "0.1.0",
   "private": true,
-  "description": "MyPlace \u2014 marketplace de espacos ociosos",
+  "description": "MyPlace — marketplace de espacos ociosos",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,11 +16,13 @@
     "db:seed-features": "tsx src/db/seed-features.ts",
     "check": "pnpm typecheck && pnpm lint && pnpm build",
     "db:supabase-sql": "tsx scripts/build-supabase-setup.ts",
-    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts && tsx scripts/verify-images.ts && tsx scripts/verify-busca.ts && tsx scripts/verify-bookings.ts && tsx scripts/verify-payments.ts && tsx scripts/verify-messaging.ts && tsx scripts/verify-admin.ts",
+    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts && tsx scripts/verify-images.ts && tsx scripts/verify-busca.ts && tsx scripts/verify-bookings.ts && tsx scripts/verify-payments.ts && tsx scripts/verify-messaging.ts && tsx scripts/verify-admin.ts && tsx scripts/verify-rate-limit.ts",
     "verify:integracoes": "tsx scripts/verify-integracoes.ts",
-    "verify:tudo": "pnpm verify && pnpm verify:integracoes"
+    "verify:tudo": "pnpm verify && pnpm verify:integracoes",
+    "check:producao": "tsx scripts/verify-producao.ts"
   },
   "dependencies": {
+    "@sentry/nextjs": "^10.75.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
     "class-variance-authority": "^0.7.1",

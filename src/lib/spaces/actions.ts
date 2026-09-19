@@ -66,7 +66,7 @@ export async function createDraftAction(
   if (!parsed.success) return { ok: false, fieldErrors: fieldErrors(parsed.error) };
 
   // Um anuncio novo por minuto e o suficiente para qualquer uso legitimo.
-  const limit = rateLimit(`draft:${user.id}`, { limit: 5, windowSeconds: 60 });
+  const limit = await rateLimit(`draft:${user.id}`, { limit: 5, windowSeconds: 60 });
   if (!limit.allowed) {
     return { ok: false, message: 'Aguarde um instante antes de criar outro anúncio.' };
   }

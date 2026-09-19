@@ -38,7 +38,7 @@ A segunda regra é sobre honestidade técnica:
 | Pagamentos | **Asaas** | Análise completa em [PAGAMENTOS.md](./PAGAMENTOS.md). |
 | E-mail | **Resend** | E-mail transacional com boa entregabilidade. |
 | Hospedagem | **Vercel** | Deploy nativo de Next.js. |
-| Erros | **Sentry** | Sem rastreamento de erro em produção, você descobre problema pelo cliente reclamando. |
+| Erros | **Sentry** | Integrado (`instrumentation.ts`/`instrumentation-client.ts`, Fase 12) — sem `NEXT_PUBLIC_SENTRY_DSN` o SDK só não envia nada, não quebra o build. |
 
 ### Por que Supabase e não montar cada peça separada
 
@@ -209,14 +209,23 @@ Documentado em [SEGURANCA.md](./SEGURANCA.md).
 
 Honestidade sobre os buracos conhecidos:
 
-1. **Rate limiting é em memória.** Funciona local e em servidor único; **não
-   funciona em serverless**, onde cada instância tem o próprio contador.
-   Produção exige Upstash Redis. Está declarado em `src/lib/rate-limit.ts`.
-2. **Sem monitoramento de erro.** Sentry ainda não integrado.
-3. **Cobertura de teste desigual.** São 237 checagens contra Postgres real,
-   e as três integrações (Storage, mapa, CEP) rodam num Chromium de verdade
-   via Playwright (`pnpm verify:tudo`). Ainda falta teste de unidade de
-   componente (Vitest) e cobertura de UI além dessas telas.
+1. **Rate limiting: código pronto para os dois casos (Fase 12).**
+   `src/lib/rate-limit.ts` usa Upstash Redis (contador REST compartilhado
+   entre instâncias) quando `UPSTASH_REDIS_REST_URL`/`_TOKEN` estão
+   configurados, e cai para um `Map` em memória quando não estão — o que
+   falta é só você criar a conta Upstash (ver SETUP.md §6); sem isso, em
+   serverless com mais de uma instância a proteção não é confiável.
+2. **Monitoramento de erro: código pronto (Fase 12).** Sentry integrado via
+   `instrumentation.ts`/`instrumentation-client.ts` — falta só o DSN de um
+   projeto Sentry real (SETUP.md §7).
+3. **Cobertura de teste.** 472 checagens contra Postgres real (`pnpm verify`)
+   e 184 num Chromium de verdade via Playwright (`pnpm verify:integracoes`) —
+   656 no total (`pnpm verify:tudo`). Ainda falta teste de unidade de
+   componente (Vitest) e cobertura de UI de cadastro/login/"Meus espaços".
 4. **Split junto com Pix Automático não confirmado** com o Asaas.
 5. **Sem documentos jurídicos.** Termos de Uso e Política de Privacidade
    precisam de advogado, não de mim.
+
+Rode `pnpm check:producao` para um relatório automático do que falta
+configurar antes do primeiro usuário real — cobre o que dá para checar por
+código; documento jurídico e plano pago continuam exigindo decisão sua.

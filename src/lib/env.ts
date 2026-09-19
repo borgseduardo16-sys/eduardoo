@@ -37,6 +37,7 @@ const baseSchema = z.object({
   EMAIL_FROM: z.string().optional(),
   UPSTASH_REDIS_REST_URL: z.string().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
+  NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
 });
 
 function parseEnv() {
@@ -77,6 +78,11 @@ const INTEGRATIONS = {
     label: 'Rate limiting (Upstash Redis)',
     vars: ['UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN'],
     doc: 'docs/SETUP.md#6-upstash-rate-limiting',
+  },
+  errorMonitoring: {
+    label: 'Monitoramento de erro (Sentry)',
+    vars: ['NEXT_PUBLIC_SENTRY_DSN'],
+    doc: 'docs/SETUP.md#7-sentry-erros',
   },
 } as const;
 

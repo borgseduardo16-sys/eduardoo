@@ -463,10 +463,12 @@ tem limite baixo e não serve para produção.
 
 ## 6. Upstash — rate limiting (antes de produção)
 
-**Não é opcional.** O limitador atual é em memória e **não funciona em
-serverless** — cada instância tem o próprio contador. Sem um contador
-compartilhado, a proteção contra ataque de força bruta na tela de login é
-ilusória.
+**Não é opcional.** `src/lib/rate-limit.ts` já sabe falar com o Upstash
+(contador via REST, compartilhado entre instâncias) — testado contra um
+dublê do contrato REST em `pnpm tsx scripts/verify-rate-limit.ts`. Sem as
+duas variáveis abaixo, ele cai sozinho para um `Map` em memória, que **não
+funciona em serverless** (cada instância tem o próprio contador — a proteção
+contra força bruta na tela de login vira ilusória).
 
 1. [upstash.com](https://upstash.com) → **Create Database** → Redis
 2. Região: mesma do app
@@ -476,10 +478,20 @@ ilusória.
 
 ## 7. Sentry — erros (antes de produção)
 
-1. [sentry.io](https://sentry.io) → projeto **Next.js**
-2. Copie o DSN
+O código já está integrado (`src/instrumentation.ts`,
+`src/instrumentation-client.ts`, `src/sentry.server.config.ts`,
+`src/sentry.edge.config.ts`, `next.config.ts`) — falta só o projeto real.
 
-Sem isso, você fica sabendo dos erros pelo cliente reclamando.
+1. [sentry.io](https://sentry.io) → projeto **Next.js**
+2. Copie o DSN em `NEXT_PUBLIC_SENTRY_DSN`
+3. Opcional, só para o stack trace no painel vir legível (não minificado):
+   crie um **Auth Token** (Settings → Auth Tokens) e preencha
+   `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` e `SENTRY_PROJECT`. Sem isso o app
+   funciona normalmente, o source map só não sobe no build.
+
+Sem o DSN, o SDK simplesmente não envia nada — não é um `try/catch` que
+esconde a ausência, é o comportamento padrão do próprio pacote. Mas sem
+ele você fica sabendo dos erros pelo cliente reclamando.
 
 ---
 
@@ -544,6 +556,12 @@ Se o bucket não existir, a mensagem é explícita ("Crie o bucket
 ---
 
 ## Checklist antes de aceitar o primeiro usuário real
+
+Rode `pnpm check:producao` — ele lê o `.env.local`/`.env` real e confere
+sozinho boa parte da lista abaixo (integrações configuradas, `NEXT_PUBLIC_SITE_URL`
+e `DATABASE_URL` fora de localhost, se existe ao menos um administrador). O
+que exige julgamento seu (documento jurídico, plano pago, backup testado de
+verdade) ele lista como lembrete, não como aprovado.
 
 - [ ] Supabase Pro (o plano grátis pausa por inatividade)
 - [ ] Vercel Pro (uso comercial)
