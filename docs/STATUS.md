@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 19/09/2026 · **Fases concluídas:** 1 a 6, 9 e 10 de 12 + segurança interna · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
+> **Atualizado em:** 19/09/2026 · **Fases concluídas:** 1 a 6, 9, 10 e 11 de 12 + segurança interna · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
 
 Estados usados:
 
@@ -37,7 +37,7 @@ Estados usados:
 | Proteção contra open redirect | ✅ | Testado |
 | Página inicial | ✅ | Busca e geolocalização reais |
 | Geolocalização do navegador | ✅ | Trata recusa com mensagem clara e alternativa manual |
-| Verificação automatizada do banco | ✅ | 29 checagens — `pnpm tsx scripts/verify-schema.ts` |
+| Verificação automatizada do banco | ✅ | 32 checagens — `pnpm tsx scripts/verify-schema.ts` |
 | **Rate limiting** | ⚠️ | Em memória. **Não funciona em serverless.** Ver §Riscos |
 | Projeto Supabase criado | ✅ | pelo usuário, com PostGIS ativo |
 | SQL de instalação do schema | ✅ | `supabase/setup.sql` — testado num banco limpo que simula o Supabase |
@@ -76,8 +76,8 @@ Adicionada a pedido, fora da ordem original. Detalhada em
 | Níveis de confiança do perfil | ✅ | denúncia procedente domina histórico longo |
 | Contagem de locações concluídas | ✅ | trigger; conta os dois lados |
 | Verificação de documento no perfil | ✅ banco | preenchido pelo KYC na Fase 8 |
-| Aplicação automática de suspensão | ⬜ | limites já configurados; a ação entra na Fase 11 |
-| Fila de moderação | ⬜ | índice pronto; painel é Fase 11 |
+| Aplicação automática de suspensão | ✅ trigger | Fase 11 — `0011_suspensao_automatica.sql`, só escala |
+| Fila de moderação | ✅ | Fase 11 — `/admin/denuncias` |
 | Detector ligado ao chat | ✅ | Fase 6 — sinaliza `flagged_at`/`flag_reason` a cada mensagem enviada de verdade |
 
 ---
@@ -384,13 +384,47 @@ real continua existindo, só não aparece mais pra ninguém.
 
 ---
 
-## Fases 7, 8, 11 e 12 — ⬜ não implementadas
+## Fase 11 — Painel administrativo ✅
+
+Painel em `/admin`, exclusivo de `profiles.role = 'admin'` — `requireAdmin()`
+responde 404 (não 403) para qualquer outra conta, de propósito: quem não é
+admin não deve nem descobrir que a rota existe.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Fila de moderação (`/admin/denuncias`) | ✅ | denúncias `open`/`reviewing`, mais graves primeiro — mesma ordem do índice `reports_queue_idx`; mostra o alvo resolvido (anúncio, usuário ou prévia da mensagem) e o histórico de reincidência |
+| Resolver denúncia | ✅ | procedente/improcedente + nota — `reports.resolved_by`/`resolved_at` gravados; resolver a mesma denúncia duas vezes é recusado |
+| Contagem de reincidência | ✅ trigger | já existia (Fase de segurança interna); sem mudança |
+| **Suspensão automática** | ✅ trigger | `refresh_upheld_report_count` (migração `0011_suspensao_automatica.sql`) agora também aplica `safety.auto_suspend_upheld_threshold` (5): ao atingir o limite, `profiles.status` vira `suspended` com motivo padrão. **Só escala** — se um admin corrigir uma denúncia (`upheld → false`) e o contador cair, a suspensão já aplicada não reverte sozinha; reativar é sempre uma decisão manual no painel |
+| Gestão manual de conta (`/admin/usuarios`) | ✅ | busca por nome, ativar/suspender/banir com motivo obrigatório (exceto ao reativar); admin não pode alterar a própria conta |
+| Verificação automatizada (banco) | ✅ | 3 checagens novas em `scripts/verify-schema.ts` (seção 9): reincidência sobe sem suspender antes do limite, suspende ao atingir, e não reverte sozinha após correção (32 no total, era 29) |
+| Verificação automatizada (ações) | ✅ | `scripts/verify-admin.ts`, novo — 52 checagens: fila com os 3 tipos de alvo e ordenação por gravidade, autorização (usuário comum é bloqueado), resolver denúncia, **suspensão automática disparada pela ação real** (não só o trigger cru), gestão manual de status, busca de contas |
+| Verificação automatizada (navegador) | ✅ | TESTE N, novo — 12 checagens em Chromium real: 404 pra quem não é admin, fila com os 3 tipos de alvo ordenada por gravidade, resolver as duas primeiras pela interface (uma como procedente, outra como improcedente), fila cai e mostra a mensagem ainda aberta com o conteúdo denunciado, busca no painel de usuários já com a reincidência refletida, suspensão manual pela interface |
+
+**Bug real encontrado pelo TESTE N**: `resolveReportAction` chamava
+`revalidatePath('/admin/denuncias')` depois de resolver. Como a fila só lista
+`open`/`reviewing`, isso disparava um refresh automático da lista assim que a
+Server Action terminava — o item resolvido sumia da tela **antes** do admin
+ver a confirmação "Denúncia marcada como procedente.", porque o componente
+que mostrava essa mensagem morria junto com o `<li>` removido. Diferente do
+`RespondRequestActions` (que não tem esse problema: a reserva aceita continua
+na lista, só muda de grupo), aqui o item é mesmo removido da consulta.
+Corrigido removendo o `revalidatePath` dali — a página já é `force-dynamic`,
+então a próxima navegação de verdade mostra a fila atualizada sem precisar
+de um refresh automático que atropela a própria confirmação.
+
+O painel **não** lista todas as contas de uma vez (`searchAccounts('')` devolve
+vazio) — de propósito, para não virar uma segunda superfície de vazamento de
+dado pessoal além do necessário.
+
+---
+
+## Fases 7, 8 e 12 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
 | 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** — código completo (ver Fase 5), falta só a credencial real testada com internet normal |
 | 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** — comportamento durante aprovação ainda não confirmado |
-| 11 | Painel administrativo | — |
 | 12 | Segurança, testes e preparação para produção | Upstash + Sentry |
 
 A tela de `/anunciar` (rascunho) existe e **diz explicitamente o que falta**
@@ -471,10 +505,10 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 172 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 184 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
-aceitar e cancelar aluguel, o de configurar recebimento e pagar, e o chat
-com e-mail de aviso e mensagem de sistema).
+aceitar e cancelar aluguel, o de configurar recebimento e pagar, o chat
+com e-mail de aviso e mensagem de sistema, e o painel administrativo).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -545,12 +579,14 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 575 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 642 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar, o fluxo de
-solicitar/aceitar/cancelar aluguel, o chat e os paineis financeiros (com
-webhook de pagamento disparado pela rota HTTP real) rodam em Chromium de
-verdade (`pnpm verify:integracoes`). O que ainda não tem teste automatizado
-de interface: cadastro, login e o painel "Meus espaços". Fase 12.
+solicitar/aceitar/cancelar aluguel, o chat, os paineis financeiros (com
+webhook de pagamento disparado pela rota HTTP real) e o painel administrativo
+(fila de moderação, resolver denúncia, suspensão manual, o 404 pra quem não
+é admin) rodam em Chromium de verdade (`pnpm verify:integracoes`). O que
+ainda não tem teste automatizado de interface: cadastro, login e o painel
+"Meus espaços". Fase 12.
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -569,8 +605,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 403 checagens contra o Postgres real
-pnpm verify:integracoes              # 172 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros)
+pnpm verify                          # 458 checagens contra o Postgres real
+pnpm verify:integracoes              # 184 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```

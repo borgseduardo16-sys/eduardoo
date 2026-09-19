@@ -78,6 +78,13 @@
       "when": 1789723772646,
       "tag": "0010_status_expirado_reserva",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789834839015,
+      "tag": "0011_suspensao_automatica",
+      "breakpoints": true
     }
   ]
 }

@@ -373,8 +373,14 @@ o contador do denunciado sobe, mantido por trigger.
 Para denúncia de anúncio ou mensagem, quem responde é o **autor do conteúdo** —
 senão bastaria republicar o mesmo anúncio com outro id para zerar o histórico.
 
-> **Estado:** a contagem funciona e está testada. A aplicação automática dos
-> limites entra na Fase 11, junto do painel administrativo.
+> **Estado:** ✅ implementado. A contagem sobe por trigger; ao atingir 5, o
+> mesmo trigger (`refresh_upheld_report_count`, migração
+> `0011_suspensao_automatica.sql`) coloca a conta em `suspended` sozinho — sem
+> depender do painel estar aberto ou de alguém clicar em nada. O limite de 3
+> (revisão obrigatória) já era aplicado antes, no nível de confiança do perfil
+> (`sob_revisao` em `src/lib/safety/trust.ts`). Ver
+> [STATUS.md — Fase 11](./STATUS.md#fase-11--painel-administrativo-) para o
+> painel de moderação em si.
 
 ---
 
@@ -421,9 +427,9 @@ nunca apareça inteiro em log, tela de suporte ou mensagem de erro:
 | Lista de bloqueios | ✅ | ✅ | ✅ `/minha-conta/seguranca` |
 | Detector de contato | — | ✅ | ✅ Fase 6 — ligado no chat de verdade |
 | Validação CPF/CNPJ | — | ✅ | ⬜ Fase 8 (depende do KYC) |
-| Contagem de reincidência | ✅ trigger | — | ⬜ Fase 11 |
-| Aplicação automática dos limites | — | ⬜ | ⬜ Fase 11 |
-| Fila de moderação | ✅ índice | ⬜ | ⬜ Fase 11 |
+| Contagem de reincidência | ✅ trigger | — | ✅ Fase 11 — refletida no painel |
+| Aplicação automática dos limites | ✅ trigger | ✅ | ✅ Fase 11 |
+| Fila de moderação | ✅ índice | ✅ | ✅ Fase 11 — `/admin/denuncias` |
 | Incentivo a fechar no app | — | ✅ | ✅ home, `/protecao`, rodapé |
 | Checklist de visita | — | ✅ | ✅ interativo, salvo no navegador |
 | Aviso escalonado de pagamento por fora | — | ✅ | ✅ Fase 6 — no chat, ao digitar |

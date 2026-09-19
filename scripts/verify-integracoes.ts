@@ -165,6 +165,9 @@ const sql = postgres(DB_URL, { max: 2, onnotice: () => {}, connection: PG_CONNEC
 const tag = `int-${Date.now()}`;
 const donoId = crypto.randomUUID();
 const outroId = crypto.randomUUID();
+/** Fase 11: administrador do TESTE N, e a conta que ele acaba suspendendo. */
+const adminId = crypto.randomUUID();
+const alvoAdminId = crypto.randomUUID();
 
 let testbed: Testbed | null = null;
 let nextProc: ChildProcess | null = null;
@@ -212,8 +215,10 @@ async function main() {
   const outro = {
     id: outroId, email: `${tag}-outro@exemplo.invalid`, token: fakeJwt(outroId, 'outro'),
   };
+  const admin = { id: adminId, email: `${tag}-admin@exemplo.invalid`, token: fakeJwt(adminId, 'admin') };
   testbed.users.set(dono.id, dono);
   testbed.users.set(outro.id, outro);
+  testbed.users.set(admin.id, admin);
 
   // CEPs que o "servico" conhece. Dados reais de Colatina/ES.
   testbed.ceps.set('29700000', {
@@ -241,7 +246,7 @@ async function main() {
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLM').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMN').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -255,6 +260,7 @@ async function main() {
   if (quais.includes('K')) await testeKSolicitarEAceitar();
   if (quais.includes('L')) await testeLPagamento();
   if (quais.includes('M')) await testeMChat();
+  if (quais.includes('N')) await testeNAdmin();
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -331,9 +337,11 @@ async function publicarDireto(
 async function seed() {
   await sql`INSERT INTO auth.users (id, email) VALUES
     (${donoId}, ${`${tag}-dono@exemplo.invalid`}),
-    (${outroId}, ${`${tag}-outro@exemplo.invalid`})`;
+    (${outroId}, ${`${tag}-outro@exemplo.invalid`}),
+    (${adminId}, ${`${tag}-admin@exemplo.invalid`})`;
   await sql`UPDATE profiles SET role='owner', full_name=${`Dono ${tag}`} WHERE id=${donoId}`;
   await sql`UPDATE profiles SET full_name=${`Outro ${tag}`} WHERE id=${outroId}`;
+  await sql`UPDATE profiles SET role='admin', full_name=${'Moderador'} WHERE id=${adminId}`;
 
   const criar = async (slug: string, titulo: string, step: number) => {
     const [row] = await sql<{ id: string }[]>`
@@ -1890,6 +1898,104 @@ async function testeMChat() {
   await pageDono.context().close();
 }
 
+async function testeNAdmin() {
+  secao('TESTE N (navegador) - painel administrativo: fila de moderacao e suspensao (Fase 11)');
+
+  /*
+   * Tudo isolado do resto da suite, de proposito: `alvoAdminId` e um usuario
+   * novo, so deste teste, e o anuncio abaixo nasce `draft` (nunca publicado)
+   * so para servir de FK a uma conversa — nao aparece em busca nenhuma, entao
+   * nao arrisca inflar as contagens exatas que TESTE B/E/F dependem (mesma
+   * licao do TESTE L com o espaco ISOLADO).
+   */
+  await sql`INSERT INTO auth.users (id, email) VALUES (${alvoAdminId}, ${`${tag}-alvoadmin@exemplo.invalid`})`;
+  await sql`UPDATE profiles SET full_name=${`Alvo Fase 11 ${tag}`} WHERE id=${alvoAdminId}`;
+
+  const [espacoRascunho] = await sql<{ id: string }[]>`
+    INSERT INTO spaces (owner_id, slug, type, title, price_monthly_cents)
+    VALUES (${donoId}, ${`${tag}-admin-rascunho`}, 'garagem', 'Rascunho nunca publicado', 10000)
+    RETURNING id`;
+  const [conversaAlvo] = await sql<{ id: string }[]>`
+    INSERT INTO conversations (space_id, renter_id, owner_id)
+    VALUES (${espacoRascunho!.id}, ${alvoAdminId}, ${donoId}) RETURNING id`;
+  const [mensagemAlvo] = await sql<{ id: string }[]>`
+    INSERT INTO messages (conversation_id, sender_id, body)
+    VALUES (${conversaAlvo!.id}, ${alvoAdminId}, 'Manda o pix direto que a gente combina por fora, sai mais em conta.')
+    RETURNING id`;
+
+  // --- 3 denuncias abertas: usuario (critica), anuncio e mensagem (as duas altas — a ordem entre elas fica por data) ---
+  await sql`INSERT INTO reports (target_type, target_user_id, reporter_id, reason, status)
+    VALUES ('user', ${alvoAdminId}, ${donoId}, 'assedio', 'open')`;
+  await sql`INSERT INTO reports (target_type, space_id, reporter_id, reason, status)
+    VALUES ('space', ${barato}, ${outroId}, 'anuncio_falso', 'open')`;
+  await sql`INSERT INTO reports (target_type, message_id, reporter_id, reason, status)
+    VALUES ('message', ${mensagemAlvo!.id}, ${donoId}, 'pagamento_fora_plataforma', 'open')`;
+
+  const pageAdmin = await novaAba(testbed!.users.get(adminId)!, { viewport: { width: 900, height: 1100 } });
+
+  // --- so admin acessa: 404 de proposito, pra nao revelar que a rota existe ---
+  const pageOutro = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 900, height: 1100 } });
+  const respostaNaoAdmin = await pageOutro.goto(`${baseUrl}/admin/denuncias`, { waitUntil: 'domcontentloaded' });
+  expect('usuario comum recebe 404 ao tentar abrir o painel admin', respostaNaoAdmin?.status(), 404);
+  await pageOutro.context().close();
+
+  await pageAdmin.goto(`${baseUrl}/admin/denuncias`, { waitUntil: 'domcontentloaded' });
+  await pageAdmin.getByText('3 denúncias aguardando análise').waitFor({ timeout: 20_000 });
+  ok('admin ve as 3 denuncias na fila, ordenadas por gravidade');
+
+  const itens = pageAdmin.locator('main ul > li');
+  const textoPrimeiro = await itens.first().textContent();
+  assert('a mais grave (usuario, assedio = critica) aparece primeiro',
+    (textoPrimeiro ?? '').includes(`Alvo Fase 11 ${tag}`), textoPrimeiro ?? '');
+
+  // --- resolve a denuncia de usuario como procedente ---
+  // "Alvo Fase 11" tambem aparece no item da mensagem (ela foi enviada por
+  // essa mesma conta) — o motivo "Assédio" distingue o item de usuario.
+  const itemUsuario = pageAdmin.locator('li').filter({ hasText: `Alvo Fase 11 ${tag}` }).filter({ hasText: 'Assédio' });
+  await itemUsuario.getByRole('button', { name: 'Procedente', exact: true }).click();
+  await itemUsuario.getByRole('textbox').fill('Confirmado com o denunciante por telefone.');
+  await itemUsuario.getByRole('button', { name: 'Confirmar como procedente', exact: true }).click();
+  await itemUsuario.getByText('Denúncia marcada como procedente.').waitFor({ timeout: 20_000 });
+  ok('admin resolve a denuncia de usuario como procedente, pela interface');
+
+  const [linhaUsuario] = await sql<{ status: string; upheld: boolean; resolved_by: string }[]>`
+    SELECT status, upheld, resolved_by FROM reports WHERE target_user_id=${alvoAdminId}`;
+  expect('gravado como resolved/upheld no banco', [linhaUsuario!.status, linhaUsuario!.upheld], ['resolved', true]);
+  expect('resolvedBy e o admin logado', linhaUsuario!.resolved_by, adminId);
+
+  // --- resolve a denuncia de anuncio como improcedente ---
+  const itemEspaco = pageAdmin.locator('li', { hasText: 'Vaga de moto barata no Centro' });
+  await itemEspaco.getByRole('button', { name: 'Improcedente', exact: true }).click();
+  await itemEspaco.getByRole('button', { name: 'Confirmar como improcedente', exact: true }).click();
+  await itemEspaco.getByText('Denúncia marcada como improcedente.').waitFor({ timeout: 20_000 });
+  ok('admin resolve a denuncia de anuncio como improcedente, pela interface');
+
+  // --- fila cai para 1 (so a mensagem, deixada em aberto) ---
+  await pageAdmin.goto(`${baseUrl}/admin/denuncias`, { waitUntil: 'domcontentloaded' });
+  await pageAdmin.getByText('1 denúncia aguardando análise').waitFor({ timeout: 20_000 });
+  await pageAdmin.getByText('Manda o pix direto').waitFor({ timeout: 20_000 });
+  ok('fila cai para 1 apos as duas resolucoes, e sobra a denuncia de mensagem, com o conteudo denunciado visivel');
+
+  // --- painel de usuarios: busca, reincidencia e suspensao manual ---
+  await pageAdmin.goto(`${baseUrl}/admin/usuarios?q=${encodeURIComponent(`Alvo Fase 11 ${tag}`)}`, { waitUntil: 'domcontentloaded' });
+  await pageAdmin.getByText('1 denúncia(s) procedente(s)').waitFor({ timeout: 20_000 });
+  ok('busca de usuarios encontra o alvo, com a reincidencia ja refletida');
+
+  await pageAdmin.getByLabel('Status da conta').selectOption('suspended');
+  await pageAdmin.getByLabel('Motivo').fill('Assedio confirmado na denuncia acima.');
+  await pageAdmin.getByRole('button', { name: 'Salvar status' }).click();
+  await pageAdmin.getByText('Status da conta atualizado.').waitFor({ timeout: 20_000 });
+  ok('admin suspende a conta manualmente, pela interface');
+
+  const [statusFinal] = await sql<{ status: string; status_reason: string | null }[]>`
+    SELECT status, status_reason FROM profiles WHERE id=${alvoAdminId}`;
+  expect('status gravado no banco', statusFinal!.status, 'suspended');
+  assert('motivo gravado no banco', Boolean(statusFinal!.status_reason));
+
+  await pageAdmin.screenshot({ path: join(tmp, 'teste-n-admin-denuncias.png'), fullPage: true });
+  await pageAdmin.context().close();
+}
+
 // ---------------------------------------------------------------------------
 
 /*
@@ -1961,6 +2067,23 @@ async function limpar() {
     });
   } catch (err) {
     console.log(`  ${FRACO}donoId/outroId ficam como residuo (algum booking deles tem lancamento no razao): ${String(err).slice(0, 100)}${FIM}`);
+  }
+
+  try {
+    /*
+     * Em statement separado dos de donoId/outroId, de proposito: adminId e
+     * alvoAdminId nunca tocam pagamento nenhum, entao nao tem por que ficar
+     * presos so por estarem no mesmo DELETE que uma identidade ancorada no
+     * razao (um DELETE falha por inteiro se qualquer linha travar).
+     */
+    await sql.begin(async (tx) => {
+      await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
+      await tx`DELETE FROM public.audit_logs WHERE actor_id = ${adminId}`;
+      await tx`DELETE FROM auth.users WHERE id IN (${adminId}, ${alvoAdminId})`;
+      await tx`ALTER TABLE public.audit_logs ENABLE TRIGGER audit_logs_append_only`;
+    });
+  } catch (err) {
+    console.log(`  ${FRACO}limpeza de adminId/alvoAdminId: ${String(err).slice(0, 140)}${FIM}`);
   }
 
   await browser?.close().catch(() => {});

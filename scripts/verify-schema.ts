@@ -380,6 +380,50 @@ async function main() {
                 VALUES (${conv.id}, ${renterId}, '   ')`,
       'messages_body_not_empty',
     );
+
+    console.log('\n\x1b[1m9. Reincidencia e suspensao automatica (Fase 11)\x1b[0m');
+    {
+      const [{ value: limiteRaw }] = await sql<{ value: string }[]>`
+        SELECT value FROM platform_settings WHERE key = 'safety.auto_suspend_upheld_threshold'`;
+      const limite = Number(limiteRaw);
+
+      // strangerId comeca sem denuncia nenhuma — confirma o ponto de partida.
+      const insertUpheld = () => sql`
+        INSERT INTO reports (target_type, target_user_id, reporter_id, reason, status, upheld, resolved_at)
+        VALUES ('user', ${strangerId}, ${renterId}, 'assedio', 'resolved', true, now())`;
+
+      for (let i = 1; i < limite; i++) await insertUpheld();
+      const [abaixoDoLimite] = await sql<{ upheld_report_count: number; status: string }[]>`
+        SELECT upheld_report_count, status FROM profiles WHERE id = ${strangerId}`;
+      if (abaixoDoLimite.upheld_report_count === limite - 1 && abaixoDoLimite.status === 'active') {
+        ok('contador sobe por trigger, sem suspender antes do limite', `${limite - 1}/${limite}`);
+      } else {
+        bad('contador antes do limite', JSON.stringify(abaixoDoLimite));
+      }
+
+      await insertUpheld();
+      const [noLimite] = await sql<{ upheld_report_count: number; status: string; status_reason: string | null }[]>`
+        SELECT upheld_report_count, status, status_reason FROM profiles WHERE id = ${strangerId}`;
+      if (noLimite.status === 'suspended' && noLimite.status_reason?.includes(String(limite))) {
+        ok('suspensao automatica ao atingir o limite', `motivo: ${noLimite.status_reason}`);
+      } else {
+        bad('suspensao automatica', JSON.stringify(noLimite));
+      }
+
+      // Corrigir uma denuncia (upheld -> false) derruba o contador, mas a
+      // suspensao ja aplicada NAO reverte sozinha — so um admin reativa.
+      const [ultima] = await sql<{ id: string }[]>`
+        SELECT id FROM reports WHERE target_user_id = ${strangerId} AND upheld = true
+        ORDER BY created_at DESC LIMIT 1`;
+      await sql`UPDATE reports SET upheld = false WHERE id = ${ultima.id}`;
+      const [depoisDaCorrecao] = await sql<{ upheld_report_count: number; status: string }[]>`
+        SELECT upheld_report_count, status FROM profiles WHERE id = ${strangerId}`;
+      if (depoisDaCorrecao.upheld_report_count === limite - 1 && depoisDaCorrecao.status === 'suspended') {
+        ok('suspensao automatica nao reverte sozinha', 'contador caiu, status continua suspenso');
+      } else {
+        bad('reversao da suspensao', JSON.stringify(depoisDaCorrecao));
+      }
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.
