@@ -432,6 +432,33 @@ async function main() {
   expect('reentrega NAO duplicou lancamentos no razao', ledgerCountDepois, '3');
 
   // =========================================================================
+  secao('3b. Paineis (Fase 9/10) — repasse do dono e status de pagamento do locatario');
+  // =========================================================================
+
+  const { listOwnerPayouts, getOwnerPayoutSummary } = await import('../src/lib/payments/queries');
+  const { listRenterBookings } = await import('../src/lib/bookings/queries');
+
+  const [{ reference: referenciaDoBooking }] = await sql<{ reference: string }[]>`
+    SELECT reference FROM bookings WHERE id=${bookingId}`;
+  const repassesDono = await listOwnerPayouts(donoId);
+  const repasseDesteBooking = repassesDono.find((r) => r.bookingReference === referenciaDoBooking);
+  assert('listOwnerPayouts traz o repasse recem-criado', Boolean(repasseDesteBooking));
+  expect('o repasse listado tem o valor certo', repasseDesteBooking?.amountCents, amounts.ownerPayoutCents);
+  expect('o repasse listado esta "pending" (mesmo estado do banco)', repasseDesteBooking?.status, 'pending');
+
+  const resumoDono = await getOwnerPayoutSummary(donoId);
+  expect('resumo: nada "settled" ainda (nenhum evento confirma isso)', resumoDono.settledCents, 0);
+  assert('resumo: o pendente inclui o repasse deste booking', resumoDono.pendingCents >= amounts.ownerPayoutCents,
+    `pendente=${resumoDono.pendingCents}, esperado >= ${amounts.ownerPayoutCents}`);
+
+  const reservasDoLocatario = await listRenterBookings(renterId);
+  const reservaDesteBooking = reservasDoLocatario.find((r) => r.id === bookingId);
+  assert('listRenterBookings encontra esta reserva', Boolean(reservaDesteBooking));
+  expect('status da assinatura aparece pro locatario', reservaDesteBooking?.subscriptionStatus, 'active');
+  expect('status da ultima cobranca aparece pro locatario', reservaDesteBooking?.lastPaymentStatus, 'received');
+  expect('valor da ultima cobranca aparece pro locatario', reservaDesteBooking?.lastPaymentAmountCents, amounts.totalChargedCents);
+
+  // =========================================================================
   secao('4. Webhook — atraso derruba pra past_due, pagamento seguinte recupera');
   // =========================================================================
 

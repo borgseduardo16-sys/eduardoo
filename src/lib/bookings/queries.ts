@@ -143,7 +143,34 @@ const listSelection = {
   spaceCoverPath: coverPathExpr,
 };
 
-/** Reservas/solicitacoes do LOCATARIO — para /reservas. */
+const latestSubscriptionExpr = sql<string | null>`(
+  SELECT status::text FROM subscriptions s
+  WHERE s.booking_id = bookings.id ORDER BY s.created_at DESC LIMIT 1
+)`;
+const nextDueDateExpr = sql<string | null>`(
+  SELECT next_due_date FROM subscriptions s
+  WHERE s.booking_id = bookings.id ORDER BY s.created_at DESC LIMIT 1
+)`;
+const lastPaymentStatusExpr = sql<string | null>`(
+  SELECT status::text FROM payments p
+  WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
+)`;
+const lastPaymentDueDateExpr = sql<string | null>`(
+  SELECT due_date FROM payments p
+  WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
+)`;
+const lastPaymentAmountExpr = sql<number | null>`(
+  SELECT amount_cents FROM payments p
+  WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
+)`;
+
+/**
+ * Reservas/solicitacoes do LOCATARIO — para /reservas.
+ *
+ * Inclui o status REAL de pagamento (assinatura + ultima cobranca) quando
+ * existir — sem isso a tela so mostraria o status da reserva, nunca "sua
+ * proxima cobranca vence dia X" nem "esse pagamento atrasou de verdade".
+ */
 export async function listRenterBookings(renterId: string) {
   await expireStaleBookingRequests();
   return db
@@ -151,6 +178,11 @@ export async function listRenterBookings(renterId: string) {
       ...listSelection,
       ownerId: profiles.id,
       ownerName: profiles.fullName,
+      subscriptionStatus: latestSubscriptionExpr,
+      nextDueDate: nextDueDateExpr,
+      lastPaymentStatus: lastPaymentStatusExpr,
+      lastPaymentDueDate: lastPaymentDueDateExpr,
+      lastPaymentAmountCents: lastPaymentAmountExpr,
     })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))

@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { Wallet, CircleCheck } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { listOwnerActiveBookings, listOwnerPayments } from '@/lib/bookings/queries';
-import { getOwnerPayoutAccount } from '@/lib/payments/queries';
+import { getOwnerPayoutAccount, listOwnerPayouts, getOwnerPayoutSummary } from '@/lib/payments/queries';
+import { payoutStatusLabel, PAYOUT_STATUS_INFO } from '@/lib/payments/format';
 import { formatBRL } from '@/lib/money';
 import { formatBookingDate } from '@/lib/bookings/format';
 import { SiteHeader } from '@/components/layout/site-header';
@@ -18,10 +19,12 @@ export const dynamic = 'force-dynamic';
 
 export default async function FinanceiroPage() {
   const user = await requireUser('/meus-espacos/financeiro');
-  const [alugueis, pagamentos, contaDeRecebimento] = await Promise.all([
+  const [alugueis, pagamentos, contaDeRecebimento, repasses, resumoRepasses] = await Promise.all([
     listOwnerActiveBookings(user.id),
     listOwnerPayments(user.id),
     getOwnerPayoutAccount(user.id),
+    listOwnerPayouts(user.id),
+    getOwnerPayoutSummary(user.id),
   ]);
 
   const receitaMensalEsperada = alugueis.reduce((soma, a) => soma + a.ownerPayoutCents, 0);
@@ -70,6 +73,48 @@ export default async function FinanceiroPage() {
           <p className="text-[0.8125rem] text-[var(--content-subtle)]">
             Soma do que você recebe em {alugueis.length} {alugueis.length === 1 ? 'aluguel aceito' : 'aluguéis aceitos'}, já com a taxa da plataforma descontada — não é lucro, é receita antes dos seus próprios custos.
           </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-[0.8125rem] font-medium uppercase tracking-wide text-[var(--content-subtle)]">
+            Repasses
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-[var(--radius-card)] border p-4 space-y-0.5">
+              <p className="text-[0.75rem] text-[var(--content-subtle)]">Já pago</p>
+              <p className="text-[1.375rem] font-semibold tabular-nums text-[var(--color-positive)]">
+                {formatBRL(resumoRepasses.settledCents)}
+              </p>
+            </div>
+            <div className="rounded-[var(--radius-card)] border p-4 space-y-0.5">
+              <p className="text-[0.75rem] text-[var(--content-subtle)]">Pendente</p>
+              <p className="text-[1.375rem] font-semibold tabular-nums">{formatBRL(resumoRepasses.pendingCents)}</p>
+            </div>
+          </div>
+
+          {repasses.length === 0 ? (
+            <Alert tone="info" title="Nenhum repasse ainda">
+              O repasse só existe depois que um pagamento de aluguel é confirmado e recebido
+              pela plataforma. Assim que isso acontecer, aparece aqui.
+            </Alert>
+          ) : (
+            <ul className="space-y-2">
+              {repasses.map((r) => (
+                <li key={r.id} className="rounded-[var(--radius-field)] border p-3.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{r.spaceTitle}</p>
+                    <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                      {r.bookingReference} · {formatBookingDate(r.settledAt ?? r.createdAt)}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0 space-y-1">
+                    <p className="font-semibold tabular-nums">{formatBRL(r.amountCents)}</p>
+                    <Badge tone={PAYOUT_STATUS_INFO[r.status]?.tone ?? 'neutral'}>{payoutStatusLabel(r.status)}</Badge>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <section className="space-y-3">

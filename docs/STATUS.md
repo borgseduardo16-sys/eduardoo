@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 18/09/2026 · **Fases concluídas:** 1 a 6 de 12 + segurança interna · **Fase 5 depende só da credencial Asaas real** (código e testes prontos)
+> **Atualizado em:** 19/09/2026 · **Fases concluídas:** 1 a 6, 9 e 10 de 12 + segurança interna · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
 
 Estados usados:
 
@@ -346,14 +346,50 @@ derruba a contagem em exatamente 1 — a dela, não o total absoluto.
 
 ---
 
-## Fases 7 a 12 — ⬜ não implementadas
+## Fase 9 e 10 — Painéis financeiros completos ✅ *(código pronto, falta a credencial real da Fase 7)*
+
+As duas fases dependiam originalmente da Fase 7 (credencial Asaas real) por
+um motivo que não se sustentou: o painel só precisa de dado que já existe no
+**Postgres**, gravado pelo webhook (Fase 5) sempre que um evento chega — seja
+do Asaas de verdade ou do dublê local de teste. Não há nada que o painel
+precise "esperar" a credencial real para mostrar; a mesma tela que funciona
+contra o dublê hoje mostra dinheiro real no dia em que a Fase 7 destravar,
+sem precisar mudar uma linha.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Repasses do proprietário (`/meus-espacos/financeiro`) | ✅ | seção nova "Repasses": já pago vs. pendente, histórico por reserva — lê `payouts`, não inventa "pago" sem confirmação de liquidação (`payouts.status` hoje só alcança `pending`, ver PAGAMENTOS.md) |
+| Status real de pagamento do locatário (`/reservas`) | ✅ | próxima cobrança, status e valor do último pagamento por reserva — lê `subscriptions`/`payments` de verdade, não só o status da reserva |
+| `getOwnerPayoutSummary` | ✅ | soma por status (`settled` vs. `pending`+`scheduled`) — nunca mistura os dois |
+| Verificação automatizada (banco) | ✅ | 9 checagens novas — `scripts/verify-payments.ts`, seção 3b (72 no total, era 63) |
+| Verificação automatizada (navegador) | ✅ | TESTE L estendido: dispara os webhooks `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED` pela **rota HTTP real** (não a função em processo — este script tem um Next real no ar), depois confere que `/reservas` e `/meus-espacos/financeiro` mostram o dado que veio do gateway; 9 checagens novas (172 no total) |
+
+**Um problema real de isolamento de teste, encontrado ligando o webhook ao
+TESTE L**: uma vez que uma reserva gera lançamento no razão
+(`ledger_entries`, append-only de verdade), o espaço fica ancorado por FK
+`RESTRICT` — permanentemente, como aconteceria em produção com dinheiro de
+verdade movimentado. Isso já era um custo aceito em `scripts/verify-payments.ts`,
+mas ali o espaço de teste é isolado; em `verify-integracoes.ts` o TESTE L
+reusava `publicado`, a MESMA coordenada que TESTE B (lista todo anúncio
+publicado, sem filtro nenhum) e TESTE E/F (raio) contam com exatidão.
+Cada execução futura deixaria mais um anúncio idêntico ali, inflando essas
+contagens sem limite — pego rodando a suíte duas vezes seguidas, não em
+teoria. Corrigido em duas partes: (1) o espaço do TESTE L agora nasce numa
+coordenada isolada, criado só dentro do próprio teste (não na semente do
+início, que vale para A–M inteiros) e (2) é **arquivado** (não apagado —
+o lançamento no razão não deixaria mesmo) assim que o pagamento é
+confirmado, saindo da vitrine pública imediatamente. A sobra permanente
+final é só uma linha invisível para qualquer busca: o histórico financeiro
+real continua existindo, só não aparece mais pra ninguém.
+
+---
+
+## Fases 7, 8, 11 e 12 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
 |------|--------|-----------|
 | 7 | Pagamento real (Pix, cartão, cobrança recorrente) | **Conta Asaas** — código completo (ver Fase 5), falta só a credencial real testada com internet normal |
 | 8 | Repasse real ao proprietário | **KYC aprovado no Asaas** — comportamento durante aprovação ainda não confirmado |
-| 9 | Painel do proprietário completo (valores recebidos/pendentes/histórico) | Fase 7 — hoje tem espaços, solicitações, reservas e onboarding de recebimento; falta o histórico com dinheiro de verdade |
-| 10 | Painel do locatário completo (pagamentos, próximo pagamento) | Fase 7 — hoje tem reservas e checkout; falta o histórico com dinheiro de verdade |
 | 11 | Painel administrativo | — |
 | 12 | Segurança, testes e preparação para produção | Upstash + Sentry |
 
@@ -435,7 +471,7 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 163 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 172 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
 aceitar e cancelar aluguel, o de configurar recebimento e pagar, e o chat
 com e-mail de aviso e mensagem de sistema).
@@ -509,11 +545,12 @@ Sentry não integrado. Em produção você descobriria falhas pelo cliente.
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 557 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 575 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar, o fluxo de
-solicitar/aceitar/cancelar aluguel e o chat rodam em Chromium de verdade
-(`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
-interface: cadastro, login e o painel "Meus espaços". Fase 12.
+solicitar/aceitar/cancelar aluguel, o chat e os paineis financeiros (com
+webhook de pagamento disparado pela rota HTTP real) rodam em Chromium de
+verdade (`pnpm verify:integracoes`). O que ainda não tem teste automatizado
+de interface: cadastro, login e o painel "Meus espaços". Fase 12.
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -532,8 +569,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 394 checagens contra o Postgres real
-pnpm verify:integracoes              # 163 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat)
+pnpm verify                          # 403 checagens contra o Postgres real
+pnpm verify:integracoes              # 172 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros)
 pnpm check                           # typecheck + lint + build
 pnpm dev                             # http://localhost:3000
 ```

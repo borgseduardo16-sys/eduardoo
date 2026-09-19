@@ -7,6 +7,7 @@ import { listRenterBookings } from '@/lib/bookings/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
 import { bookingStatusLabel, formatBookingDate } from '@/lib/bookings/format';
+import { subscriptionStatusLabel, paymentStatusLabel, PAYMENT_STATUS_INFO } from '@/lib/payments/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -141,6 +142,27 @@ function ReservaCard({ r, coverUrl }: { r: ReservaRow; coverUrl: string | null }
           </p>
         </div>
       </div>
+
+      {['awaiting_payment', 'active', 'past_due', 'ended'].includes(r.status) && r.subscriptionStatus && (
+        <div className="text-[0.8125rem] text-[var(--content-muted)] space-y-1 pt-1 border-t">
+          {r.status === 'active' && r.nextDueDate && (
+            <p>Próxima cobrança: {formatBookingDate(r.nextDueDate)}</p>
+          )}
+          {r.status === 'awaiting_payment' && (
+            <p>{subscriptionStatusLabel(r.subscriptionStatus)}</p>
+          )}
+          {r.lastPaymentStatus && (
+            <p className="flex flex-wrap items-center gap-1.5">
+              Último pagamento
+              {r.lastPaymentAmountCents !== null && ` ${formatBRL(r.lastPaymentAmountCents)}`}
+              {r.lastPaymentDueDate && ` · venc. ${formatBookingDate(r.lastPaymentDueDate)}`}
+              <Badge tone={PAYMENT_STATUS_INFO[r.lastPaymentStatus]?.tone ?? 'neutral'}>
+                {paymentStatusLabel(r.lastPaymentStatus)}
+              </Badge>
+            </p>
+          )}
+        </div>
+      )}
 
       {r.ownerResponse && r.status === 'rejected' && (
         <p className="text-[0.8125rem] text-[var(--content-subtle)]">Motivo do proprietário: {r.ownerResponse}</p>

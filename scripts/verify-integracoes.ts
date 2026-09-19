@@ -45,6 +45,7 @@ import postgres from 'postgres';
 import sharp from 'sharp';
 import { chromium, type Browser, type Page, type Locator } from 'playwright';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
+import { formatBRL } from '../src/lib/money';
 import { startTestbed, sessionCookie, fakeJwt, type Testbed } from './testbed/server';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -114,6 +115,17 @@ function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 const PONTO = { lat: -19.5386, lng: -40.6295 };
 /** ~100 km de Colatina — serve para provar que raio EXCLUI, nao so inclui. */
 const LONGE = { lat: -20.3297, lng: -40.2925 };
+/**
+ * Coordenada isolada, so pro TESTE L — mesma escolhida em
+ * scripts/verify-payments.ts pelo mesmo motivo: uma vez que uma reserva
+ * gera lancamento no razao (append-only de verdade), o espaco fica
+ * permanentemente ancorado (ver `limpar()`). Se isso acontecesse em
+ * `publicado` (compartilhado com TESTE K e visado pelos testes de
+ * busca/mapa por raio), cada execucao futura deixaria mais um "Garagem
+ * coberta no Centro" na MESMA coordenada, inflando contagem exata que
+ * TESTE B/E/F esperam — ja aconteceu uma vez, corrigido isolando aqui.
+ */
+const ISOLADO = { lat: -18.0001, lng: -40.0001 };
 const GPS_EXIF = { lat: '19/1 32/1 1896/100', lng: '40/1 37/1 4620/100' };
 
 /** Foto como sai de um celular: grande, com GPS e identificacao do aparelho. */
@@ -166,6 +178,8 @@ let publicado = '';
 let barato = '';
 /** Anuncio caro, a ~100 km — prova que o raio EXCLUI, nao so inclui. */
 let longeId = '';
+/** Anuncio isolado, so pro TESTE L — ver o comentario em ISOLADO. */
+let espacoPagamentoId = '';
 let baseUrl = '';
 
 async function main() {
@@ -279,6 +293,37 @@ async function aguardarAtributo(
   bad(nome, `esperava ${atributo}="${valor}", veio "${ultimo}"`);
 }
 
+/**
+ * Cria um anuncio JA PUBLICADO direto por SQL — nao precisa repetir o
+ * caminho de upload/publicacao real, que ja e provado por `publicado`
+ * (criado via `criar()`, dentro de `seed()`). Usado tanto na semente fixa
+ * (barato/longeId) quanto sob demanda por testes que precisam de um espaco
+ * isolado (ver TESTE L e o comentario em ISOLADO).
+ */
+async function publicarDireto(
+  donoId: string, slug: string, titulo: string, tipo: string, precoCents: number,
+  ponto: { lat: number; lng: number }, cidade: string, feature: string,
+) {
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO spaces
+      (owner_id, slug, type, title, description, district, city, state,
+       available_from, price_monthly_cents, size_m2, draft_step, location)
+    VALUES
+      (${donoId}, ${slug}, ${tipo}, ${titulo},
+       'Descricao com mais de vinte caracteres para passar na regra do banco.',
+       'Centro', ${cidade}, 'ES', CURRENT_DATE, ${precoCents}, 20, 8,
+       ST_SetSRID(ST_MakePoint(${ponto.lng}, ${ponto.lat}), 4326))
+    RETURNING id`;
+  const id = row!.id;
+  for (const n of [0, 1, 2]) {
+    await sql`INSERT INTO space_images (space_id, storage_path, position)
+      VALUES (${id}, ${`${donoId}/${id}/f${n}.jpg`}, ${n})`;
+  }
+  await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, ${feature})`;
+  await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
+  return id;
+}
+
 // ---------------------------------------------------------------------------
 // Semente
 // ---------------------------------------------------------------------------
@@ -309,42 +354,19 @@ async function seed() {
   rascunhoCep = await criar(`${tag}-cep`, 'Garagem para testar o CEP', 2);
   publicado = await criar(`${tag}-publicado`, 'Garagem coberta no Centro', 8);
 
-  /*
-   * Dois anuncios a mais, ja PUBLICADOS direto por SQL — nao precisam
-   * repetir o caminho de upload/publicacao real, que ja e provado pelo
-   * `publicado` acima. Servem so de alvo real para busca, filtro e mapa:
-   * um barato e perto, um caro e longe.
-   */
-  const publicarDireto = async (
-    slug: string, titulo: string, tipo: string, precoCents: number,
-    ponto: { lat: number; lng: number }, cidade: string, feature: string,
-  ) => {
-    const [row] = await sql<{ id: string }[]>`
-      INSERT INTO spaces
-        (owner_id, slug, type, title, description, district, city, state,
-         available_from, price_monthly_cents, size_m2, draft_step, location)
-      VALUES
-        (${donoId}, ${slug}, ${tipo}, ${titulo},
-         'Descricao com mais de vinte caracteres para passar na regra do banco.',
-         'Centro', ${cidade}, 'ES', CURRENT_DATE, ${precoCents}, 20, 8,
-         ST_SetSRID(ST_MakePoint(${ponto.lng}, ${ponto.lat}), 4326))
-      RETURNING id`;
-    const id = row!.id;
-    for (const n of [0, 1, 2]) {
-      await sql`INSERT INTO space_images (space_id, storage_path, position)
-        VALUES (${id}, ${`${donoId}/${id}/f${n}.jpg`}, ${n})`;
-    }
-    await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, ${feature})`;
-    await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
-    return id;
-  };
-
   barato = await publicarDireto(
-    `${tag}-barato`, 'Vaga de moto barata no Centro', 'vaga_moto', 8000, PONTO, 'Colatina', 'coberto',
+    donoId, `${tag}-barato`, 'Vaga de moto barata no Centro', 'vaga_moto', 8000, PONTO, 'Colatina', 'coberto',
   );
   longeId = await publicarDireto(
-    `${tag}-longe`, 'Deposito grande em Vila Velha', 'deposito', 45000, LONGE, 'Vila Velha', 'seco_ventilado',
+    donoId, `${tag}-longe`, 'Deposito grande em Vila Velha', 'deposito', 45000, LONGE, 'Vila Velha', 'seco_ventilado',
   );
+  /*
+   * `espacoPagamentoId` NAO nasce aqui, de proposito: TESTE B lista TODO
+   * anuncio `published` sem filtro nenhum, e esse espaco so precisa existir
+   * a partir do TESTE L. Nasce publicado dentro do proprio
+   * testeLPagamento() e e arquivado assim que o pagamento e confirmado —
+   * a janela em que fica visivel pra qualquer outro teste e a menor possivel.
+   */
 
   ok('semente criada', 'dono + outro + 5 anuncios (3 reais + 2 fixture)');
 }
@@ -1604,7 +1626,21 @@ function gerarCpfValido(): string {
 async function testeLPagamento() {
   secao('TESTE L (navegador) - proprietario configura recebimento, locatario paga');
 
-  const [espaco] = await sql<{ slug: string }[]>`SELECT slug FROM spaces WHERE id=${publicado}`;
+  /*
+   * Cria o espaco AQUI, so agora, na coordenada ISOLADA — nao reusa
+   * `publicado`. A partir do PAYMENT_RECEIVED abaixo, a reserva ganha
+   * lancamento no razao e o espaco fica permanentemente ancorado (ver
+   * `limpar()`); se fosse em `publicado`, cada execucao deixaria mais uma
+   * sobra na MESMA coordenada que TESTE B/E/F contam. E nasce so agora
+   * (nao em `seed()`, no inicio de tudo) pra ficar `published` pelo menor
+   * tempo possivel: TESTE B lista TODO anuncio publicado, sem filtro de
+   * raio nenhum — ja aconteceu de um espaco isolado, mas ainda visivel
+   * cedo demais, inflar aquela contagem.
+   */
+  espacoPagamentoId = await publicarDireto(
+    donoId, `${tag}-pagamento`, 'Espaco isolado para teste de pagamento', 'garagem', 25000, ISOLADO, 'Colatina', 'coberto',
+  );
+  const [espaco] = await sql<{ slug: string; title: string }[]>`SELECT slug, title FROM spaces WHERE id=${espacoPagamentoId}`;
 
   // --- proprietario configura a conta de recebimento (subconta no dublê do Asaas) ---
   const pageDono = await novaAba(testbed!.users.get(donoId)!, { viewport: { width: 900, height: 1100 } });
@@ -1641,7 +1677,7 @@ async function testeLPagamento() {
   await pageOutro.waitForURL(/\/reservas/, { timeout: 20_000 });
 
   const [novaSolicitacao] = await sql<{ id: string }[]>`
-    SELECT id FROM bookings WHERE space_id=${publicado} AND renter_id=${outroId} AND status='requested'
+    SELECT id FROM bookings WHERE space_id=${espacoPagamentoId} AND renter_id=${outroId} AND status='requested'
     ORDER BY requested_at DESC LIMIT 1`;
   const bookingId = novaSolicitacao!.id;
 
@@ -1683,6 +1719,70 @@ async function testeLPagamento() {
 
   const [cobrancaCriada] = await sql<{ invoice_url: string | null }[]>`SELECT invoice_url FROM payments WHERE booking_id=${bookingId}`;
   assert('cobranca criada com link de fatura', Boolean(cobrancaCriada?.invoice_url));
+
+  /*
+   * A partir daqui simula o gateway confirmando o pagamento de verdade,
+   * batendo na rota HTTP REAL (nao a funcao em processo) — este script,
+   * diferente de verify-payments.ts, tem um servidor Next real no ar.
+   * E o que prova que os paineis (Fase 9/10) mostram dado que veio do
+   * gateway, nao um estado inventado pela propria tela.
+   */
+  const [{ provider_payment_id: providerPaymentId, amount_cents: valorCobrancaCents }] = await sql<
+    { provider_payment_id: string; amount_cents: number }[]
+  >`SELECT provider_payment_id, amount_cents FROM payments WHERE booking_id=${bookingId}`;
+
+  async function dispararWebhook(event: string, extra: Record<string, unknown> = {}) {
+    const res = await fetch(`${baseUrl}/api/webhooks/asaas`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'asaas-access-token': process.env.ASAAS_WEBHOOK_TOKEN! },
+      body: JSON.stringify({ event, payment: { id: providerPaymentId, value: valorCobrancaCents / 100, ...extra } }),
+    });
+    return res;
+  }
+
+  const respostaConfirmado = await dispararWebhook('PAYMENT_CONFIRMED');
+  expect('webhook PAYMENT_CONFIRMED (rota HTTP real) responde 200', respostaConfirmado.status, 200);
+
+  const valorLiquido = (valorCobrancaCents - 199) / 100;
+  const respostaRecebido = await dispararWebhook('PAYMENT_RECEIVED', { netValue: valorLiquido });
+  expect('webhook PAYMENT_RECEIVED (rota HTTP real) responde 200', respostaRecebido.status, 200);
+
+  const [bookingAtiva] = await sql<{ status: string; owner_payout_cents: number }[]>`
+    SELECT status, owner_payout_cents FROM bookings WHERE id=${bookingId}`;
+  expect('reserva vira "active" depois dos dois webhooks', bookingAtiva!.status, 'active');
+
+  // --- locatario ve o status real de pagamento em /reservas ---
+  await pageOutro.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByText('Último pagamento').waitFor({ timeout: 20_000 });
+  ok('locatario ve o status real da ultima cobranca em /reservas');
+  const textoReservasLocatario = await pageOutro.locator('main').textContent();
+  assert('mostra "Recebido" (status real do pagamento, vindo do webhook)',
+    (textoReservasLocatario ?? '').includes('Recebido'), textoReservasLocatario ?? '');
+  assert('mostra a proxima cobranca', (textoReservasLocatario ?? '').includes('Próxima cobrança'), textoReservasLocatario ?? '');
+
+  // --- proprietario ve o repasse em /meus-espacos/financeiro ---
+  await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByText('Pendente').first().waitFor({ timeout: 20_000 });
+  ok('proprietario ve a secao de repasses no financeiro');
+  const textoFinanceiroDono = await pageDono.locator('main').textContent();
+  assert('o repasse pendente aparece com o valor certo (o mesmo owner_payout_cents da reserva)',
+    (textoFinanceiroDono ?? '').includes(formatBRL(bookingAtiva!.owner_payout_cents)),
+    textoFinanceiroDono ?? '');
+  assert('nao inventa repasse "pago" sem confirmacao de liquidacao',
+    !(textoFinanceiroDono ?? '').includes('Nenhum repasse ainda'), textoFinanceiroDono ?? '');
+
+  /*
+   * A partir daqui a reserva tem lancamento no razao — o espaco fica
+   * ancorado por FK RESTRICT pra sempre (ver `limpar()`). Isolar a
+   * coordenada (ISOLADO) evita poluir contagem por RAIO (TESTE E/F), mas
+   * TESTE B lista TODO anuncio `published`, sem filtro de raio nenhum — um
+   * espaco publicado que sobrevive entre execucoes inflaria essa contagem
+   * pra sempre, nao importa a coordenada. Arquivar aqui (UPDATE, nao
+   * DELETE — a linha do razao continua intacta, so o anuncio some da
+   * vitrine publica) resolve os dois: o historico financeiro real fica,
+   * o anuncio para de aparecer pra qualquer teste que liste publicados.
+   */
+  await sql`UPDATE spaces SET status='archived' WHERE id=${espacoPagamentoId}`;
 
   await pageOutro.screenshot({ path: join(tmp, 'teste-l-checkout.png'), fullPage: true });
   await pageDono.screenshot({ path: join(tmp, 'teste-l-financeiro.png'), fullPage: true });
@@ -1792,31 +1892,66 @@ async function testeMChat() {
 
 // ---------------------------------------------------------------------------
 
+/*
+ * Desde que o TESTE L passou a disparar o webhook de verdade (rota HTTP
+ * real, nao so a funcao em processo), a reserva de `publicado` pode ganhar
+ * lancamento no razao (`ledger_entries`) — append-only por trigger de
+ * verdade (testado em scripts/verify-payments.ts, secao 3). Uma vez que
+ * isso acontece, `payments`/`subscriptions`/essa reserva/`publicado`/
+ * `donoId`/`outroId` ficam ancorados por FK RESTRICT embaixo dela, PARA
+ * SEMPRE — exatamente como uma reserva com movimentacao financeira real se
+ * comportaria em producao. Por isso a limpeza e feita RESERVA POR RESERVA
+ * (nao um DELETE so): uma reserva travada nao pode impedir a limpeza das
+ * outras, que continuam perfeitamente apagaveis. Cada execucao usa um `tag`
+ * novo (Date.now()), entao a sobra nunca colide com a proxima execucao —
+ * so acumula como historico inerte no Postgres local de teste.
+ */
 async function limpar() {
   try {
-    // payments/subscriptions.booking_id sao ON DELETE RESTRICT — saem antes
-    // de bookings. Nenhum webhook roda no TESTE L, entao nao ha lancamento no
-    // razao (esse sim de verdade nao apagavel — ver scripts/verify-payments.ts)
-    // travando essa limpeza.
-    await sql`DELETE FROM payments WHERE booking_id IN (
-      SELECT id FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId}))`;
-    await sql`DELETE FROM subscriptions WHERE booking_id IN (
-      SELECT id FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId}))`;
+    const idsDosBookings = await sql<{ id: string }[]>`
+      SELECT id FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId})`;
+    for (const { id } of idsDosBookings) {
+      try {
+        await sql`DELETE FROM payments WHERE booking_id = ${id}`;
+        await sql`DELETE FROM subscriptions WHERE booking_id = ${id}`;
+        await sql`DELETE FROM bookings WHERE id = ${id}`;
+      } catch (err) {
+        console.log(`  ${FRACO}reserva ${id} tem lancamento no razao — fica como residuo inerte (esperado): ${String(err).slice(0, 100)}${FIM}`);
+      }
+    }
+  } catch (err) {
+    console.log(`  ${FRACO}limpeza de bookings/payments/subscriptions: ${String(err).slice(0, 140)}${FIM}`);
+  }
+
+  try {
     await sql`DELETE FROM owner_payout_accounts WHERE owner_id IN (${donoId}, ${outroId})`;
     await sql`DELETE FROM renter_billing_profiles WHERE user_id IN (${donoId}, ${outroId})`;
+  } catch (err) {
+    console.log(`  ${FRACO}limpeza de contas de pagamento: ${String(err).slice(0, 140)}${FIM}`);
+  }
 
-    // bookings.space_id/renter_id/owner_id sao ON DELETE RESTRICT de proposito
-    // (uma reserva nao pode sumir por baixo dos pes de quem alugou ou de quem
-    // publicou) — por isso precisa sair ANTES dos espacos e dos perfis.
-    await sql`DELETE FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId})`;
-    await sql`DELETE FROM spaces WHERE owner_id IN (${donoId}, ${outroId})`;
+  try {
+    const idsDosEspacos = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE owner_id IN (${donoId}, ${outroId})`;
+    for (const { id } of idsDosEspacos) {
+      try {
+        await sql`DELETE FROM spaces WHERE id = ${id}`;
+      } catch (err) {
+        console.log(`  ${FRACO}espaco ${id} ainda tem reserva com lancamento no razao — fica como residuo inerte (esperado): ${String(err).slice(0, 100)}${FIM}`);
+      }
+    }
+  } catch (err) {
+    console.log(`  ${FRACO}limpeza de espacos: ${String(err).slice(0, 140)}${FIM}`);
+  }
 
+  try {
     /*
      * `audit_logs` e append-only por trigger, e apagar o perfil faria o banco
      * tentar um UPDATE nela (FK com ON DELETE SET NULL) — que o trigger
      * recusa, e com razao. So para limpar o rastro DESTE teste, desligamos o
      * trigger dentro de uma transacao: DDL no Postgres e transacional, entao
-     * se algo falhar no meio ele volta ligado.
+     * se algo falhar no meio ele volta ligado. Se `publicado` ficou ancorado
+     * no razao, `donoId`/`outroId` tambem ficam — o DELETE abaixo falha
+     * inteiro (e certo: nao da pra apagar so metade de um usuario).
      */
     await sql.begin(async (tx) => {
       await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
@@ -1825,8 +1960,9 @@ async function limpar() {
       await tx`ALTER TABLE public.audit_logs ENABLE TRIGGER audit_logs_append_only`;
     });
   } catch (err) {
-    console.log(`  ${FRACO}limpeza do banco: ${String(err).slice(0, 140)}${FIM}`);
+    console.log(`  ${FRACO}donoId/outroId ficam como residuo (algum booking deles tem lancamento no razao): ${String(err).slice(0, 100)}${FIM}`);
   }
+
   await browser?.close().catch(() => {});
   if (nextProc) {
     nextProc.kill('SIGTERM');
