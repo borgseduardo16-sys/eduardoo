@@ -7,3 +7,4 @@ export * from './payments';
 export * from './messaging';
 export * from './trust';
 export * from './system';
+export * from './prospecting';

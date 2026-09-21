@@ -82,6 +82,12 @@ async function main() {
     lembrete('Geocodificacao de endereco nao configurada', 'busca por CEP continua funcionando; busca por texto livre de endereco fica limitada — ver docs/SETUP.md §3.4');
   }
 
+  if (configurado('GOOGLE_PLACES_API_KEY')) {
+    pronto('Google Places API configurada', 'area de prospeccao (/prospectar) pode buscar empresas de verdade');
+  } else {
+    lembrete('Google Places API nao configurada', 'a busca de empresas em /prospectar falha com mensagem explicita ate a chave existir — ver docs/SETUP.md §8');
+  }
+
   secao('2. Ambiente e infraestrutura');
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? '';

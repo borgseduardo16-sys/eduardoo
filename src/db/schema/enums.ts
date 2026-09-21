@@ -209,3 +209,63 @@ export const webhookStatus = pgEnum('webhook_status', [
   'failed',
   'ignored',
 ]);
+
+/** Abrangencia geografica de uma busca de prospeccao. */
+export const prospectLocationScope = pgEnum('prospect_location_scope', [
+  'city',
+  'state',
+  'region',
+  'country',
+]);
+
+/** Ciclo de vida de uma busca de prospeccao. */
+export const prospectSearchStatus = pgEnum('prospect_search_status', [
+  'running',
+  'completed',
+  'failed',
+]);
+
+/**
+ * Resultado da analise de presenca digital de uma empresa.
+ * - valid    : nenhuma presenca funcional identificada (ou caso ambiguo, que
+ *              o produto trata como lead em potencial — ver `confidence`).
+ * - discarded: foi identificada presenca que substitui um site.
+ */
+export const prospectLeadStatus = pgEnum('prospect_lead_status', ['valid', 'discarded']);
+
+/** So existe quando `lead_status = valid`. */
+export const prospectLeadConfidence = pgEnum('prospect_lead_confidence', [
+  'sem_presenca',
+  'verificacao_recomendada',
+]);
+
+/**
+ * Classificacao do link encontrado no campo "website" do perfil do Google.
+ * As quatro ultimas (whatsapp/instagram/facebook/social_other) NUNCA
+ * descartam o lead sozinhas — ver src/lib/prospecting/website-classifier.ts.
+ */
+export const prospectWebsiteClassification = pgEnum('prospect_website_classification', [
+  'none',
+  'own_site',
+  'landing_page',
+  'builder_page',
+  'menu',
+  'catalog',
+  'scheduling',
+  'ecommerce',
+  'link_in_bio',
+  'whatsapp',
+  'instagram',
+  'facebook',
+  'social_other',
+  'unknown',
+]);
+
+/** Status que o usuario atribui a um lead salvo em "Meus Leads". */
+export const prospectSavedStatus = pgEnum('prospect_saved_status', [
+  'novo',
+  'contato_realizado',
+  'em_negociacao',
+  'cliente',
+  'sem_interesse',
+]);

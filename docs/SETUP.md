@@ -495,7 +495,34 @@ ele você fica sabendo dos erros pelo cliente reclamando.
 
 ---
 
-## 8. Vercel — publicação
+## 8. Google Places API — prospecção
+
+A área de prospecção (`/prospectar`) usa a **Places API (New)** do Google
+para buscar empresas — a mesma base de dado do Google Maps/Google Business
+Profile. Sem a chave, a busca falha com uma mensagem explícita em vez de
+mostrar qualquer resultado inventado (`requireIntegration('places')`, ver
+`src/lib/env.ts`).
+
+1. [console.cloud.google.com](https://console.cloud.google.com) → crie ou
+   selecione um projeto
+2. **APIs e serviços → Biblioteca** → ative **"Places API (New)"** —
+   é uma API diferente da "Places API" legada, e é a que devolve o campo de
+   site (`websiteUri`) direto na busca por texto, sem uma chamada extra por
+   empresa
+3. **APIs e serviços → Credenciais → Criar credenciais → Chave de API**
+4. Restrinja a chave a **Places API (New)** (Restrições de API) — nunca
+   deixe uma chave de servidor sem restrição
+5. Copie o valor em `GOOGLE_PLACES_API_KEY`
+
+> É uma API paga por uso (com cota gratuita mensal). Cada busca consulta
+> várias páginas de resultado — quanto maior a quantidade de empresas
+> pedida e mais ampla a localização ("Brasil inteiro"), mais chamadas. Ative
+> um orçamento/alerta de gasto no Google Cloud antes de liberar a ferramenta
+> para uso real.
+
+---
+
+## 9. Vercel — publicação
 
 1. [vercel.com](https://vercel.com) → conecte o repositório do GitHub
 2. **Region:** `gru1` (São Paulo) — mesma do banco
@@ -513,7 +540,7 @@ Depois de publicar, volte ao Supabase (§1.4) e troque as URLs de
 
 ---
 
-## 9. Rodar os testes contra os serviços reais
+## 10. Rodar os testes contra os serviços reais
 
 Os testes de integração (`pnpm verify:integracoes`) exercitam o app inteiro
 num Chromium de verdade. Nesta máquina eles falam com um servidor local que
@@ -569,6 +596,7 @@ verdade) ele lista como lembrete, não como aprovado.
 - [ ] SPF, DKIM e DMARC configurados
 - [ ] Upstash configurado (rate limiting real)
 - [ ] Sentry recebendo eventos
+- [ ] Google Places API configurada, com orçamento/alerta de gasto ativo (se for usar a prospecção)
 - [ ] Asaas em produção, com KYC aprovado
 - [ ] **Termos de Uso e Política de Privacidade revisados por advogado**
 - [ ] Backup do banco verificado — testando uma restauração, não só confiando

@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 19/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 12 de 12 + segurança interna · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
+> **Atualizado em:** 21/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 12 de 12 + segurança interna + prospecção de empresas sem site · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Prospecção depende só da credencial Google Places API real** (código e testes prontos)
 
 Estados usados:
 
@@ -12,6 +12,41 @@ Estados usados:
 | ⬜ **NÃO IMPLEMENTADO** | Ainda não existe |
 | 🚧 **BLOQUEADO POR SERVIÇO EXTERNO** | Depende de terceiro |
 | ⚠️ **NÃO SEGURO PARA PRODUÇÃO** | Existe, mas não pode ir ao ar assim |
+
+---
+
+## Prospecção de empresas sem site 🚧 *(código e testes prontos, falta a credencial real)*
+
+Ferramenta separada do marketplace principal — pedido do próprio usuário do
+produto: encontrar, dentro do Google Maps/Google Business Profile, empresas
+que aparentam não ter nenhuma presença digital própria (site, cardápio
+digital, catálogo, agendamento, loja virtual), para servir de lista de
+prospecção de clientes de criação de site. Vive em rotas e tabelas próprias
+(`/prospectar`, `/leads`, `src/db/schema/prospecting.ts`), reaproveitando só
+a autenticação, o banco e o design system do MyPlace — o cabeçalho é outro
+(`ProspectHeader`) de propósito, para não misturar os dois públicos num nav
+só.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Modelo de dados (`prospect_searches`, `prospect_leads`) | ✅ | migração `0012_moaning_mysterio.sql`, aplicada e verificada |
+| Regra "nunca inventar" no schema | ✅ | `CHECK`s no banco: lead válido exige `confidence`, lead descartado não pode ter `confidence`, lead salvo exige status — testado tentando burlar cada um |
+| Classificador de presença digital (`website-classifier.ts`) | ✅ | puro, sem rede — **29 checagens automatizadas reproduzindo exatamente os 5 exemplos do pedido original**, `pnpm tsx scripts/verify-prospecting.ts` (parte de `pnpm verify`) |
+| Regra central: rede social/contato nunca descarta | ✅ testado | WhatsApp, Instagram, Facebook, TikTok, YouTube, Telegram — nenhum deles marca a empresa como "tem site" |
+| Cardápio digital, catálogo, agendamento, loja virtual e construtor de site descartam | ✅ testado | listas de domínio conhecidos (Goomer, iFood, Trinks, Booksy, Nuvemshop, Wix, Google Sites, `business.site`...) + domínio próprio desconhecido (site oficial de verdade) |
+| Casos ambíguos ("link na bio", URL ilegível) | ✅ | não descartam — viram lead com `confidence = verificacao_recomendada`, exatamente como pedido |
+| Busca real via Google Places API (New) | ⚙️ | `src/lib/prospecting/places-client.ts` — chamada real por texto, com paginação; **sem `GOOGLE_PLACES_API_KEY` a busca falha com mensagem explícita** (`IntegrationNotConfiguredError`), nunca mostra resultado inventado |
+| Expansão de busca por estado/região/Brasil inteiro | ✅ | várias consultas por cidade (lista pública de capitais/polos, `locations.ts`) — a Places API não tem como buscar "o Brasil inteiro" numa chamada só |
+| Orçamento de tempo/consultas por busca | ✅ | até 40 consultas × 3 páginas, ou ~50s — o que vier primeiro; existe porque isto roda dentro do tempo de execução de uma Server Action. **Consequência honesta:** buscas muito amplas (Brasil inteiro + milhares de empresas) podem devolver menos do que o pedido, e a tela diz exatamente quantas encontrou, nunca inventa para completar |
+| Filtros (nicho, localização, avaliações mínimas, nota mínima, quantidade) | ✅ | presets + campo "Personalizado" em todos, como pedido |
+| Tela de busca com carregamento em etapas | ✅ | "Analisando empresas... Verificando presença digital... Eliminando empresas com sites... Aplicando filtros... Preparando seus leads..." |
+| Resultados: card por empresa, com o motivo exato do lead | ✅ | nunca mostra campo que a API não devolveu — sempre "Não encontrado" em vez de inventar |
+| "Meus Leads": salvar, status, observações | ✅ | autorização na DAL (`src/lib/prospecting/queries.ts`), mesmo padrão de `favorites` — usuário só vê/edita o próprio lead |
+| Exportação CSV e Excel | ✅ | `src/lib/prospecting/export.ts`, só campos realmente encontrados |
+| Painel (`/prospectar/painel`) | ✅ | empresas analisadas, leads encontrados, descartadas por site/cardápio/catálogo/agendamento, leads salvos, contatadas, clientes conquistados — somado de `prospect_searches`/`prospect_leads` reais, nada mockado |
+| Credencial real (`GOOGLE_PLACES_API_KEY`) | 🔑 | falta você criar a chave — [SETUP.md §8](./SETUP.md#8-google-places-api-prospecção) |
+| Teste com a API do Google de verdade | 🔑 | diferente de Supabase/BrasilAPI/ViaCEP, a rede deste ambiente **alcança** `places.googleapis.com` — confirmado com `curl` de verdade contra o endpoint real: a mesma requisição que `places-client.ts` monta (corpo, `X-Goog-Api-Key`, `X-Goog-FieldMask`) foi enviada sem uma chave válida e a Google respondeu `400 API_KEY_INVALID` — ou seja, o formato da chamada foi validado pelo servidor real do Google, só falta a chave de verdade para ver um resultado. Sem ela não há como testar o parsing da resposta com dado real |
+| Cobrança/plano | ⬜ | não implementado nesta versão, por pedido explícito — mas a estrutura (usuário dono da busca/lead) já suporta adicionar limite por plano sem redesenho |
 
 ---
 

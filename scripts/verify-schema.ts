@@ -424,7 +424,88 @@ async function main() {
         bad('reversao da suspensao', JSON.stringify(depoisDaCorrecao));
       }
     }
+    console.log('\n\x1b[1m10. Prospeccao de empresas sem site\x1b[0m');
+    {
+      await mustReject(
+        'busca com quantidade zero e bloqueada',
+        () => sql`
+          INSERT INTO prospect_searches (user_id, niche, niche_keyword, location_label,
+                                         location_scope, requested_quantity)
+          VALUES (${ownerId}, 'Restaurantes', 'Restaurantes', 'Colatina - ES', 'city', 0)`,
+        'prospect_searches_quantity_positive',
+      );
+
+      await mustReject(
+        'busca com avaliacao minima negativa e bloqueada',
+        () => sql`
+          INSERT INTO prospect_searches (user_id, niche, niche_keyword, location_label,
+                                         location_scope, requested_quantity, min_reviews)
+          VALUES (${ownerId}, 'Restaurantes', 'Restaurantes', 'Colatina - ES', 'city', 10, -1)`,
+        'prospect_searches_min_reviews_non_negative',
+      );
+
+      const [search] = await sql<{ id: string }[]>`
+        INSERT INTO prospect_searches (user_id, niche, niche_keyword, location_label,
+                                       location_scope, requested_quantity)
+        VALUES (${ownerId}, 'Clínicas de estética', 'Clínicas de estética', 'Colatina - ES', 'city', 50)
+        RETURNING id`;
+
+      await mustReject(
+        'nota fora do intervalo 0-5 e bloqueada',
+        () => sql`
+          INSERT INTO prospect_leads (search_id, user_id, google_place_id, name, lead_status, confidence, rating)
+          VALUES (${search.id}, ${ownerId}, ${`place-nota-${tag}`}, 'Empresa X', 'valid', 'sem_presenca', 6.0)`,
+        'prospect_leads_rating_range',
+      );
+
+      await mustReject(
+        'lead valido sem confidence e bloqueado',
+        () => sql`
+          INSERT INTO prospect_leads (search_id, user_id, google_place_id, name, lead_status)
+          VALUES (${search.id}, ${ownerId}, ${`place-conf-${tag}`}, 'Empresa Y', 'valid')`,
+        'prospect_leads_confidence_requires_valid',
+      );
+
+      await mustReject(
+        'lead descartado com confidence preenchida e bloqueado',
+        () => sql`
+          INSERT INTO prospect_leads (search_id, user_id, google_place_id, name, lead_status, confidence)
+          VALUES (${search.id}, ${ownerId}, ${`place-conf2-${tag}`}, 'Empresa Z', 'discarded', 'sem_presenca')`,
+        'prospect_leads_confidence_requires_valid',
+      );
+
+      const [lead] = await sql<{ id: string }[]>`
+        INSERT INTO prospect_leads (search_id, user_id, google_place_id, name, lead_status, confidence, review_count)
+        VALUES (${search.id}, ${ownerId}, ${`place-ok-${tag}`}, 'Clínica Beleza X', 'valid', 'sem_presenca', 42)
+        RETURNING id`;
+      ok('lead valido com confidence aceito');
+
+      await mustReject(
+        'mesma empresa duas vezes na mesma busca e bloqueado',
+        () => sql`
+          INSERT INTO prospect_leads (search_id, user_id, google_place_id, name, lead_status, confidence)
+          VALUES (${search.id}, ${ownerId}, ${`place-ok-${tag}`}, 'Clínica Beleza X (duplicada)', 'valid', 'sem_presenca')`,
+        'prospect_leads_search_place_key',
+      );
+
+      await mustReject(
+        'salvar lead sem status e bloqueado',
+        () => sql`UPDATE prospect_leads SET is_saved = true WHERE id = ${lead.id}`,
+        'prospect_leads_saved_status_requires_saved',
+      );
+
+      await mustAccept('salvar lead com status "novo" e aceito', () =>
+        sql`UPDATE prospect_leads SET is_saved = true, saved_status = 'novo' WHERE id = ${lead.id}`,
+      );
+
+      await mustReject(
+        'remover de salvos sem limpar o status e bloqueado',
+        () => sql`UPDATE prospect_leads SET is_saved = false WHERE id = ${lead.id}`,
+        'prospect_leads_saved_status_requires_saved',
+      );
+    }
   } finally {
+    await sql`DELETE FROM prospect_searches WHERE user_id = ${ownerId}`;
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.
     await sql`ALTER TABLE ledger_entries DISABLE TRIGGER ledger_entries_append_only`;
