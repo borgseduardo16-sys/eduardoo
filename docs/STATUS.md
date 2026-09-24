@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 19/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 12 de 12 + segurança interna · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
+> **Atualizado em:** 24/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 12 de 12 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
 
 Estados usados:
 
@@ -464,6 +464,43 @@ checagens) continua passando.
 Nenhum outro problema visual encontrado nas telas cobertas: home, busca,
 detalhe do anúncio, cadastro, login, proteção, meus espaços, solicitações,
 financeiro, mensagens, reservas, favoritos e o painel administrativo.
+
+---
+
+## Auditoria de segurança adversarial ✅ *(24/09/2026)*
+
+Pedido explícito: simular uma chave de recebimento real e tentar de
+propósito burlar o pagamento, cometer fraude, e acessar dado de outro
+usuário por ataque comum ou avançado. Relatório completo, com o que foi
+tentado e o que foi corrigido, em
+[ARQUITETURA.md §9](./ARQUITETURA.md#9-auditoria-de-segurança-adversarial-24092026).
+
+**Resumo:** nenhuma fraude de pagamento, adulteração de preço ou acesso a
+dado de outro usuário se provou possível nos caminhos testados — testado
+por execução real (Postgres e Chromium reais, suíte de 656 checagens
+rodada do zero, não só lida), não só por leitura de código. Quatro lacunas
+reais foram encontradas e corrigidas:
+
+- Token do webhook do Asaas comparado com `!==` (timing attack) → agora
+  `crypto.timingSafeEqual`.
+- Nenhum cabeçalho de segurança HTTP (CSP, `X-Frame-Options`, HSTS, etc.) →
+  adicionados em `next.config.ts`, validados contra os 184 testes de
+  navegador real.
+- `/api/cep/[cep]` com limitador próprio isolado por instância → passou a
+  usar o limitador compartilhado (Upstash) do resto do app.
+- `supabase/setup.sql` estava **desatualizado, faltando 2 migrações**
+  (inclusive a suspensão automática de conta da Fase 11) — quem seguisse o
+  guia para montar ou atualizar um Supabase real receberia um banco
+  incompleto, silenciosamente. Regenerado e validado contra Postgres limpo.
+
+Um achado ficou **sem correção de código, por decisão consciente**: a
+promessa de que o locatário vê o endereço completo depois que a reserva
+fica ativa nunca foi implementada — `safety.reveal_address_on_status`
+existe no banco mas ninguém lê essa chave. Não é falha de segurança (o
+dado nunca vaza, para ninguém — o efeito é a promessa não ser cumprida, não
+o oposto), mas é uma lacuna de produto que fica para você decidir: construir
+o reveal de verdade, ou ajustar o texto da interface para não prometer o
+que não existe.
 
 ---
 

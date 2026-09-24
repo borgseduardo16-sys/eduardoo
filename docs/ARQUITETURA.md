@@ -108,8 +108,25 @@ Servidor  ──conexão privilegiada──► Postgres ← a DAL é a barreira
 ```
 
 O servidor usa conexão privilegiada e, por definição, ignora RLS. É por isso que
-a autorização **não pode** viver só no RLS — e por isso o RLS existe mesmo assim,
-para o caminho do navegador (necessário para o chat em tempo real).
+a autorização **não pode** viver só no RLS.
+
+**Correção feita na auditoria de segurança de 24/09/2026:** esta seção — e o
+comentário equivalente na migração `drizzle/0001_integridade_indices_e_rls.sql`
+— afirmavam que o chat usa Supabase Realtime do navegador, e que por isso RLS
+seria "a barreira de verdade" para `conversations`/`messages`. Não é o caso
+hoje: o chat (Fase 6) é servido inteiro por Server Actions, com a página
+recarregando os dados a cada envio — nenhum canal de Realtime é aberto em
+lugar nenhum do código (`grep -r ".channel(" src/` não acha nada), e o
+cliente Supabase do navegador (`src/lib/supabase/client.ts`) não é importado
+por ninguém. Quem autoriza de verdade hoje é a DAL, igual ao resto do app.
+As policies de RLS em `conversations`/`messages` continuam corretas e
+testadas — ficam como camada extra, prontas para o dia em que o chat
+realmente passar a falar Realtime direto com o navegador. O comentário
+dentro do arquivo de migração não foi corrigido: mudar o conteúdo do arquivo
+muda o hash que `supabase/setup.sql` usa para saber se aquela migração já
+foi aplicada a um projeto real, e um projeto que já rodou a versão antiga
+tentaria recriar as policies e falharia. Detalhe completo na
+[seção 9](#9-auditoria-de-segurança-adversarial-24092026), abaixo.
 
 ---
 
@@ -225,6 +242,130 @@ Honestidade sobre os buracos conhecidos:
 4. **Split junto com Pix Automático não confirmado** com o Asaas.
 5. **Sem documentos jurídicos.** Termos de Uso e Política de Privacidade
    precisam de advogado, não de mim.
+6. **Endereço completo após reserva ativa: prometido na interface, não
+   implementado.** Achado da auditoria de segurança abaixo — não é falha de
+   segurança (o dado não vaza; simplesmente não aparece nunca), mas é uma
+   promessa que a interface faz e o código não cumpre. Ver seção 9.
+
+---
+
+## 9. Auditoria de segurança adversarial (24/09/2026)
+
+Pedido explícito: simular uma chave de recebimento de verdade e tentar, de
+propósito, burlar o sistema de pagamento, cometer fraude, e ver dado de outro
+usuário por ataque comum ou avançado. Abaixo, o que foi feito e o que foi
+encontrado — sem suavizar.
+
+### Método
+
+Não foi só ler código. Para cada suspeita, o teste era: **dá pra provar que
+funciona, ou só parece que funciona?**
+
+- Releitura adversarial de todo caminho que toca dinheiro ou decide quem pode
+  o quê: `src/lib/payments/`, `src/lib/bookings/actions.ts`,
+  `src/lib/messaging/`, `src/lib/storage/actions.ts`, `src/lib/spaces/`,
+  `src/lib/auth/dal.ts`, `src/proxy.ts`.
+- A suíte adversarial que já existia (656 checagens, muitas já escritas como
+  tentativa de ataque — "token forjado", "reentrega do mesmo evento",
+  "B tentando abrir o anúncio de A") foi **rodada de novo, do zero**, contra
+  Postgres e Chromium reais, antes e depois de cada mudança.
+- O `supabase/setup.sql` regenerado foi aplicado de verdade contra um
+  Postgres limpo (`myplace_setupsql_check`) e também simulando uma
+  atualização em cima de uma versão antiga já aplicada — não só lido.
+- O CSP novo (abaixo) foi validado rodando os 184 testes de navegador real
+  até zerar os erros no console — a primeira versão travou o mapa, e só a
+  execução real (não a leitura do código) pegou isso.
+
+### O que foi corrigido
+
+| Achado | Risco real | Correção |
+|--------|-----------|----------|
+| Token do webhook do Asaas comparado com `!==` | Timing attack: um atacante medindo a latência da resposta poderia, byte a byte, descobrir o token e forjar notificações de pagamento | `crypto.timingSafeEqual`, em `src/app/api/webhooks/asaas/route.ts` |
+| Nenhum cabeçalho de segurança HTTP | Sem `frame-ancestors`/`X-Frame-Options`, o site pode ser carregado num `<iframe>` invisível de outro domínio — base de clickjacking contra a tela de confirmar pagamento | CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`, HSTS — `next.config.ts` |
+| `/api/cep/[cep]` com limitador próprio, em memória, isolado por instância | Em produção com mais de uma instância, o limite real vira (limite × nº de instâncias) — a mesma lacuna que a Fase 12 já tinha corrigido no resto do app, esquecida aqui | Passou a usar `src/lib/rate-limit.ts` (Upstash quando configurado) |
+| `supabase/setup.sql` desatualizado — faltavam as migrações 10 e 11 | Quem seguisse o guia para montar um Supabase do zero (ou atualizar um já existente) ficaria **sem a suspensão automática de conta** (Fase 11) e sem a migração 10, do jeito mais silencioso possível — sem erro nenhum | Regenerado com `pnpm db:supabase-sql`; validado num Postgres limpo e também simulando a atualização de um banco já provisionado com a versão antiga |
+
+Commits: `Auditoria de segurança: cabeçalhos HTTP, token do webhook em tempo
+constante, limitador de CEP compartilhado` e `Auditoria de segurança:
+supabase/setup.sql estava desatualizado`.
+
+### O que foi tentado e não passou
+
+Confirmado por execução real, não só leitura — a suíte já cobria a maior
+parte disso, e foi rodada de novo para confirmar:
+
+- **Preço adulterado pelo navegador.** O checkout (`startCheckoutAction`)
+  ignora qualquer valor vindo do formulário e recalcula a partir de
+  `booking.totalChargedCents`, gravado no aceite da reserva. Não existe
+  campo de valor no formulário de checkout para adulterar.
+- **Webhook forjado.** Token errado ou ausente → 401, nenhum evento gravado
+  (testado pela rota HTTP de verdade, não só pela função interna).
+- **Reentrega do mesmo evento de pagamento.** Reconhecida como duplicata,
+  não reprocessa, não duplica notificação nem lançamento no razão —
+  idempotência por `(provider, providerEventId)` único, dentro da mesma
+  transação que aplica o efeito.
+- **Valor informado pelo gateway no `RECEIVED` não afeta quanto o
+  proprietário recebe.** O valor bruto/líquido que o Asaas reporta no
+  webhook só alimenta a contabilidade interna da tarifa do gateway
+  (`gatewayFeeCents`, `platformNetCents`); o valor do repasse
+  (`payouts.amountCents`) vem de `booking.ownerPayoutCents`, travado desde o
+  aceite da reserva — o webhook não tem como inflar nem meu.
+- **Ver/mexer em foto, reserva, mensagem ou conta de recebimento de outra
+  pessoa.** Testado com dois usuários reais (A e B) tentando enviar, apagar
+  e reordenar foto do anúncio um do outro; abrir reserva alheia; ler
+  conversa da qual não participa. Tudo recusado no servidor, com o recurso
+  do dono intacto depois da tentativa. Página de edição de anúncio alheio
+  devolve 404, não 403 — para nem confirmar que o anúncio existe.
+- **Ação de administrador por usuário comum ou suspenso.** 404 ao abrir
+  `/admin`; a própria Server Action recusa de novo, mesmo chamada direto.
+- **Upload malicioso.** Arquivo que não é imagem de verdade (extensão `.jpg`
+  mentindo sobre o conteúdo) e arquivo acima do limite de tamanho — ambos
+  recusados antes de tocar o Storage.
+- **Injeção SQL.** Toda consulta com entrada do usuário passa pelo
+  `sql\`...${valor}...\`` do Drizzle (parametrizado de verdade, mesmo quando
+  o valor é concatenado em JS antes, como em buscas `ILIKE`). Única
+  ocorrência de `sql.raw()` no projeto inteiro usa um literal fixo, não
+  entrada de usuário.
+- **XSS.** Zero ocorrências de `dangerouslySetInnerHTML` no código.
+
+### Achado sem correção de código — promessa não cumprida
+
+`safety.reveal_address_on_status` existe em `platform_settings` e a
+interface promete, em mais de um lugar, que rua/número/complemento do
+espaço aparecem para o locatário depois que a reserva fica ativa. **Isso
+nunca foi implementado.** Busquei em todo `src/` por quem lê essa chave —
+ninguém lê. O único lugar que seleciona `street`/`number`/`complement` é
+`getOwnedSpace`, usado só pelo próprio dono editando o anúncio.
+
+Não é uma falha de segurança — o efeito é o oposto de vazar dado: o
+locatário nunca vê o endereço completo, nem depois de a reserva ficar
+ativa, mesmo tendo pagado. É uma lacuna de produto: a interface promete algo
+que o código não entrega. Decisão de como resolver (implementar o reveal de
+verdade, ou ajustar o texto para não prometer) fica para você — está fora do
+escopo de "consertar o que é inseguro".
+
+### Achado sem correção de arquivo — risco de operação, não de segurança
+
+A seção 3 acima (e o comentário em `drizzle/0001_integridade_indices_e_rls.sql`)
+afirmavam que o chat usa Supabase Realtime do navegador. Não usa — é servido
+inteiro pelo servidor. Corrigido no texto desta doc; **não corrigido dentro
+do arquivo de migração**, porque isso mudaria o hash que controla se aquela
+migração já foi aplicada a um Supabase real, arriscando uma reaplicação que
+tentaria recriar policies já existentes. Ficou como nota nesta doc.
+
+### Veredito
+
+Nenhuma fraude de pagamento, adulteração de preço, ou acesso a dado de outro
+usuário foi possível nos caminhos testados — a arquitetura já descrita nas
+seções 3 e 5 (preço sempre calculado no servidor, autorização sempre
+re-verificada na DAL a partir da sessão, nunca confiando em id que o
+navegador manda) se provou sólida sob tentativa ativa, não só na leitura.
+As quatro correções acima eram lacunas reais, agora fechadas. A rota de
+esforço mínimo que sobra para um atacante de verdade continua sendo fora do
+app: phishing, engenharia social, ou um golpe combinado por fora da
+plataforma — exatamente o que a seção 7 (Segurança entre usuários) já existe
+para mitigar, e é por isso que ela é tratada como parte da segurança, não só
+como recurso de produto.
 
 Rode `pnpm check:producao` para um relatório automático do que falta
 configurar antes do primeiro usuário real — cobre o que dá para checar por
