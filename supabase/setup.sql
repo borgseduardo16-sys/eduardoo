@@ -13,7 +13,7 @@
 -- Ao terminar, a saida mostra quantas migracoes foram aplicadas agora e
 -- quantas ja estavam no banco.
 --
--- Gerado por scripts/build-supabase-setup.ts a partir de 13 migracoes
+-- Gerado por scripts/build-supabase-setup.ts a partir de 14 migracoes
 -- testadas contra um Postgres real. Nao edite a mao: altere src/db/schema/,
 -- gere a migracao e rode este script de novo.
 -- ============================================================================
@@ -2271,6 +2271,27 @@ END
 $mp_bloco_12$;
 
 
+-- ----------------------------------------------------------------------------
+-- Migracao 13: 0013_old_expediter  (1 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_13$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '2935589abe7547b5e359929cfcad2f90eb457af62e6e1a750120dc726513aad3'
+  ) THEN
+    RAISE NOTICE 'Migracao 13 (0013_old_expediter) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_13_0$ALTER TABLE "favorites" ADD COLUMN "price_cents_at_favorite" integer;$mp_13_0$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('2935589abe7547b5e359929cfcad2f90eb457af62e6e1a750120dc726513aad3', 1790258624811);
+
+    RAISE NOTICE 'Migracao 13 (0013_old_expediter) aplicada.';
+  END IF;
+END
+$mp_bloco_13$;
+
+
 -- ============================================================================
 -- Resumo
 -- ============================================================================
@@ -2279,7 +2300,7 @@ DECLARE aplicadas integer;
 BEGIN
   SELECT count(*) INTO aplicadas FROM drizzle.__drizzle_migrations;
   RAISE NOTICE '---';
-  RAISE NOTICE 'Pronto: % de 13 migracoes registradas no banco.', aplicadas;
+  RAISE NOTICE 'Pronto: % de 14 migracoes registradas no banco.', aplicadas;
 END
 $mp_resumo$;
 

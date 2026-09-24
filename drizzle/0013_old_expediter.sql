@@ -1,0 +1,1 @@
+ALTER TABLE "favorites" ADD COLUMN "price_cents_at_favorite" integer;

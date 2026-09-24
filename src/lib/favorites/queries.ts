@@ -44,6 +44,9 @@ export type FavoriteSpace = {
   approxLng: number | null;
   coverPath: string | null;
   favoritedAt: Date;
+  /** Preco no momento em que a pessoa favoritou. Null = favorito antigo, sem historico. */
+  priceCentsAtFavorite: number | null;
+  promotionType: 'destaque' | 'turbo' | null;
 };
 
 /**
@@ -69,10 +72,16 @@ export async function listUserFavoriteSpaces(userId: string): Promise<FavoriteSp
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
       favoritedAt: favorites.createdAt,
+      priceCentsAtFavorite: favorites.priceCentsAtFavorite,
       // `spaces.id` literal de proposito — ver a nota em spaces/queries.ts.
       coverPath: sql<string | null>`(
         SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
         WHERE si.space_id = spaces.id ORDER BY si.position ASC LIMIT 1
+      )`,
+      promotionType: sql<'destaque' | 'turbo' | null>`(
+        SELECT p.type::text FROM promotions p
+        WHERE p.space_id = spaces.id AND p.status = 'active'
+        LIMIT 1
       )`,
     })
     .from(favorites)

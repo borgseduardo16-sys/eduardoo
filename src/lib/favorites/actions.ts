@@ -37,7 +37,7 @@ export async function toggleFavoriteAction(formData: FormData): Promise<Favorite
   // Precisa existir e nao ter sido apagado — favoritar um id inventado nao
   // pode criar uma linha orfa na tabela.
   const [space] = await db
-    .select({ id: spaces.id, deletedAt: spaces.deletedAt })
+    .select({ id: spaces.id, deletedAt: spaces.deletedAt, priceMonthlyCents: spaces.priceMonthlyCents })
     .from(spaces)
     .where(eq(spaces.id, spaceId))
     .limit(1);
@@ -58,7 +58,10 @@ export async function toggleFavoriteAction(formData: FormData): Promise<Favorite
     return { ok: true, favorited: false };
   }
 
-  await db.insert(favorites).values({ userId: user.id, spaceId }).onConflictDoNothing();
+  await db
+    .insert(favorites)
+    .values({ userId: user.id, spaceId, priceCentsAtFavorite: space.priceMonthlyCents })
+    .onConflictDoNothing();
   revalidatePath('/favoritos');
   revalidatePath('/espacos');
   return { ok: true, favorited: true };

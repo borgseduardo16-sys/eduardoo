@@ -38,7 +38,11 @@ export async function generateMetadata({
   const space = await getPublicSpaceBySlug(slug);
   if (!space) return { title: 'Espaço não encontrado' };
 
-  const descricao = space.description?.slice(0, 160) ?? undefined;
+  const local = [space.district, space.city].filter(Boolean).join(', ');
+  const descricaoBase = space.description?.slice(0, 160)?.trim();
+  // A localizacao aproximada entra na descricao do compartilhamento (alem de
+  // ja aparecer, visualmente, na imagem gerada abaixo) — pedido explicito.
+  const descricao = [descricaoBase, local ? `${local}.` : null].filter(Boolean).join(' — ') || undefined;
   const url = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
 
   return {

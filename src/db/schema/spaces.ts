@@ -215,6 +215,14 @@ export const favorites = pgTable(
     spaceId: uuid('space_id')
       .notNull()
       .references(() => spaces.id, { onDelete: 'cascade' }),
+    /**
+     * Preco no momento em que a pessoa favoritou. NULL nos favoritos
+     * gravados antes desta coluna existir — sem historico real, nao da
+     * para inventar um "mudou de X para Y" sobre eles. Serve hoje para
+     * mostrar "o preco mudou" na propria pagina de favoritos, e fica
+     * pronta para uma notificacao de verdade no futuro, sem migracao nova.
+     */
+    priceCentsAtFavorite: integer('price_cents_at_favorite'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
