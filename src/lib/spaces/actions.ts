@@ -456,6 +456,12 @@ export async function publishSpaceAction(
     };
   }
 
+  // Guardado ANTES do update: depois dele `space.publishedAt` já não reflete
+  // mais o estado anterior — é o que decide se esta é a primeira publicação
+  // (mostra "Turbine seu anúncio") ou uma edição salva num anúncio que já
+  // estava no ar (vai direto pra confirmação, sem repetir a oferta).
+  const primeiraPublicacao = !space.publishedAt;
+
   try {
     await db
       .update(spaces)
@@ -489,7 +495,7 @@ export async function publishSpaceAction(
   revalidatePath('/meus-espacos');
   revalidatePath(`/espacos/${space.slug}`);
 
-  redirect(`/anunciar/${spaceId}/publicado`);
+  redirect(primeiraPublicacao ? `/anunciar/${spaceId}/promover` : `/anunciar/${spaceId}/publicado`);
 }
 
 // ---------------------------------------------------------------------------
