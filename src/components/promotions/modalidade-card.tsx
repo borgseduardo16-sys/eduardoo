@@ -29,7 +29,10 @@ export function ModalidadeCard({
   const gratisDisponivel = beneficio !== null && beneficio.remaining > 0;
 
   return (
-    <div className="rounded-[var(--radius-field)] border border-[var(--border-strong)] p-3 space-y-2.5">
+    <div
+      data-testid={`modalidade-${tipo}`}
+      className="rounded-[var(--radius-field)] border border-[var(--border-strong)] p-3 space-y-2.5"
+    >
       <div className="flex items-start gap-2.5">
         <Icone className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
         <div className="min-w-0 flex-1">

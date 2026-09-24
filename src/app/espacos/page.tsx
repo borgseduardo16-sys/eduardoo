@@ -120,9 +120,9 @@ export default async function EspacosPage({
     availableNow: disponivelAgora,
     featureKeys,
   };
-  const mostrarRecomendados = !buscaBloqueadaPorCep && hasSearchContext(contextoCompatibilidade);
+  const buscarRecomendados = !buscaBloqueadaPorCep && hasSearchContext(contextoCompatibilidade);
 
-  const [itens, caracteristicasDisponiveis, recomendados] = buscaBloqueadaPorCep
+  const [itens, caracteristicasDisponiveis, recomendadosBrutos] = buscaBloqueadaPorCep
     ? [[], [], []]
     : await Promise.all([
         listPublishedSpaces({
@@ -135,13 +135,23 @@ export default async function EspacosPage({
           offset: (pagina - 1) * POR_PAGINA,
         }),
         tipo ? listFeaturesForType(tipo) : listAllActiveFeatures(),
-        mostrarRecomendados
+        buscarRecomendados
           ? listPublishedSpaces({ ...contextoCompatibilidade, relaxTypeAndFeatures: true, sort: 'compatibility', limit: 6 })
           : Promise.resolve([]),
       ]);
 
   const temProximaPagina = itens.length > POR_PAGINA;
   const resultados = itens.slice(0, POR_PAGINA);
+
+  /*
+   * So mostra a secao quando ela acrescenta algo que a lista principal
+   * (nesta pagina) ainda nao mostra — sem isso, uma busca ja bem estreita
+   * (poucos resultados, todos tambem os mais compativeis) duplicaria o
+   * MESMO card nas duas secoes ao mesmo tempo, o que e ruido, nao recomendacao.
+   */
+  const idsResultados = new Set(resultados.map((r) => r.id));
+  const recomendados = recomendadosBrutos.filter((r) => !idsResultados.has(r.id));
+  const mostrarRecomendados = buscarRecomendados && recomendados.length > 0;
 
   const [urls, favoritosIds] = await Promise.all([
     signImagePaths(
@@ -211,7 +221,7 @@ export default async function EspacosPage({
           com menos caracteristicas compativeis nao fica na frente de um
           gratuito com mais, nesta secao.
         */}
-        {mostrarRecomendados && recomendados.length > 0 && (
+        {mostrarRecomendados && (
           <section className="space-y-3" data-testid="secao-recomendados">
             <div className="space-y-0.5">
               <h2 className="text-[1.0625rem] font-semibold">Recomendados para você</h2>

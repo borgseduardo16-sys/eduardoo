@@ -110,7 +110,14 @@ const accountColumns = {
   isPremium: sql<boolean>`${premiumMemberships.status} = 'active'`,
 };
 
-/** Busca contas por nome (painel de usuários) — sem e-mail, que mora em auth.users. */
+/**
+ * Busca contas por nome (painel de usuários) — sem e-mail, que mora em auth.users.
+ *
+ * Mais recente primeiro: sem isso, um nome comum com mais de `limit` contas
+ * cadastradas devolve uma ordem arbitrária do Postgres (na prática, a ordem
+ * de armazenamento) — a conta que o moderador provavelmente quer (a mais
+ * nova) podia nem aparecer, sem nenhum aviso de que o resultado foi cortado.
+ */
 export async function searchAccounts(query: string, limit = 20): Promise<AdminAccountRow[]> {
   const termo = query.trim();
   if (!termo) return [];
@@ -119,6 +126,7 @@ export async function searchAccounts(query: string, limit = 20): Promise<AdminAc
     .from(profiles)
     .leftJoin(premiumMemberships, eq(premiumMemberships.userId, profiles.id))
     .where(sql`${profiles.fullName} ILIKE ${'%' + termo + '%'}`)
+    .orderBy(desc(profiles.createdAt))
     .limit(limit);
 }
 

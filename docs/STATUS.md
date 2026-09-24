@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 24/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 13 de 13 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13 (Destaques/Turbo/Premium) funciona de ponta a ponta; a assinatura paga do Premium ainda não existe — hoje é concedida manualmente pelo admin, como mecanismo interino**
+> **Atualizado em:** 24/09/2026 · **Fases concluídas:** 1 a 6, 9 a 14 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino**
 
 Estados usados:
 
@@ -643,6 +643,131 @@ cada execução — corrigido.
 - Auditoria sistemática de todos os estados de interface (§18: pausado,
   esgotado, etc. em toda tela) não foi feita como checklist formal — os
   estados relevantes às telas novas foram tratados e testados.
+
+---
+
+## Fase 14 — Compra avulsa de Destaque/Turbo, elegibilidade e área de gerenciamento ✅ *(24/09/2026)*
+
+Continuação direta da Fase 13. O pedido original usava o nome "Premora" —
+**ignorado por instrução explícita do próprio usuário**, é sobre o mesmo
+MyPlace. Confirmado também por pergunta direta antes de implementar: o
+benefício mensal grátis do Premium (Fase 13) e a compra avulsa **coexistem**
+— ser Premium não desconta do preço fixo nem impede comprar, e comprar não
+consome o benefício grátis do mês.
+
+### Compra avulsa — preço fixo, cobrança real no Asaas
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Preços | ✅ | **exatamente os valores pedidos**, sem arredondar nem inventar — Destaque: 1 dia R$12,90, 3 dias R$19,90, 5 dias R$24,90; Turbo: 1h R$9,90, 5h R$15,90, 12h R$19,90, 24h R$27,90. Vivem em `src/lib/promotions/purchase-pricing.ts` como catálogo fixo (não em `platform_settings`, diferente da Fase 13 — o usuário disse que estes são valores decididos, não placeholder) |
+| Preço nunca vem do navegador | ✅ | a action recebe só `(tipo, duração)`; o preço é sempre a busca exata contra o catálogo fixo, nunca um número recebido do formulário |
+| Cobrança real no Asaas | ✅ | `POST /v3/payments` (cobrança única, sem split — 100% da plataforma), reaproveitando o mesmo cliente Asaas usado para reserva quando já existe |
+| Tabela `promotion_purchases` | ✅ | própria (não é `payments`, que tem `booking_id NOT NULL` e regras de payout que não se aplicam aqui) — registra tipo, duração, preço, status do pagamento, e só ganha `promotion_id` quando o webhook confirma |
+| Webhook — confirmação cria a promoção | ✅ | `PAYMENT_CONFIRMED`/`RECEIVED` criam a linha em `promotions` (`source: 'purchase'`) só agora, nunca no momento da compra; `OVERDUE`/`REPROVED_BY_RISK_ANALYSIS`/`REFUNDED`/`DELETED` tratados |
+| Concorrência: duas compras pendentes pro mesmo espaço | ✅ | **testado de verdade** — se a primeira confirmação já ativou a promoção, a segunda confirmação **não perde o dinheiro nem quebra o webhook** (fica `confirmed` com `promotion_id` nulo e motivo registrado, sinalizado para reembolso manual) |
+| Compra exige anúncio publicado | ✅ | rascunho recusado antes de qualquer cobrança |
+
+**Um bug real de concorrência encontrado e corrigido durante o próprio
+teste que escrevi para essa parte**: a segunda confirmação de webhook, ao
+tentar criar uma promoção que colidia com a já ativa, fazia o `INSERT`
+falhar — e como o `catch` tentava gravar a recuperação **na mesma
+transação já abortada pelo Postgres**, a gravação de recuperação também
+falhava (`current transaction is aborted`). Corrigido isolando o `INSERT`
+arriscado numa transação aninhada (`tx.transaction()`, um SAVEPOINT de
+verdade via Drizzle) — se ela falhar, só aquele savepoint desfaz, a
+transação externa continua utilizável para gravar o estado correto.
+
+### Elegibilidade — Destaque/Turbo não furam a relevância de uma busca real
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Regra pedida | ✅ | Destaque só entra na ordenação com **4+ características compatíveis**; Turbo precisa da **mesma cidade + 2+ características** |
+| Sem busca ativa | ✅ | navegação livre (sem filtro nenhum) não tem o que medir — a promoção vale sem porta nenhuma, comportamento de antes preservado |
+| Testado com os dois lados da fronteira | ✅ | um Destaque com 3 características **não** fura a ordem por recência (perde pro anúncio mais novo); com 4, fura — mesmo par de anúncios, só muda o filtro de busca |
+
+**Substituição de domínio, decisão minha, não pedida**: o exemplo do pedido
+original lista características residenciais (quartos, vagas de garagem,
+casa/apartamento, estado de conservação) que **não existem neste
+marketplace** — aqui os espaços são garagem, depósito, galpão, sala, não
+imóvel residencial. Substituí por dimensões reais do schema: tipo, cidade,
+bairro, faixa de preço, disponibilidade imediata e características
+(`space_features`) — cada uma soma 1 ponto só quando a busca **especificou**
+aquele critério e o espaço bate com ele.
+
+**Limite aceito, não resolvido**: a regra "mesma cidade" do Turbo só é
+verificada quando a busca tem uma cidade resolvida como filtro de fato
+(`cityFilter`) — uma busca só por GPS/raio (sem cidade) não passa por essa
+checagem específica. Documentado no código, não escondido.
+
+### "Recomendados para você" — nova seção em `/espacos`
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Seção separada, ordenada só por compatibilidade | ✅ | ignora Destaque/Turbo de propósito — o selo pode aparecer no card, mas não decide a posição **nesta seção** |
+| Exemplo do pedido garantido pela query, não por sorte | ✅ | um anúncio com mais características compatíveis aparece antes de um menos compatível, mesmo que o segundo tenha comprado Destaque ou Turbo |
+| Não duplica a lista principal | ✅ *(corrigido nesta etapa)* | ver bug #1 abaixo |
+
+### Etapa opcional "Turbine seu anúncio" antes de publicar
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Nova etapa em `/anunciar/[id]/promover` | ✅ | aparece **uma única vez**, logo após a primeira publicação — salvar uma edição depois (anúncio já publicado) vai direto para a confirmação, sem repetir a oferta |
+| Texto pedido | ✅ | "Aumente suas chances de encontrar um interessado, destaque seu imóvel e dê mais visibilidade ao anúncio na MyPlace." |
+| Destaque e Turbo lado a lado, com "Não quero promover" | ✅ | reaproveita os mesmos componentes do dialog "Destacar" (benefício grátis quando sobra, ou compra avulsa) — publicar continua incondicional, `publishSpaceAction` não mudou nenhuma validação, só o destino do redirect |
+
+### Área de gerenciamento — `/meus-espacos/promocoes`
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Nova aba "Promoções" no painel do proprietário | ✅ | ativas agora (com tempo restante), e histórico completo |
+| Cada linha mostra | ✅ | modalidade, período contratado, valor pago (ou "Grátis" pro benefício Premium), início e término com data **e hora**, origem (benefício ou compra avulsa) e status |
+| Atualiza sozinha quando o período termina | ✅ | mesma varredura preguiçosa de sempre, sem worker novo |
+
+### Três bugs reais encontrados no navegador de verdade (Chromium, não hipotéticos)
+
+Igual à Fase 13, o app nunca tinha sido visitado por um navegador de
+verdade nesta superfície nova antes deste teste (TESTE P) — os três abaixo
+só apareceram porque o teste realmente clicou, esperou e conferiu o
+resultado.
+
+1. **"Recomendados para você" duplicava o único resultado de uma busca já
+   estreita** — com poucos filtros (ex.: preço máximo), a seção mostrava o
+   **mesmo card** que já aparecia na lista principal, uma segunda vez, sem
+   acrescentar nada. Corrigido comparando os ids: a seção só aparece quando
+   traz um anúncio que a lista principal (nesta página) ainda não mostra.
+2. **A confirmação "Promoção ativada" nunca aparecia ao usar o benefício
+   grátis na própria etapa `/promover`** — a página redirecionava sozinha
+   para a confirmação de publicação **antes** da pessoa ver que a promoção
+   tinha sido ativada. Causa: um `redirect()` no Server Component da página
+   checava "já existe uma promoção vigente?" para cobrir quem reentra na
+   URL manualmente — mas a própria ativação feita ali reatualiza a árvore de
+   Server Components ao terminar, disparando esse mesmo `redirect()` como
+   efeito colateral da própria ação. Corrigido: a página não redireciona
+   mais sozinha; passa o estado para o componente cliente, que decide o que
+   mostrar (a confirmação da própria ação sempre vem primeiro).
+3. **Busca por nome no admin (`/admin/usuarios`) podia não encontrar uma
+   conta recente** — a consulta usa `LIMIT 20` sem nenhum `ORDER BY`; com
+   20+ contas cujo nome bate com o termo buscado (o que aconteceu de
+   verdade neste ambiente de teste, por sobra de execuções anteriores), a
+   ordem devolvida pelo Postgres é arbitrária, e uma conta específica podia
+   nem aparecer, sem nenhum aviso de que o resultado foi cortado. Não é uma
+   regressão desta fase — o bug já existia, só nunca tinha sido alcançado
+   por um teste real antes. Corrigido com `ORDER BY created_at DESC`
+   (a conta mais recente sempre aparece primeiro).
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Banco (`scripts/verify-promotions.ts`) | ✅ | +39 checagens novas (compra avulsa, concorrência, elegibilidade, histórico com valor pago) — 79 no total do arquivo (**559 no total em `pnpm verify`**, era 520) |
+| Navegador (TESTE P, novo) | ✅ | 19 checagens em Chromium real — publicar pela tela de verdade indo para "Turbine seu anúncio", pular a oferta, salvar edição não repete a etapa, benefício grátis ativado na própria etapa, compra avulsa com pagamento e webhook **reais** (rota HTTP, não só a função em processo), área de gerenciamento mostrando o valor pago de verdade (**224 no total em `pnpm verify:integracoes`**, era 205) |
+
+### O que ficou fora desta etapa, por pedido explícito
+
+- Assinatura mensal paga do Premium em si — o usuário disse explicitamente
+  que isso "vamos resolver depois". O que já existe (benefício grátis via
+  concessão manual do admin) continua funcionando exatamente como na Fase 13.
+- Preços diferentes dos definidos nesta etapa — não foi feito, por pedido.
 
 ---
 

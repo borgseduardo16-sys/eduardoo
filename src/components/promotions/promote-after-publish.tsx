@@ -23,6 +23,7 @@ import { buttonVariants } from '@/components/ui/button';
 export function PromoteAfterPublish({
   spaceId,
   publishedHref,
+  activePromotion,
   premium,
   destaqueBenefit,
   turboBenefit,
@@ -30,6 +31,12 @@ export function PromoteAfterPublish({
 }: {
   spaceId: string;
   publishedHref: string;
+  /**
+   * Promoção já vigente no momento em que a página carregou (ex.: uma compra
+   * confirmada enquanto a pessoa ainda estava aqui, ou reentrando na URL
+   * depois). null = nenhuma — mostra o formulário de escolha normalmente.
+   */
+  activePromotion: { type: PromotionType } | null;
   premium: boolean;
   destaqueBenefit: BenefitInfo;
   turboBenefit: BenefitInfo;
@@ -41,10 +48,30 @@ export function PromoteAfterPublish({
     activatePromotionAction, undefined,
   );
 
+  /*
+   * A propria ativacao gratis DESTA pagina vem primeiro: ela tambem torna
+   * `activePromotion` vigente (a acao atualiza a arvore de Server Components
+   * ao resolver), entao checar `activePromotion` antes faria a confirmacao
+   * "Promoção ativada" nunca aparecer — pularia direto pro aviso de baixo.
+   */
   if (ativarState?.ok) {
     return (
       <div className="space-y-5">
         <Alert tone="success" title="Promoção ativada">{ativarState.message}</Alert>
+        <Link href={publishedHref} className={buttonVariants({ size: 'lg', block: true })}>
+          Continuar
+        </Link>
+      </div>
+    );
+  }
+
+  if (activePromotion) {
+    return (
+      <div className="space-y-5">
+        <Alert tone="info" title="Este anúncio já está promovido">
+          {activePromotion.type === 'turbo' ? 'Turbo' : 'Destaque'} já está ativo — não é possível
+          escolher outra modalidade agora.
+        </Alert>
         <Link href={publishedHref} className={buttonVariants({ size: 'lg', block: true })}>
           Continuar
         </Link>

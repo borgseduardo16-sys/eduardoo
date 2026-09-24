@@ -251,7 +251,7 @@ async function main() {
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNO').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNOP').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -267,6 +267,7 @@ async function main() {
   if (quais.includes('M')) await testeMChat();
   if (quais.includes('N')) await testeNAdmin();
   if (quais.includes('O')) await testeOPromocoes();
+  if (quais.includes('P')) await testePFase14();
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -333,6 +334,34 @@ async function publicarDireto(
   }
   await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, ${feature})`;
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
+  return id;
+}
+
+/**
+ * Rascunho com TODOS os campos que `publishSpaceAction` exige (mesmo
+ * conjunto de `criar()`, em `seed()`), mas ainda `draft` — para o TESTE P
+ * clicar em "Publicar espaço" DE VERDADE pela tela e ver o redirecionamento
+ * real, em vez de nascer ja publicado como `publicarDireto`. O proprio
+ * formulario de 8 etapas ja e testado no TESTE A e nos testes de servidor;
+ * aqui so importa chegar em /revisao com algo publicavel.
+ */
+async function criarRascunhoPromovivel(ownerId: string, slug: string, titulo: string) {
+  const [row] = await sql<{ id: string }[]>`
+    INSERT INTO spaces
+      (owner_id, slug, type, title, description, street, number, district, city, state,
+       postal_code, available_from, price_monthly_cents, size_m2, draft_step, location)
+    VALUES
+      (${ownerId}, ${slug}, 'garagem', ${titulo},
+       'Descricao com mais de vinte caracteres para passar na regra do banco.',
+       'Avenida Getulio Vargas', '100', 'Centro', 'Colatina', 'ES', '29700-000',
+       CURRENT_DATE, 30000, 18.5, 8,
+       ST_SetSRID(ST_MakePoint(${ISOLADO_PROMO.lng}, ${ISOLADO_PROMO.lat}), 4326))
+    RETURNING id`;
+  const id = row!.id;
+  for (const n of [0, 1, 2]) {
+    await sql`INSERT INTO space_images (space_id, storage_path, position)
+      VALUES (${id}, ${`${ownerId}/${id}/f${n}.jpg`}, ${n})`;
+  }
   return id;
 }
 
@@ -2057,11 +2086,11 @@ async function testeOPromocoes() {
   const dialogPromo = pageDonoPromo.locator('dialog[open]');
   await dialogPromo.getByText('Escolha como promover').waitFor({ timeout: 10_000 });
   ok('dialog de destacar abre, com as duas opcoes');
-  await dialogPromo.getByText('2 de 2 disponíveis').waitFor({ timeout: 5_000 });
+  const cardDestaqueDialog = dialogPromo.getByTestId('modalidade-destaque');
+  await cardDestaqueDialog.getByText('Usar grátis (2 de 2)').waitFor({ timeout: 5_000 });
   ok('mostra o saldo real do mes (2 de 2 Destaques) — nada de saldo inventado');
 
-  await dialogPromo.getByRole('radio').first().check();
-  await dialogPromo.getByRole('button', { name: 'Ativar Destaque' }).click();
+  await cardDestaqueDialog.getByRole('button', { name: 'Usar grátis (2 de 2)' }).click();
   await dialogPromo.getByText('Destaque ativado com sucesso.').waitFor({ timeout: 20_000 });
   ok('ativa Destaque pela interface e mostra a confirmacao real');
 
@@ -2094,7 +2123,16 @@ async function testeOPromocoes() {
   // 3. Busca (/espacos): o mesmo selo aparece no resultado
   // =========================================================================
   await pageDonoPromo.goto(`${baseUrl}/espacos?onde=Colatina`, { waitUntil: 'domcontentloaded' });
-  const cardNaBusca = pageDonoPromo.locator('[data-testid="resultado-card"]', { hasText: 'Sala para teste de Destaque' });
+  /*
+   * Escopado na lista PRINCIPAL de resultados (`lista-resultados`), nao em
+   * QUALQUER `resultado-card` da pagina — desde a Fase 14.4, o mesmo anuncio
+   * pode aparecer TAMBEM na secao "Recomendados para você" (`secao-recomendados`),
+   * que reusa o mesmo componente de card. Sem esse escopo, o seletor bate em
+   * dois elementos e quebra em modo estrito.
+   */
+  const cardNaBusca = pageDonoPromo
+    .getByTestId('lista-resultados')
+    .locator('[data-testid="resultado-card"]', { hasText: 'Sala para teste de Destaque' });
   await cardNaBusca.waitFor({ timeout: 20_000 });
   const textoBadgeBusca = await cardNaBusca.getByTestId('resultado-promocao').innerText();
   assert('o resultado da busca tambem mostra o selo de Destaque', textoBadgeBusca.includes('Destaque'), textoBadgeBusca);
@@ -2194,6 +2232,168 @@ async function testeOPromocoes() {
   await cardOutroAdmin.getByText('Premium revogado.').waitFor({ timeout: 20_000 });
   ok('admin revoga Premium pela interface (limpeza da identidade compartilhada)');
   await pageAdminPromo.context().close();
+}
+
+async function testePFase14() {
+  secao('TESTE P (navegador) - Destaque/Turbo pagos, etapa pre-publicacao e area de gerenciamento (Fase 14)');
+
+  /*
+   * Reusa `donoPromoId` (ja Premium desde o TESTE O). Ao chegar aqui, o
+   * TESTE O deixou 1 de 2 Destaques e 1 de 1 Turbo AINDA disponiveis no mes
+   * (usou 1 Destaque e depois cancelou — cancelar nao devolve o beneficio) —
+   * exatamente o que este teste precisa pra provar o botao "Usar gratis" na
+   * nova etapa, sem inflar cota nenhuma por conta propria.
+   */
+
+  // =========================================================================
+  // 1. "Nao quero promover": publica pela tela de verdade, pula a oferta
+  // =========================================================================
+  const draft1 = await criarRascunhoPromovivel(donoPromoId, `${tag}-promo-p1`, 'Garagem para testar publicacao P1');
+  const pageP = await novaAba(testbed!.users.get(donoPromoId)!, { viewport: { width: 900, height: 1000 } });
+
+  await pageP.goto(`${baseUrl}/anunciar/${draft1}/revisao`, { waitUntil: 'domcontentloaded' });
+  await pageP.getByRole('heading', { name: 'Revise seu anúncio' }).waitFor({ timeout: 20_000 });
+  await pageP.getByRole('button', { name: 'Publicar espaço' }).click();
+  await pageP.waitForURL(new RegExp(`/anunciar/${draft1}/promover$`), { timeout: 20_000 });
+  ok('primeira publicacao pela tela vai pra "Turbine seu anuncio" (nao direto pra confirmacao)');
+
+  await pageP.getByRole('heading', { name: 'Turbine seu anúncio' }).waitFor({ timeout: 10_000 });
+  await pageP.getByText('Aumente suas chances de encontrar um interessado, destaque seu imóvel e dê mais visibilidade ao anúncio na MyPlace.')
+    .waitFor({ timeout: 5_000 });
+  ok('a etapa mostra o texto pedido, com as duas modalidades lado a lado');
+  await pageP.getByText('Destaque', { exact: true }).waitFor({ timeout: 5_000 });
+  await pageP.getByText('Turbo', { exact: true }).waitFor({ timeout: 5_000 });
+
+  await pageP.getByRole('link', { name: 'Não quero promover' }).click();
+  await pageP.waitForURL(new RegExp(`/anunciar/${draft1}/publicado$`), { timeout: 20_000 });
+  await pageP.getByRole('heading', { name: 'Seu espaço está no ar' }).waitFor({ timeout: 10_000 });
+  ok('"Não quero promover" leva direto pra confirmacao, sem cobrar nem ativar nada');
+
+  const [{ status: statusDraft1 }] = await sql<{ status: string }[]>`SELECT status FROM spaces WHERE id=${draft1}`;
+  expect('anuncio ficou publicado mesmo pulando a oferta', statusDraft1, 'published');
+  const [promoDraft1Ausente] = await sql<{ id: string }[]>`
+    SELECT id FROM promotions WHERE space_id=${draft1} AND status IN ('scheduled','active')`;
+  assert('nenhuma promocao foi criada so por passar pela etapa', !promoDraft1Ausente);
+
+  // =========================================================================
+  // 2. Editar e salvar de novo NAO repete a oferta (so na primeira vez)
+  // =========================================================================
+  await pageP.goto(`${baseUrl}/anunciar/${draft1}/revisao`, { waitUntil: 'domcontentloaded' });
+  await pageP.getByRole('button', { name: 'Salvar alterações' }).waitFor({ timeout: 20_000 });
+  ok('reabrir a revisao de um anuncio ja publicado mostra "Salvar alterações", nao "Publicar espaço"');
+  await pageP.getByRole('button', { name: 'Salvar alterações' }).click();
+  await pageP.waitForURL(new RegExp(`/anunciar/${draft1}/publicado$`), { timeout: 20_000 });
+  ok('salvar uma edicao depois de ja publicado vai direto pra confirmacao (a oferta nao se repete)');
+
+  // =========================================================================
+  // 3. "Usar gratis" na propria etapa ativa o beneficio Premium de verdade
+  // =========================================================================
+  const draft2 = await criarRascunhoPromovivel(donoPromoId, `${tag}-promo-p2`, 'Garagem para testar publicacao P2');
+  await pageP.goto(`${baseUrl}/anunciar/${draft2}/revisao`, { waitUntil: 'domcontentloaded' });
+  await pageP.getByRole('button', { name: 'Publicar espaço' }).click();
+  await pageP.waitForURL(new RegExp(`/anunciar/${draft2}/promover$`), { timeout: 20_000 });
+  const botaoTurboGratis = pageP.getByRole('button', { name: /Usar grátis \(1 de 1\)/ });
+  await botaoTurboGratis.waitFor({ timeout: 10_000 });
+
+  await botaoTurboGratis.click();
+  await pageP.getByText('Promoção ativada').waitFor({ timeout: 20_000 });
+  ok('"Usar grátis" ativa o beneficio Premium de verdade na propria etapa pos-publicacao');
+  await pageP.getByRole('link', { name: 'Continuar' }).click();
+  await pageP.waitForURL(new RegExp(`/anunciar/${draft2}/publicado$`), { timeout: 20_000 });
+
+  const [promoDraft2] = await sql<{ type: string; source: string; status: string }[]>`
+    SELECT type::text, source::text, status::text FROM promotions
+    WHERE space_id=${draft2} AND status='active'`;
+  assert('o Turbo gratis da etapa ficou gravado como premium_benefit',
+    promoDraft2?.type === 'turbo' && promoDraft2?.source === 'premium_benefit', JSON.stringify(promoDraft2));
+
+  // =========================================================================
+  // 4. Compra avulsa de Destaque, com pagamento e webhook de verdade
+  // =========================================================================
+  await pageP.goto(`${baseUrl}/meus-espacos`, { waitUntil: 'domcontentloaded' });
+  await pageP.getByRole('heading', { name: 'Garagem para testar publicacao P1' }).waitFor({ timeout: 20_000 });
+  const cardDraft1 = pageP.locator('li', { hasText: 'Garagem para testar publicacao P1' }).first();
+  await cardDraft1.getByTestId('botao-destacar').click();
+
+  const dialogCompra = pageP.locator('dialog[open]');
+  await dialogCompra.getByText('Escolha como promover').waitFor({ timeout: 10_000 });
+  await dialogCompra.getByTestId('modalidade-destaque').getByRole('button', { name: /Comprar a partir de/ }).click();
+  await dialogCompra.getByText('Comprar Destaque').waitFor({ timeout: 5_000 });
+  ok('abre o formulario de compra avulsa direto do dialog "Destacar"');
+
+  await dialogCompra.locator('button', { hasText: '1 dia' }).click();
+  await dialogCompra.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
+
+  await pageP.route('http://127.0.0.1/fake-invoice/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/plain', body: 'Fatura simulada do Asaas (dublê de teste).' }));
+  await dialogCompra.getByRole('button', { name: 'Pagar e ativar' }).click();
+  await pageP.waitForURL(/fake-invoice/, { timeout: 20_000 });
+  ok('compra avulsa redireciona pra fatura de verdade do gateway (interceptada no teste)');
+
+  const [compraDraft1] = await sql<{ provider_payment_id: string; price_cents: number; status: string }[]>`
+    SELECT provider_payment_id, price_cents, status FROM promotion_purchases
+    WHERE space_id=${draft1} ORDER BY created_at DESC LIMIT 1`;
+  expect('preco gravado bate com o catalogo fixo (1 dia de Destaque = R$ 12,90)', compraDraft1?.price_cents, 1290);
+  expect('compra comeca pending, esperando o gateway confirmar', compraDraft1?.status, 'pending');
+
+  const respostaWebhookCompra = await fetch(`${baseUrl}/api/webhooks/asaas`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'asaas-access-token': process.env.ASAAS_WEBHOOK_TOKEN! },
+    body: JSON.stringify({
+      event: 'PAYMENT_CONFIRMED',
+      payment: { id: compraDraft1!.provider_payment_id, value: compraDraft1!.price_cents / 100 },
+    }),
+  });
+  expect('webhook PAYMENT_CONFIRMED da compra (rota HTTP real) responde 200', respostaWebhookCompra.status, 200);
+
+  await aguardarCondicao(async () => {
+    const [row] = await sql<{ status: string }[]>`
+      SELECT status FROM promotions WHERE space_id=${draft1} AND status='active'`;
+    return Boolean(row);
+  }, 'o banco reflete o Destaque comprado, confirmado pelo webhook de verdade');
+
+  /*
+   * `pageP` ainda esta na fatura (fake-invoice) interceptada pelo `route()`
+   * acima — a compra redireciona pra LA, nao de volta pra /meus-espacos.
+   * Precisa navegar de proposito, nao só recarregar a pagina atual.
+   */
+  await pageP.goto(`${baseUrl}/meus-espacos`, { waitUntil: 'domcontentloaded' });
+  const badgeCompraTexto = await pageP
+    .locator('li', { hasText: 'Garagem para testar publicacao P1' })
+    .getByTestId('promocao-badge').innerText();
+  assert('o selo de Destaque aparece no card depois da compra confirmada', badgeCompraTexto.includes('Destaque'), badgeCompraTexto);
+
+  // =========================================================================
+  // 5. Area de gerenciamento: /meus-espacos/promocoes mostra tudo isso de verdade
+  // =========================================================================
+  await pageP.goto(`${baseUrl}/meus-espacos/promocoes`, { waitUntil: 'domcontentloaded' });
+  await pageP.getByRole('heading', { name: 'Promoções' }).waitFor({ timeout: 20_000 });
+
+  /*
+   * `.first()` de proposito: a mesma promocao aparece DUAS vezes na pagina —
+   * em "Ativas agora" e de novo em "Histórico" (por desenho, mesmo padrao
+   * de /meus-espacos/financeiro mostrar o mesmo repasse duas vezes sob
+   * enquadramentos diferentes). "Ativas agora" vem primeiro no DOM e é a
+   * unica que mostra tempo restante.
+   */
+  const linhaCompra = pageP.locator('li', { hasText: 'Garagem para testar publicacao P1' }).first();
+  await linhaCompra.waitFor({ timeout: 20_000 });
+  await linhaCompra.getByText(formatBRL(1290)).waitFor({ timeout: 5_000 });
+  await linhaCompra.getByText('Compra avulsa').waitFor({ timeout: 5_000 });
+  await linhaCompra.getByText('Ativa agora').waitFor({ timeout: 5_000 });
+  ok('a promocao COMPRADA aparece com o valor real pago e a origem certa');
+
+  const linhaGratis = pageP.locator('li', { hasText: 'Garagem para testar publicacao P2' }).first();
+  await linhaGratis.waitFor({ timeout: 10_000 });
+  await linhaGratis.getByText('Grátis').waitFor({ timeout: 5_000 });
+  await linhaGratis.getByText('Benefício Premium').waitFor({ timeout: 5_000 });
+  ok('a promocao do beneficio Premium aparece como Gratis, sem inventar valor pago');
+
+  const textoTempoRestante = await linhaCompra.textContent();
+  assert('mostra tempo restante pra quem esta ativo agora', (textoTempoRestante ?? '').includes('termina em'),
+    textoTempoRestante ?? '');
+
+  await pageP.context().close();
 }
 
 // ---------------------------------------------------------------------------
