@@ -1,0 +1,264 @@
+import 'server-only';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { db } from '@/db/client';
+import { promotions, premiumMemberships, spaces } from '@/db/schema';
+import { latOf, lngOf } from '@/db/schema/_types';
+import { monthlyBenefitLimit, featuredSectionLimit } from './settings';
+
+/**
+ * Leitura de promocoes e assinatura Premium.
+ *
+ * Mesma separacao do resto do app: nenhuma consulta aqui confia em nada
+ * vindo do navegador alem de um id — quantidade usada, limite e vigencia
+ * sao sempre recalculados aqui, nunca aceitos prontos.
+ */
+
+// ---------------------------------------------------------------------------
+// Varredura preguicosa de promocao vencida — mesmo padrao de
+// `expireStaleBookingRequests` (src/lib/bookings/queries.ts): sem worker,
+// sem cron, a promocao vira `expired` na proxima vez que algo relevante ler.
+// ---------------------------------------------------------------------------
+export async function expireStalePromotions(): Promise<number> {
+  const result = await db
+    .update(promotions)
+    .set({ status: 'expired', updatedAt: new Date() })
+    .where(and(eq(promotions.status, 'active'), sql`${promotions.expiresAt} <= now()`))
+    .returning({ id: promotions.id });
+  return result.length;
+}
+
+// ---------------------------------------------------------------------------
+// Premium
+// ---------------------------------------------------------------------------
+
+export type PremiumMembership = {
+  status: 'active' | 'cancelled';
+  source: 'admin_grant' | 'subscription';
+  grantedAt: Date;
+};
+
+export async function getPremiumMembership(userId: string): Promise<PremiumMembership | null> {
+  const [row] = await db
+    .select({
+      status: premiumMemberships.status,
+      source: premiumMemberships.source,
+      grantedAt: premiumMemberships.grantedAt,
+    })
+    .from(premiumMemberships)
+    .where(eq(premiumMemberships.userId, userId))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function isPremium(userId: string): Promise<boolean> {
+  const membership = await getPremiumMembership(userId);
+  return membership?.status === 'active';
+}
+
+export type BenefitUsage = {
+  premium: boolean;
+  periodStart: Date;
+  periodEnd: Date;
+  destaque: { used: number; limit: number; remaining: number };
+  turbo: { used: number; limit: number; remaining: number };
+};
+
+/**
+ * Uso do beneficio mensal, contado direto em `promotions` — sem coluna de
+ * saldo a parte. O periodo e o MES CALENDARIO (dia 1 a dia 1 do mes
+ * seguinte), calculado no banco para nao correr risco de fuso divergente
+ * entre o relogio do servidor e o do Postgres.
+ */
+export async function getMonthlyBenefitUsage(ownerId: string): Promise<BenefitUsage> {
+  const [membership, [periodo], contagens, destaqueLimit, turboLimit] = await Promise.all([
+    getPremiumMembership(ownerId),
+    db.execute<{ period_start: Date; period_end: Date }>(
+      sql`SELECT date_trunc('month', now()) AS period_start, date_trunc('month', now()) + interval '1 month' AS period_end`,
+    ),
+    db
+      .select({ type: promotions.type, n: sql<number>`count(*)::int` })
+      .from(promotions)
+      .where(
+        and(
+          eq(promotions.ownerId, ownerId),
+          eq(promotions.source, 'premium_benefit'),
+          gte(promotions.createdAt, sql`date_trunc('month', now())`),
+        ),
+      )
+      .groupBy(promotions.type),
+    monthlyBenefitLimit('destaque'),
+    monthlyBenefitLimit('turbo'),
+  ]);
+
+  const destaqueUsed = contagens.find((c) => c.type === 'destaque')?.n ?? 0;
+  const turboUsed = contagens.find((c) => c.type === 'turbo')?.n ?? 0;
+
+  return {
+    premium: membership?.status === 'active',
+    periodStart: periodo!.period_start,
+    periodEnd: periodo!.period_end,
+    destaque: {
+      used: destaqueUsed,
+      limit: destaqueLimit,
+      remaining: Math.max(0, destaqueLimit - destaqueUsed),
+    },
+    turbo: {
+      used: turboUsed,
+      limit: turboLimit,
+      remaining: Math.max(0, turboLimit - turboUsed),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Promocoes de um anuncio / de um proprietario
+// ---------------------------------------------------------------------------
+
+export type ActivePromotion = {
+  id: string;
+  type: 'destaque' | 'turbo';
+  status: 'scheduled' | 'active' | 'expired' | 'cancelled';
+  startedAt: Date;
+  expiresAt: Date;
+};
+
+/** Promocao vigente (scheduled ou active) de um anuncio, se houver. */
+export async function getActivePromotionForSpace(spaceId: string): Promise<ActivePromotion | null> {
+  await expireStalePromotions();
+  const [row] = await db
+    .select({
+      id: promotions.id,
+      type: promotions.type,
+      status: promotions.status,
+      startedAt: promotions.startedAt,
+      expiresAt: promotions.expiresAt,
+    })
+    .from(promotions)
+    .where(and(eq(promotions.spaceId, spaceId), inArray(promotions.status, ['scheduled', 'active'])))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Promocao vigente de VARIOS anuncios de uma vez — para a lista de "Meus espaços". */
+export async function getActivePromotionsForSpaces(
+  spaceIds: string[],
+): Promise<Map<string, ActivePromotion>> {
+  if (spaceIds.length === 0) return new Map();
+  await expireStalePromotions();
+  const rows = await db
+    .select({
+      id: promotions.id,
+      spaceId: promotions.spaceId,
+      type: promotions.type,
+      status: promotions.status,
+      startedAt: promotions.startedAt,
+      expiresAt: promotions.expiresAt,
+    })
+    .from(promotions)
+    .where(and(inArray(promotions.spaceId, spaceIds), inArray(promotions.status, ['scheduled', 'active'])));
+  return new Map(rows.map((r) => [r.spaceId, r]));
+}
+
+export type PromotionHistoryRow = ActivePromotion & {
+  spaceId: string;
+  spaceTitle: string;
+  spaceSlug: string;
+  source: 'premium_benefit' | 'purchase';
+  cancelledAt: Date | null;
+};
+
+/** Historico de promocoes do proprietario — usado na pagina /premium. */
+export async function listOwnerPromotions(ownerId: string, limit = 20): Promise<PromotionHistoryRow[]> {
+  await expireStalePromotions();
+  return db
+    .select({
+      id: promotions.id,
+      type: promotions.type,
+      status: promotions.status,
+      source: promotions.source,
+      startedAt: promotions.startedAt,
+      expiresAt: promotions.expiresAt,
+      cancelledAt: promotions.cancelledAt,
+      spaceId: promotions.spaceId,
+      spaceTitle: spaces.title,
+      spaceSlug: spaces.slug,
+    })
+    .from(promotions)
+    .innerJoin(spaces, eq(spaces.id, promotions.spaceId))
+    .where(eq(promotions.ownerId, ownerId))
+    .orderBy(desc(promotions.createdAt))
+    .limit(limit);
+}
+
+// ---------------------------------------------------------------------------
+// Vitrine publica — home
+// ---------------------------------------------------------------------------
+
+export type FeaturedSpace = {
+  id: string;
+  slug: string;
+  type: string;
+  title: string;
+  district: string | null;
+  city: string | null;
+  priceMonthlyCents: number;
+  approxLat: number | null;
+  approxLng: number | null;
+  coverPath: string | null;
+  promotionType: 'destaque' | 'turbo';
+};
+
+/**
+ * Anuncios com promocao ATIVA, para a secao "Espaços em destaque" da home.
+ * Turbo sempre antes de Destaque (hierarquia pedida); dentro do mesmo nivel,
+ * o mais recente ativado primeiro. So `published` — uma promocao nao
+ * republica um rascunho nem ressuscita um anuncio pausado.
+ */
+export async function listFeaturedSpaces(limit?: number): Promise<FeaturedSpace[]> {
+  await expireStalePromotions();
+  const max = limit ?? (await featuredSectionLimit());
+
+  const rows = await db
+    .select({
+      id: spaces.id,
+      slug: spaces.slug,
+      type: sql<string>`${spaces.type}::text`,
+      title: spaces.title,
+      district: spaces.district,
+      city: spaces.city,
+      priceMonthlyCents: spaces.priceMonthlyCents,
+      approxLat: latOf(spaces.approxLocation),
+      approxLng: lngOf(spaces.approxLocation),
+      coverPath: sql<string | null>`(
+        SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
+        WHERE si.space_id = spaces.id ORDER BY si.position ASC LIMIT 1
+      )`,
+      promotionType: promotions.type,
+      startedAt: promotions.startedAt,
+    })
+    .from(promotions)
+    .innerJoin(spaces, eq(spaces.id, promotions.spaceId))
+    .where(and(eq(promotions.status, 'active'), eq(spaces.status, 'published'), sql`${spaces.deletedAt} IS NULL`))
+    .orderBy(
+      sql`CASE ${promotions.type} WHEN 'turbo' THEN 2 WHEN 'destaque' THEN 1 ELSE 0 END DESC`,
+      desc(promotions.startedAt),
+    )
+    .limit(max);
+
+  return rows as FeaturedSpace[];
+}
+
+/**
+ * Expressao de desempate por nivel de promocao, para usar como fator
+ * ADICIONAL de ordenacao na busca (ver `listPublishedSpaces` em
+ * `src/lib/spaces/queries.ts`) — turbo > destaque > sem promocao, mas
+ * sempre depois da ordenacao principal escolhida, nunca antes dela.
+ */
+export function promotionTierExpr() {
+  return sql<number>`COALESCE((
+    SELECT CASE p.type WHEN 'turbo' THEN 2 WHEN 'destaque' THEN 1 ELSE 0 END
+    FROM promotions p
+    WHERE p.space_id = spaces.id AND p.status = 'active'
+    LIMIT 1
+  ), 0)`;
+}
