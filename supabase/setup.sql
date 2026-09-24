@@ -13,7 +13,7 @@
 -- Ao terminar, a saida mostra quantas migracoes foram aplicadas agora e
 -- quantas ja estavam no banco.
 --
--- Gerado por scripts/build-supabase-setup.ts a partir de 10 migracoes
+-- Gerado por scripts/build-supabase-setup.ts a partir de 12 migracoes
 -- testadas contra um Postgres real. Nao edite a mao: altere src/db/schema/,
 -- gere a migracao e rode este script de novo.
 -- ============================================================================
@@ -2069,6 +2069,116 @@ END
 $mp_bloco_9$;
 
 
+-- ----------------------------------------------------------------------------
+-- Migracao 10: 0010_status_expirado_reserva  (2 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_10$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = 'ca69412b4b6e0d2da1074f7ba1af89ae9b2c735c936069f62245b1092a5cead9'
+  ) THEN
+    RAISE NOTICE 'Migracao 10 (0010_status_expirado_reserva) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_10_0$ALTER TYPE "public"."booking_status" ADD VALUE 'expired' BEFORE 'awaiting_payment';$mp_10_0$;
+
+    EXECUTE $mp_10_1$-- Prazo para o proprietario responder uma solicitacao antes dela expirar
+-- sozinha. Nao existia settings key para isso ate a Parte 4 (fluxo real de
+-- solicitacao/reserva) precisar de um estado "expirada" de verdade no banco.
+INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
+  ('booking.request_expiry_days', '7'::jsonb,
+   'Dias que uma solicitacao fica pendente antes de expirar sozinha, sem resposta do proprietario.', true)
+ON CONFLICT (key) DO NOTHING;$mp_10_1$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('ca69412b4b6e0d2da1074f7ba1af89ae9b2c735c936069f62245b1092a5cead9', 1789723772646);
+
+    RAISE NOTICE 'Migracao 10 (0010_status_expirado_reserva) aplicada.';
+  END IF;
+END
+$mp_bloco_10$;
+
+
+-- ----------------------------------------------------------------------------
+-- Migracao 11: 0011_suspensao_automatica  (1 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_11$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '59c07e14fe556fd7ab14043106a9e3b052425dd934e608ed6df94156935c7fd7'
+  ) THEN
+    RAISE NOTICE 'Migracao 11 (0011_suspensao_automatica) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_11_0$-- ============================================================================
+-- MyPlace — suspensao automatica por reincidencia (Fase 11)
+--
+-- `refresh_upheld_report_count` ja mantinha o contador de denuncias
+-- procedentes. Agora, ao recalcular o contador, a mesma trigger tambem aplica
+-- o limite de `safety.auto_suspend_upheld_threshold` (padrao 5): ao
+-- atingi-lo, a conta vira 'suspended' com um motivo padrao.
+--
+-- So ESCALA: nunca reativa sozinha. Se um moderador corrigir uma denuncia
+-- (upheld -> false) e o contador cair de novo abaixo do limite, a conta
+-- continua suspensa ate um admin decidir reativar pelo painel — reativacao e
+-- decisao humana, nao efeito colateral de um UPDATE.
+--
+-- So suspende quem esta 'active': nao mexe em quem ja esta banido/suspenso
+-- por outro motivo nem ressuscita conta apagada.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.refresh_upheld_report_count()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+DECLARE
+  alvo uuid;
+  novo_total integer;
+  limite integer;
+BEGIN
+  -- Para denuncia de anuncio ou mensagem, o responsavel e o autor do conteudo.
+  alvo := COALESCE(
+    NEW.target_user_id,
+    (SELECT owner_id FROM public.spaces WHERE id = NEW.space_id),
+    (SELECT sender_id FROM public.messages WHERE id = NEW.message_id)
+  );
+
+  IF alvo IS NULL THEN RETURN NEW; END IF;
+
+  SELECT COUNT(*) INTO novo_total
+  FROM public.reports r
+  WHERE r.upheld = true
+    AND COALESCE(
+          r.target_user_id,
+          (SELECT owner_id FROM public.spaces WHERE id = r.space_id),
+          (SELECT sender_id FROM public.messages WHERE id = r.message_id)
+        ) = alvo;
+
+  UPDATE public.profiles SET upheld_report_count = novo_total WHERE id = alvo;
+
+  SELECT (value #>> '{}')::int INTO limite
+  FROM public.platform_settings WHERE key = 'safety.auto_suspend_upheld_threshold';
+  limite := COALESCE(limite, 5);
+
+  IF novo_total >= limite THEN
+    UPDATE public.profiles
+    SET status = 'suspended',
+        status_reason = 'Suspensão automática: ' || novo_total || ' denúncias procedentes.'
+    WHERE id = alvo AND status = 'active';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;$mp_11_0$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('59c07e14fe556fd7ab14043106a9e3b052425dd934e608ed6df94156935c7fd7', 1789834839015);
+
+    RAISE NOTICE 'Migracao 11 (0011_suspensao_automatica) aplicada.';
+  END IF;
+END
+$mp_bloco_11$;
+
+
 -- ============================================================================
 -- Resumo
 -- ============================================================================
@@ -2077,7 +2187,7 @@ DECLARE aplicadas integer;
 BEGIN
   SELECT count(*) INTO aplicadas FROM drizzle.__drizzle_migrations;
   RAISE NOTICE '---';
-  RAISE NOTICE 'Pronto: % de 10 migracoes registradas no banco.', aplicadas;
+  RAISE NOTICE 'Pronto: % de 12 migracoes registradas no banco.', aplicadas;
 END
 $mp_resumo$;
 
