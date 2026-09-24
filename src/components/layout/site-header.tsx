@@ -77,9 +77,10 @@ export async function SiteHeader() {
               </Link>
               <Link
                 href="/anunciar"
-                className="inline-flex items-center justify-center h-10 px-4 text-[0.875rem] font-medium rounded-[var(--radius-field)] bg-[var(--accent)] text-[var(--accent-content)] hover:bg-[var(--accent-hover)] transition-colors"
+                className="inline-flex items-center justify-center h-10 px-4 text-[0.875rem] font-medium whitespace-nowrap rounded-[var(--radius-field)] bg-[var(--accent)] text-[var(--accent-content)] hover:bg-[var(--accent-hover)] transition-colors"
               >
-                Anunciar meu espaço
+                <span className="sm:hidden">Anunciar</span>
+                <span className="hidden sm:inline">Anunciar meu espaço</span>
               </Link>
             </>
           )}
