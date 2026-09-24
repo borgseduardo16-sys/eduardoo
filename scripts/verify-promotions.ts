@@ -585,6 +585,103 @@ async function main() {
   expect('so UMA promocao vigente no espaco, mesmo com duas compras confirmadas', promosVigentesConc, 1);
 
   // =========================================================================
+  secao('13. Compatibilidade — Destaque/Turbo nao furam a relevancia da busca');
+  // =========================================================================
+
+  const { listPublishedSpaces } = await import('../src/lib/spaces/queries');
+
+  const donoCompatId = crypto.randomUUID();
+  await sql`INSERT INTO auth.users (id, email) VALUES (${donoCompatId}, ${`${tag}-donocompat@exemplo.invalid`})`;
+  await sql`UPDATE profiles SET role='owner', full_name='Dono Compat' WHERE id=${donoCompatId}`;
+  await sql`INSERT INTO premium_memberships (user_id, status, source, granted_by)
+    VALUES (${donoCompatId}, 'active', 'admin_grant', ${donoCompatId})`;
+
+  async function seedCompat(sufixo: string, tipo: string, publishedAtOffsetMin: number): Promise<string> {
+    // Nasce rascunho e so publica DEPOIS das 3 fotos — mesma ordem de
+    // seedEspacoPublicado; publicar direto no INSERT (sem foto ainda) bate
+    // na trigger guard_publish_requires_photos.
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO spaces (owner_id, slug, type, title, description, district, city, state,
+        available_from, price_monthly_cents, size_m2, location)
+      VALUES (${donoCompatId}, ${`${tag}-compat-${sufixo}`}, ${tipo}::space_type,
+        ${`Espaco compat ${sufixo}`}, 'Descricao com mais de vinte caracteres para passar na regra do banco.',
+        'Centro', 'Colatina', 'ES', CURRENT_DATE, 25000, 20,
+        ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326))
+      RETURNING id`;
+    const id = row!.id;
+    for (const n of [0, 1, 2]) {
+      await sql`INSERT INTO space_images (space_id, storage_path, position)
+        VALUES (${id}, ${`${donoCompatId}/${id}/f${n}.jpg`}, ${n})`;
+    }
+    await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, 'coberto')`;
+    await sql`UPDATE spaces SET status='published', published_at = now() + (${publishedAtOffsetMin} || ' minutes')::interval
+      WHERE id=${id}`;
+    return id;
+  }
+
+  // espacoDestaqueBaixo: promovido, MAIS ANTIGO (perde no desempate por
+  // recencia se a promocao for suprimida). espacoNormalAlto: sem promocao,
+  // publicado DEPOIS (ganharia no desempate por recencia se o Destaque
+  // estiver suprimido) — a ordem entre os dois revela, sem ambiguidade, se
+  // o Destaque valeu ou nao naquela busca.
+  const espacoDestaqueBaixo = await seedCompat('destaque-baixo', 'garagem', 0);
+  const espacoNormalAlto = await seedCompat('normal-alto', 'garagem', 5);
+
+  entrarComo(donoCompatId, 'owner', 'Dono Compat');
+  const rAtivaCompat = await activatePromotionAction(undefined, fd({ spaceId: espacoDestaqueBaixo, type: 'destaque' }));
+  assert('Destaque ativado pro teste de compatibilidade', rAtivaCompat.ok, rAtivaCompat.message ?? '');
+
+  // --- 13a. score 3 (tipo+cidade+bairro, sem preco/features) — ABAIXO do minimo de 4 do Destaque ---
+  const buscaBaixaCompat = await listPublishedSpaces({
+    type: 'garagem', cityFilter: 'Colatina', districtFilter: 'Centro', sort: 'recent', limit: 60,
+  });
+  const idsBaixaCompat = buscaBaixaCompat.map((r) => r.id).filter((id) => id === espacoDestaqueBaixo || id === espacoNormalAlto);
+  expect('com so 3 caracteristicas compativeis, o Destaque NAO fura a ordem por recencia (perde pro mais novo)',
+    idsBaixaCompat, [espacoNormalAlto, espacoDestaqueBaixo]);
+
+  // --- 13b. mesma busca + 1 caracteristica que o espaco tem = score 4 — Destaque agora vale ---
+  const buscaAltaCompat = await listPublishedSpaces({
+    type: 'garagem', cityFilter: 'Colatina', districtFilter: 'Centro', featureKeys: ['coberto'], sort: 'recent', limit: 60,
+  });
+  const idsAltaCompat = buscaAltaCompat.map((r) => r.id).filter((id) => id === espacoDestaqueBaixo || id === espacoNormalAlto);
+  expect('com 4 caracteristicas compativeis, o Destaque fura a recencia (ganha, como prometido)',
+    idsAltaCompat, [espacoDestaqueBaixo, espacoNormalAlto]);
+
+  // --- 13c. sem NENHUM criterio de busca — o gate nem entra, comportamento de sempre (promocao manda) ---
+  const buscaLivre = await listPublishedSpaces({ sort: 'recent', limit: 60 });
+  const idsLivre = buscaLivre.map((r) => r.id).filter((id) => id === espacoDestaqueBaixo || id === espacoNormalAlto);
+  expect('sem criterio de busca nenhum, o Destaque manda (sem porta de compatibilidade)',
+    idsLivre, [espacoDestaqueBaixo, espacoNormalAlto]);
+
+  // --- 13d. Turbo: score 1 (so cidade) fica ABAIXO do minimo de 2 ---
+  const espacoTurboBaixo = await seedCompat('turbo-baixo', 'deposito', 0);
+  const espacoTurboAlto = await seedCompat('turbo-alto', 'deposito', 5);
+  const rAtivaTurboCompat = await activatePromotionAction(undefined, fd({ spaceId: espacoTurboBaixo, type: 'turbo' }));
+  assert('Turbo ativado pro teste de compatibilidade', rAtivaTurboCompat.ok, rAtivaTurboCompat.message ?? '');
+
+  const buscaTurboBaixa = await listPublishedSpaces({ cityFilter: 'Colatina', sort: 'recent', limit: 60 });
+  const idsTurboBaixa = buscaTurboBaixa.map((r) => r.id).filter((id) => id === espacoTurboBaixo || id === espacoTurboAlto);
+  expect('com so 1 caracteristica compativel (cidade), o Turbo NAO fura a recencia',
+    idsTurboBaixa, [espacoTurboAlto, espacoTurboBaixo]);
+
+  const buscaTurboAlta = await listPublishedSpaces({ cityFilter: 'Colatina', type: 'deposito', sort: 'recent', limit: 60 });
+  const idsTurboAlta = buscaTurboAlta.map((r) => r.id).filter((id) => id === espacoTurboBaixo || id === espacoTurboAlto);
+  expect('com 2 caracteristicas compativeis (cidade + tipo), o Turbo fura a recencia',
+    idsTurboAlta, [espacoTurboBaixo, espacoTurboAlto]);
+
+  // --- 13e. "Recomendados" (sort compatibility) ranqueia so por score, ignorando promocao ---
+  const recomendados = await listPublishedSpaces({
+    cityFilter: 'Colatina', districtFilter: 'Centro', featureKeys: ['coberto'],
+    relaxTypeAndFeatures: true, sort: 'compatibility', limit: 60,
+  });
+  const posRecDestaque = recomendados.findIndex((r) => r.id === espacoDestaqueBaixo);
+  const posRecNormal = recomendados.findIndex((r) => r.id === espacoNormalAlto);
+  assert('"Recomendados" nao ignora um espaco so por ele ter Destaque, nem promove so por isso',
+    posRecDestaque >= 0 && posRecNormal >= 0);
+
+  await limpar([donoCompatId]);
+
+  // =========================================================================
   await limpar([dono3Id, dono1Id, dono2Id, outroId]);
 
   console.log(`\n\x1b[1mResultado:\x1b[0m ${passed} passaram, ${failed} falharam`);

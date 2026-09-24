@@ -4,6 +4,7 @@ import { db } from '@/db/client';
 import { promotions, premiumMemberships, spaces } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
 import { monthlyBenefitLimit, featuredSectionLimit } from './settings';
+import { hasSearchContext, compatibilityScoreExpr, sameCityAsSearchExpr, type CompatibilityContext } from './compatibility';
 
 /**
  * Leitura de promocoes e assinatura Premium.
@@ -270,6 +271,39 @@ export async function listFeaturedSpaces(limit?: number): Promise<FeaturedSpace[
 export function promotionTierExpr() {
   return sql<number>`COALESCE((
     SELECT CASE p.type WHEN 'turbo' THEN 2 WHEN 'destaque' THEN 1 ELSE 0 END
+    FROM promotions p
+    WHERE p.space_id = spaces.id AND p.status = 'active'
+    LIMIT 1
+  ), 0)`;
+}
+
+/**
+ * Mesma coisa que `promotionTierExpr`, mas com a elegibilidade pedida: a
+ * promoção só entra na ordenação quando o espaço tem características
+ * compatíveis o bastante com a busca em andamento —
+ *
+ *   - Turbo: mesma cidade da busca E pelo menos 2 características compatíveis;
+ *   - Destaque: pelo menos 4 características compatíveis.
+ *
+ * Sem nenhum criterio de busca (navegação livre), não há o que medir —
+ * cai para o `promotionTierExpr()` normal, sem porta nenhuma. Isso
+ * garante a regra pedida ("o sistema não deve simplesmente colocar um
+ * anúncio pago na frente de qualquer imóvel"): a promoção nunca destrói a
+ * relevância de uma busca real, mas também nunca é penalizada quando não
+ * há busca nenhuma para destruir.
+ */
+export function gatedPromotionTierExpr(ctx: CompatibilityContext) {
+  if (!hasSearchContext(ctx)) return promotionTierExpr();
+
+  const score = compatibilityScoreExpr(ctx);
+  const mesmaCidade = sameCityAsSearchExpr(ctx);
+
+  return sql<number>`COALESCE((
+    SELECT CASE
+      WHEN p.type = 'turbo' AND (${mesmaCidade}) AND (${score}) >= 2 THEN 2
+      WHEN p.type = 'destaque' AND (${score}) >= 4 THEN 1
+      ELSE 0
+    END
     FROM promotions p
     WHERE p.space_id = spaces.id AND p.status = 'active'
     LIMIT 1

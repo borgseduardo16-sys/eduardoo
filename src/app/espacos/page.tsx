@@ -6,6 +6,7 @@ import {
   listPublishedSpaces, listFeaturesForType, listAllActiveFeatures, effectiveSort,
   type SearchSort,
 } from '@/lib/spaces/queries';
+import { hasSearchContext } from '@/lib/promotions/compatibility';
 import { resolveLocation } from '@/lib/spaces/resolve-location';
 import { matchSpaceTypeKeyword } from '@/lib/spaces/keywords';
 import { listUserFavoriteIds } from '@/lib/favorites/queries';
@@ -108,32 +109,44 @@ export default async function EspacosPage({
   // devolveria anuncios de qualquer canto do Brasil sem avisar por quê.
   const buscaBloqueadaPorCep = resolucao.cepNotFound;
 
-  const [itens, caracteristicasDisponiveis] = buscaBloqueadaPorCep
-    ? [[], []]
+  // Mesmo contexto usado pra elegibilidade de Destaque/Turbo na ordenacao —
+  // so mostra "Recomendados pra voce" quando ha algo real pra comparar.
+  const contextoCompatibilidade = {
+    type: tipo,
+    cityFilter: resolucao.cityFilter,
+    districtFilter: resolucao.districtFilter,
+    priceMinCents: precoMinCents,
+    priceMaxCents: precoMaxCents,
+    availableNow: disponivelAgora,
+    featureKeys,
+  };
+  const mostrarRecomendados = !buscaBloqueadaPorCep && hasSearchContext(contextoCompatibilidade);
+
+  const [itens, caracteristicasDisponiveis, recomendados] = buscaBloqueadaPorCep
+    ? [[], [], []]
     : await Promise.all([
         listPublishedSpaces({
-          type: tipo,
+          ...contextoCompatibilidade,
           point: resolucao.point,
           radiusMeters: raioMeters,
-          cityFilter: resolucao.cityFilter,
-          districtFilter: resolucao.districtFilter,
           textQuery,
-          priceMinCents: precoMinCents,
-          priceMaxCents: precoMaxCents,
-          featureKeys,
-          availableNow: disponivelAgora,
           sort: ordenar,
           limit: POR_PAGINA + 1,
           offset: (pagina - 1) * POR_PAGINA,
         }),
         tipo ? listFeaturesForType(tipo) : listAllActiveFeatures(),
+        mostrarRecomendados
+          ? listPublishedSpaces({ ...contextoCompatibilidade, relaxTypeAndFeatures: true, sort: 'compatibility', limit: 6 })
+          : Promise.resolve([]),
       ]);
 
   const temProximaPagina = itens.length > POR_PAGINA;
   const resultados = itens.slice(0, POR_PAGINA);
 
   const [urls, favoritosIds] = await Promise.all([
-    signImagePaths(resultados.map((r) => r.coverPath).filter(Boolean) as string[]),
+    signImagePaths(
+      [...resultados, ...recomendados].map((r) => r.coverPath).filter(Boolean) as string[],
+    ),
     viewer ? listUserFavoriteIds(viewer.id) : Promise.resolve(new Set<string>()),
   ]);
 
@@ -189,6 +202,41 @@ export default async function EspacosPage({
           <Alert tone="warning" title="CEP não encontrado">
             Confira o CEP digitado ou busque por cidade, bairro ou endereço.
           </Alert>
+        )}
+
+        {/*
+          Recomendados: ordenado SO por compatibilidade com a busca atual —
+          nunca por Destaque/Turbo (o selo pode aparecer, mas nao decide a
+          posicao aqui). E o contraponto explicito pedido: um anuncio pago
+          com menos caracteristicas compativeis nao fica na frente de um
+          gratuito com mais, nesta secao.
+        */}
+        {mostrarRecomendados && recomendados.length > 0 && (
+          <section className="space-y-3" data-testid="secao-recomendados">
+            <div className="space-y-0.5">
+              <h2 className="text-[1.0625rem] font-semibold">Recomendados para você</h2>
+              <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                Selecionados pela compatibilidade com a sua busca, não pelo que foi pago.
+              </p>
+            </div>
+            {/*
+              ResultCard ja renderiza o proprio <li> raiz (mesmo padrao da
+              home) — o layout horizontal aqui vem do <ul> pai, via seletor
+              de filho, sem embrulhar num <li> extra (que seria <li><li>,
+              HTML invalido, o mesmo defeito ja corrigido em PremiumBadge).
+            */}
+            <ul className="flex gap-4 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 snap-x snap-mandatory [&>li]:w-[15.5rem] [&>li]:shrink-0 [&>li]:snap-start">
+              {recomendados.map((r) => (
+                <ResultCard
+                  key={r.id}
+                  space={r}
+                  coverUrl={r.coverPath ? (urls.get(r.coverPath) ?? null) : null}
+                  favorited={favoritosIds.has(r.id)}
+                  loggedIn={Boolean(viewer)}
+                />
+              ))}
+            </ul>
+          </section>
         )}
 
         {!buscaBloqueadaPorCep && (

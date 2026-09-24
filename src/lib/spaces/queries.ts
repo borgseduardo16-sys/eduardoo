@@ -4,7 +4,8 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { db } from '@/db/client';
 import { spaces, spaceImages, spaceFeatures, features, profiles } from '@/db/schema';
 import { latOf, lngOf, withinMeters, distanceMeters, type LatLng } from '@/db/schema/_types';
-import { promotionTierExpr } from '@/lib/promotions/queries';
+import { gatedPromotionTierExpr } from '@/lib/promotions/queries';
+import { compatibilityScoreExpr } from '@/lib/promotions/compatibility';
 
 /**
  * Leitura de anuncios.
@@ -85,7 +86,7 @@ export type PublicSpace = {
   promotionType: 'destaque' | 'turbo' | null;
 };
 
-export type SearchSort = 'distance' | 'price_asc' | 'price_desc' | 'recent';
+export type SearchSort = 'distance' | 'price_asc' | 'price_desc' | 'recent' | 'compatibility';
 
 export type SearchSpacesOptions = {
   limit?: number;
@@ -115,6 +116,14 @@ export type SearchSpacesOptions = {
   availableNow?: boolean;
 
   sort?: SearchSort;
+  /**
+   * Usado por `sort: 'compatibility'` (seção "Recomendados para você"):
+   * `type`/`featureKeys` viram só pontuação, não filtro obrigatório — sem
+   * isso, o conjunto candidato já teria batido 100% nessas duas dimensões
+   * (a busca principal exige IGUALDADE), e não haveria o que a pontuação
+   * de compatibilidade diferenciar.
+   */
+  relaxTypeAndFeatures?: boolean;
 };
 
 /**
@@ -160,7 +169,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
   if (options?.districtFilter) {
     conditions.push(sql`${spaces.district} ILIKE ${options.districtFilter}`);
   }
-  if (options?.type) {
+  if (options?.type && !options?.relaxTypeAndFeatures) {
     conditions.push(sql`${spaces.type}::text = ${options.type}`);
   }
   if (options?.priceMinCents != null) {
@@ -189,7 +198,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
       )`);
     }
   }
-  if (options?.featureKeys?.length) {
+  if (options?.featureKeys?.length && !options?.relaxTypeAndFeatures) {
     /*
      * Precisa ter TODAS as chaves pedidas: conta quantas das pedidas o
      * espaco tem, e exige que bata com a quantidade pedida.
@@ -226,9 +235,32 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
    *   ter Turbo. E exatamente o caso que o pedido original citou: "vaga de
    *   garagem em Colatina" nao pode trazer um galpao longe so por Turbo.
    */
-  const tierExpr = promotionTierExpr();
+  const tierExpr = gatedPromotionTierExpr({
+    type: options?.type,
+    cityFilter: options?.cityFilter || options?.city,
+    districtFilter: options?.districtFilter,
+    priceMinCents: options?.priceMinCents,
+    priceMaxCents: options?.priceMaxCents,
+    availableNow: options?.availableNow,
+    featureKeys: options?.featureKeys,
+  });
+  /*
+   * 'compatibility' (secao "Recomendados para voce"): ordena SO pela
+   * pontuacao de compatibilidade, sem fator de promocao nenhum — e
+   * exatamente o pedido explicito de que um anuncio pago com MENOS
+   * caracteristicas compativeis nao pule na frente de um gratuito com MAIS.
+   */
   const orderBy =
-    sort === 'distance' ? [asc(distanceExpr), desc(tierExpr)]
+    sort === 'compatibility' ? [desc(compatibilityScoreExpr({
+        type: options?.type,
+        cityFilter: options?.cityFilter || options?.city,
+        districtFilter: options?.districtFilter,
+        priceMinCents: options?.priceMinCents,
+        priceMaxCents: options?.priceMaxCents,
+        availableNow: options?.availableNow,
+        featureKeys: options?.featureKeys,
+      })), desc(spaces.publishedAt)]
+    : sort === 'distance' ? [asc(distanceExpr), desc(tierExpr)]
     : sort === 'price_asc' ? [asc(spaces.priceMonthlyCents), desc(tierExpr)]
     : sort === 'price_desc' ? [desc(spaces.priceMonthlyCents), desc(tierExpr)]
     : [desc(tierExpr), desc(spaces.publishedAt)];
