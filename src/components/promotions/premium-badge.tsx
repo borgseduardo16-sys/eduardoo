@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Sparkle, X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 /**
@@ -77,10 +77,12 @@ export function PremiumBadge({ className }: { className?: string }) {
             <li>• Benefícios renovados mensalmente</li>
             <li>• Não acumulativos</li>
           </ul>
-          <Link href="/premium" onClick={() => setOpen(false)}>
-            <Button type="button" block>
-              Torne-se membro
-            </Button>
+          <Link
+            href="/premium"
+            onClick={() => setOpen(false)}
+            className={buttonVariants({ block: true })}
+          >
+            Torne-se membro
           </Link>
         </div>
       </dialog>

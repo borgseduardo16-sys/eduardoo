@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 24/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 12 de 12 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos)
+> **Atualizado em:** 24/09/2026 · **Fases concluídas:** 1 a 6 e 9 a 13 de 13 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13 (Destaques/Turbo/Premium) funciona de ponta a ponta; a assinatura paga do Premium ainda não existe — hoje é concedida manualmente pelo admin, como mecanismo interino**
 
 Estados usados:
 
@@ -504,6 +504,148 @@ que não existe.
 
 ---
 
+## Fase 13 — Destaques, Turbo e Premium (Parte 5) ✅ *(24/09/2026)*
+
+Sistema de promoção de anúncios (Destaque/Turbo) e o selo de Membro Premium,
+a partir do pedido detalhado do usuário. Aumenta exposição — nunca altera
+preço, localização, disponibilidade ou avaliação de um anúncio.
+
+### Schema e motor de benefícios
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Tabela `promotions` | ✅ | estado real (`scheduled`/`active`/`expired`/`cancelled`) — **nunca** um booleano `is_featured` |
+| Tabela `premium_memberships` | ✅ | status, origem, quem concedeu, quando |
+| Nenhum Destaque/Turbo sobreposto no mesmo espaço | ✅ | índice único parcial `promotions_one_active_per_space`, mesmo padrão de `bookings_one_active_per_space` |
+| Concorrência real | ✅ | **testado com corrida real (`Promise.all`)**: cota mensal travada por `SELECT ... FOR UPDATE`, duplo-clique no mesmo espaço coberto pelo índice único — exatamente uma ativação vence nos dois casos |
+| Expiração preguiçosa | ✅ | sem worker/cron — varredura no início das consultas que precisam de dado fresco, mesmo padrão de `expireStaleBookingRequests` |
+| Duração e cota mensal | ⚙️ | **placeholder** em `platform_settings` (7 dias Destaque / 48h Turbo, 2+1 por mês) — o usuário confirmou que já tem o modelo de números real e vai enviar depois; trocar é um `UPDATE`, sem deploy |
+
+### Fluxo "Destacar anúncio" e identidade visual
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Dialog em "Meus espaços" | ✅ | escolhe Destaque ou Turbo, mostra o saldo **real** do mês, consome de verdade, atualiza a tela na hora |
+| Selo Destaque/Turbo | ✅ | discreto — mesma cor de marca nos dois, só o peso visual muda (contorno vs. preenchido); sem neon, gradiente ou animação chamativa |
+| Cancelar | ✅ | não devolve o benefício do mês (dito na tela) |
+
+### Home e busca
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| "Espaços em destaque" na home | ✅ | só existe quando há promoção ativa de verdade — **nenhuma seção vazia ou anúncio fictício** |
+| Ordenação da home | ✅ | Turbo > Destaque > anúncio comum, exatamente como pedido |
+| Busca: promoção nunca destrói relevância | ✅ | ordem é tipo → localização → disponibilidade → filtros → promoção; promoção é **critério de desempate**, nunca substitui os anteriores (o exemplo do pedido — vaga em Colatina não perder para um galpão longe só por ter Turbo — é garantido pela query, não por sorte) |
+
+### Selo Premium e página `/premium`
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| "✦ Membro Premium" | ✅ | perfil do dono e anúncios dele — estrela verde de quatro pontas (`Sparkle`) |
+| Clique abre painel com benefícios + "Torne-se membro" | ✅ | funciona como descoberta orgânica do Premium, como pedido |
+| `/premium` | ✅ | consumo real do mês para quem é Premium ("1 de 2 utilizados"); para quem não é, diz com honestidade que a assinatura ainda não existe, sem fingir um botão de assinar |
+
+### Favoritos e compartilhamento
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Preço salvo no momento de favoritar | ✅ | nova coluna `favorites.price_cents_at_favorite` — aviso "o preço mudou" com o valor real de antes |
+| Disponíveis/Indisponíveis separados | ✅ | com o motivo (pausado, alugado, etc.) |
+| Compartilhamento e metadados de link | ✅ | já existiam da Fase 3/4 — confirmados intactos, sem mudança necessária |
+
+### Como virar Premium hoje — mecanismo interino
+
+O pedido foi explícito: a assinatura paga é uma etapa futura, ainda a
+decidir. Até lá, o único caminho para o selo Premium é a concessão manual
+pelo admin em `/admin/usuarios` — mesmo padrão já usado para suspender
+conta, auditado, reversível. **Isso foi uma decisão minha, comunicada antes
+de implementar** (não pedida explicitamente) para o sistema de benefícios
+não ficar bloqueado esperando a etapa de pagamento.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Concessão/revogação de Premium pelo admin | ✅ | `/admin/usuarios`, idempotente, auditado, admin não concede a si mesmo |
+| Assinatura paga real | ⬜ | decisão de negócio e modelo de preço ainda não enviados pelo usuário |
+| Compra avulsa de Destaque/Turbo | ⬜ | preço ainda não decidido — schema já pronto (`transaction_id`, `source: 'purchase'`) para quando existir, mas **nenhuma loja foi construída agora**, por pedido explícito de não complicar esta etapa |
+
+### Segurança
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Autorização | ✅ | `getOwnedSpace` — só o dono promove o próprio anúncio, testado |
+| Servidor nunca confia no navegador | ✅ | preço, tipo de promoção, quantidade de crédito e status são sempre recalculados no servidor |
+| Ações sensíveis auditadas | ✅ | ativar/cancelar promoção e conceder/revogar Premium gravam em `audit_logs` |
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Banco (`scripts/verify-promotions.ts`, novo) | ✅ | 40 checagens — ativação, autorização, cota mensal, Turbo, sobreposição, cancelamento, concorrência real, vitrine, expiração (520 no total em `pnpm verify`, era 472) |
+| Admin (`scripts/verify-admin.ts`, seção nova) | ✅ | +8 checagens — conceder/revogar Premium pela ação real |
+| Navegador (TESTE O, novo) | ✅ | 21 checagens em Chromium real — ativar e cancelar pela tela, selo na home/busca/Meus espaços, consumo real em `/premium`, selo Premium visto por outra pessoa, favoritos com preço/status reais, admin concedendo e revogando pela interface de verdade (205 no total em `pnpm verify:integracoes`, era 184) |
+
+**Três bugs reais encontrados escrevendo o TESTE O** (pegos pelo Chromium
+real travando em `waitFor`, não hipotéticos — o app nunca tinha sido
+visitado por um navegador de verdade antes deste teste):
+
+1. **A confirmação "Destaque ativado com sucesso." nunca aparecia**, e
+   reabrir o dialog depois de promover mostrava a mensagem de sucesso
+   **para sempre**, mesmo em aberturas futuras sem relação com aquela
+   ativação. Causa: `revalidatePath` entrega a promoção recém-criada
+   (`activePromotion`) na **mesma renderização** em que `useActionState`
+   entrega `{ok:true}` — e o componente checava `activePromotion` primeiro,
+   pulando direto para o painel "já ativo" sem nunca mostrar a confirmação;
+   como `useActionState` não tem um jeito de "resetar", o valor antigo
+   ficava colado em qualquer abertura futura do mesmo dialog. Corrigido
+   extraindo o corpo do dialog num componente próprio, remontado
+   (`key`) a cada abertura, com a confirmação de sucesso checada **antes**
+   de `activePromotion` — mesma causa afetava o cancelamento
+   ("Destaque cancelado."), corrigida junto.
+2. **`RangeError: Invalid time value`, 500 real em `/premium`** para quem
+   é Premium. `db.execute()` (consulta crua para o período do mês) devolve
+   o valor do driver como **string**, não como `Date` — o genérico
+   `db.execute<{periodEnd: Date}>()` é só um cast de TypeScript, não
+   converte nada em tempo de execução. `Intl.DateTimeFormat.format()`
+   recebendo essa string quebrava. Corrigido com `new Date(...)` explícito
+   no retorno de `getMonthlyBenefitUsage`.
+3. **Erro de hidratação do React (#418)** ao abrir o selo Premium na página
+   do anúncio. `PremiumBadge` renderiza um `<dialog>` (não é "phrasing
+   content"), e o único lugar que o usa colocava o componente dentro de um
+   `<p>` — HTML inválido; o parser do navegador fecha o `<p>` mais cedo,
+   dando uma árvore diferente da que o React esperava. Corrigido trocando
+   o `<p>` por `<div>` em `espacos/[slug]/page.tsx`.
+
+Dois problemas menores, também reais, encontrados na mesma revisão:
+`<Link>` envolvendo um `<Button>` (aninhamento de conteúdo interativo
+inválido em HTML) em dois lugares novos — corrigido usando `buttonVariants`
+direto no `<Link>`, o mesmo padrão já usado em `/reservas` e na página do
+anúncio; e `donoPromoId` (identidade nova do TESTE O) não estava incluído
+na limpeza ao final do teste, o que acumularia espaços e contas órfãs a
+cada execução — corrigido.
+
+### O que ficou fora desta etapa, por pedido explícito
+
+- Compra avulsa de Destaque/Turbo (preço ainda não decidido) — ver acima.
+- Loja/checkout de créditos — pedido explícito de não construir agora (§4).
+- Valorização, pontuação, previsão de preço, inteligência imobiliária,
+  dados de prefeitura, anúncios de terceiros — não implementado, por pedido
+  explícito (§22 do texto original).
+
+### O que ficou fora desta etapa, honestamente (não pedido para ficar de fora)
+
+- A passada de refinamento visual pedida para **o app inteiro** (§16) não
+  foi feita — só as telas novas de Destaque/Premium seguem a linguagem
+  visual discreta pedida; as telas pré-existentes não foram revisadas de
+  novo nesta etapa.
+- Primeira visita (§15) e microinterações mais amplas (§17) foram
+  endereçadas só de forma incidental, dentro das telas novas — não como
+  passada dedicada no restante do app.
+- Auditoria sistemática de todos os estados de interface (§18: pausado,
+  esgotado, etc. em toda tela) não foi feita como checklist formal — os
+  estados relevantes às telas novas foram tratados e testados.
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
@@ -594,10 +736,11 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 184 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 205 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
 aceitar e cancelar aluguel, o de configurar recebimento e pagar, o chat
-com e-mail de aviso e mensagem de sistema, e o painel administrativo).
+com e-mail de aviso e mensagem de sistema, o painel administrativo, e
+Destaque/Turbo/Premium).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -673,14 +816,18 @@ colar o DSN ([SETUP.md §7](./SETUP.md#7-sentry-erros-antes-de-produção)).
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 656 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
+São 725 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
 busca (com GPS real), filtros, favoritos, galeria, compartilhar, o fluxo de
 solicitar/aceitar/cancelar aluguel, o chat, os paineis financeiros (com
-webhook de pagamento disparado pela rota HTTP real) e o painel administrativo
+webhook de pagamento disparado pela rota HTTP real), o painel administrativo
 (fila de moderação, resolver denúncia, suspensão manual, o 404 pra quem não
-é admin) rodam em Chromium de verdade (`pnpm verify:integracoes`). O que
-ainda não tem teste automatizado de interface: cadastro, login e o painel
-"Meus espaços".
+é admin) e o sistema de Destaque/Turbo/Premium (ativar e cancelar pela tela,
+selo na home/busca/Meus espaços, consumo real em `/premium`, admin
+concedendo e revogando Premium) rodam em Chromium de verdade
+(`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
+interface: cadastro, login, e as ações de pausar/editar/excluir dentro de
+"Meus espaços" (só o fluxo de Destacar, dentro dessa mesma tela, foi
+testado).
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -699,8 +846,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 472 checagens contra o Postgres real
-pnpm verify:integracoes              # 184 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo)
+pnpm verify                          # 520 checagens contra o Postgres real
+pnpm verify:integracoes              # 205 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real
 pnpm dev                             # http://localhost:3000

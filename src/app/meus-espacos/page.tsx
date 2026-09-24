@@ -153,7 +153,7 @@ export default async function MeusEspacosPage({
                           {s.title?.trim() || `${spaceTypeLabel(s.type as SpaceTypeKey)} sem título`}
                         </h2>
                         <span className="flex items-center gap-1.5 shrink-0">
-                          {promocao && <PromotionBadge type={promocao.type} size="xs" />}
+                          {promocao && <PromotionBadge type={promocao.type} size="xs" data-testid="promocao-badge" />}
                           <Badge tone={badge.tone}>{badge.label}</Badge>
                         </span>
                       </div>

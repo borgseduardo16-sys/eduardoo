@@ -8,7 +8,7 @@ import {
 } from '@/lib/promotions/actions';
 import { formatPromotionDateLong } from '@/lib/promotions/format';
 import { PromotionBadge } from './promotion-badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { SubmitButton } from '@/components/auth/form-shell';
 import { cn } from '@/lib/utils';
@@ -16,6 +16,8 @@ import { cn } from '@/lib/utils';
 type PromotionType = 'destaque' | 'turbo';
 
 type BenefitInfo = { used: number; limit: number; remaining: number };
+
+type ActivePromotion = { id: string; type: PromotionType; expiresAt: Date };
 
 export function PromoteSpaceDialog({
   spaceId,
@@ -27,21 +29,18 @@ export function PromoteSpaceDialog({
 }: {
   spaceId: string;
   spaceTitle: string;
-  activePromotion: { id: string; type: PromotionType; expiresAt: Date } | null;
+  activePromotion: ActivePromotion | null;
   premium: boolean;
   destaqueBenefit: BenefitInfo;
   turboBenefit: BenefitInfo;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
-  const [tipo, setTipo] = useState<PromotionType | ''>('');
-
-  const [ativarState, ativarAction] = useActionState<PromotionActionState | undefined, FormData>(
-    activatePromotionAction, undefined,
-  );
-  const [cancelarState, cancelarAction] = useActionState<PromotionActionState | undefined, FormData>(
-    cancelPromotionAction, undefined,
-  );
+  // Muda a cada abertura — usado como `key` do corpo do dialog, para forcar
+  // ele a remontar (e o useActionState de dentro voltar ao estado inicial)
+  // em vez de arrastar o resultado de uma ativacao/cancelamento anterior
+  // para a proxima vez que a pessoa abrir o mesmo dialog.
+  const [sessao, setSessao] = useState(0);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -50,19 +49,13 @@ export function PromoteSpaceDialog({
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
-  // Depois de ativar ou cancelar com sucesso, a lista de "Meus espaços" é
-  // revalidada pela própria action — fechar aqui evita o dialog ficar aberto
-  // mostrando um estado que a tela por trás já não tem mais.
-  useEffect(() => {
-    if (ativarState?.ok || cancelarState?.ok) {
-      const t = setTimeout(() => setOpen(false), 1200);
-      return () => clearTimeout(t);
-    }
-  }, [ativarState, cancelarState]);
-
   return (
     <>
-      <Button type="button" variant="quiet" size="sm" onClick={() => setOpen(true)}>
+      <Button
+        type="button" variant="quiet" size="sm"
+        onClick={() => { setSessao((s) => s + 1); setOpen(true); }}
+        data-testid="botao-destacar"
+      >
         <Rocket className="size-4" aria-hidden />
         {activePromotion ? 'Promoção' : 'Destacar'}
       </Button>
@@ -98,82 +91,147 @@ export function PromoteSpaceDialog({
           </button>
         </div>
 
-        {activePromotion ? (
-          <div className="p-5 pt-2 space-y-4">
-            {cancelarState?.ok ? (
-              <Alert tone="success">{cancelarState.message}</Alert>
-            ) : (
-              <>
-                <div className="flex items-center gap-2 p-3 rounded-[var(--radius-field)] bg-[var(--surface-sunken)]">
-                  <PromotionBadge type={activePromotion.type} />
-                  <p className="text-[0.8125rem] text-[var(--content-muted)]">
-                    Ativo até {formatPromotionDateLong(activePromotion.expiresAt)}
-                  </p>
-                </div>
-                {cancelarState?.message && !cancelarState.ok && (
-                  <Alert tone="critical">{cancelarState.message}</Alert>
-                )}
-                <form action={cancelarAction}>
-                  <input type="hidden" name="promotionId" value={activePromotion.id} />
-                  <Button type="submit" variant="secondary" block>
-                    Cancelar promoção
-                  </Button>
-                </form>
-                <p className="text-[0.75rem] text-[var(--content-subtle)] leading-relaxed">
-                  Cancelar não devolve o benefício deste mês.
-                </p>
-              </>
-            )}
-          </div>
-        ) : !premium ? (
-          <div className="p-5 pt-2 space-y-4">
-            <p className="text-[0.9375rem] text-[var(--content-muted)] leading-relaxed">
-              Destaque e Turbo são benefícios de quem é Membro Premium. Assine para aumentar a
-              exposição dos seus anúncios.
-            </p>
-            <Link href="/premium">
-              <Button type="button" block>
-                Conhecer o Premium
-              </Button>
-            </Link>
-          </div>
-        ) : ativarState?.ok ? (
-          <div className="p-5 pt-2 space-y-4">
-            <Alert tone="success" title="Promoção ativada">{ativarState.message}</Alert>
-          </div>
-        ) : (
-          <form action={ativarAction} className="p-5 pt-2 space-y-4">
-            <input type="hidden" name="spaceId" value={spaceId} />
-            <input type="hidden" name="type" value={tipo} />
-
-            {ativarState?.message && !ativarState.ok && <Alert tone="critical">{ativarState.message}</Alert>}
-
-            <div className="space-y-2">
-              <OpcaoPromocao
-                selecionado={tipo === 'destaque'}
-                onSelect={() => setTipo('destaque')}
-                beneficio={destaqueBenefit}
-                icone={Star}
-                titulo="Destaque"
-                descricao="Mais visibilidade dentro do marketplace."
-              />
-              <OpcaoPromocao
-                selecionado={tipo === 'turbo'}
-                onSelect={() => setTipo('turbo')}
-                beneficio={turboBenefit}
-                icone={Zap}
-                titulo="Turbo"
-                descricao="Prioridade máxima de exposição."
-              />
-            </div>
-
-            <SubmitButton disabled={!tipo}>
-              {tipo ? `Ativar ${tipo === 'turbo' ? 'Turbo' : 'Destaque'}` : 'Escolha uma opção'}
-            </SubmitButton>
-          </form>
-        )}
+        <PromoteDialogBody
+          key={sessao}
+          spaceId={spaceId}
+          activePromotion={activePromotion}
+          premium={premium}
+          destaqueBenefit={destaqueBenefit}
+          turboBenefit={turboBenefit}
+          onDone={() => setOpen(false)}
+        />
       </dialog>
     </>
+  );
+}
+
+/**
+ * Corpo do dialog — separado do componente de fora só para poder remontar
+ * (via `key={sessao}`) a cada abertura.
+ *
+ * A ordem das checagens importa: `ativarState`/`cancelarState` vêm de
+ * `useActionState`, local a esta submissão; `activePromotion` vem de props,
+ * recalculado no servidor e entregue de volta pela MESMA `revalidatePath`
+ * que a action chama — os dois chegam juntos, na mesma renderização. Checar
+ * `activePromotion` antes faria a confirmação de sucesso nunca aparecer
+ * (pularia direto pro painel "já ativo"/formulário). Por isso o sucesso vem
+ * primeiro aqui; o remontar por `sessao` evita que ele fique "grudado" numa
+ * proxima abertura, depois que a pessoa ja fechou o dialog.
+ */
+function PromoteDialogBody({
+  spaceId, activePromotion, premium, destaqueBenefit, turboBenefit, onDone,
+}: {
+  spaceId: string;
+  activePromotion: ActivePromotion | null;
+  premium: boolean;
+  destaqueBenefit: BenefitInfo;
+  turboBenefit: BenefitInfo;
+  onDone: () => void;
+}) {
+  const [tipo, setTipo] = useState<PromotionType | ''>('');
+
+  const [ativarState, ativarAction] = useActionState<PromotionActionState | undefined, FormData>(
+    activatePromotionAction, undefined,
+  );
+  const [cancelarState, cancelarAction] = useActionState<PromotionActionState | undefined, FormData>(
+    cancelPromotionAction, undefined,
+  );
+
+  // Depois de ativar ou cancelar com sucesso, a lista de "Meus espaços" é
+  // revalidada pela própria action — fechar aqui evita o dialog ficar aberto
+  // mostrando um estado que a tela por trás já não tem mais.
+  useEffect(() => {
+    if (ativarState?.ok || cancelarState?.ok) {
+      const t = setTimeout(onDone, 1200);
+      return () => clearTimeout(t);
+    }
+  }, [ativarState, cancelarState, onDone]);
+
+  if (ativarState?.ok) {
+    return (
+      <div className="p-5 pt-2 space-y-4">
+        <Alert tone="success" title="Promoção ativada">{ativarState.message}</Alert>
+      </div>
+    );
+  }
+
+  if (cancelarState?.ok) {
+    return (
+      <div className="p-5 pt-2 space-y-4">
+        <Alert tone="success">{cancelarState.message}</Alert>
+      </div>
+    );
+  }
+
+  if (activePromotion) {
+    return (
+      <div className="p-5 pt-2 space-y-4">
+        <div className="flex items-center gap-2 p-3 rounded-[var(--radius-field)] bg-[var(--surface-sunken)]">
+          <PromotionBadge type={activePromotion.type} />
+          <p className="text-[0.8125rem] text-[var(--content-muted)]">
+            Ativo até {formatPromotionDateLong(activePromotion.expiresAt)}
+          </p>
+        </div>
+        {cancelarState?.message && !cancelarState.ok && (
+          <Alert tone="critical">{cancelarState.message}</Alert>
+        )}
+        <form action={cancelarAction}>
+          <input type="hidden" name="promotionId" value={activePromotion.id} />
+          <Button type="submit" variant="secondary" block>
+            Cancelar promoção
+          </Button>
+        </form>
+        <p className="text-[0.75rem] text-[var(--content-subtle)] leading-relaxed">
+          Cancelar não devolve o benefício deste mês.
+        </p>
+      </div>
+    );
+  }
+
+  if (!premium) {
+    return (
+      <div className="p-5 pt-2 space-y-4">
+        <p className="text-[0.9375rem] text-[var(--content-muted)] leading-relaxed">
+          Destaque e Turbo são benefícios de quem é Membro Premium. Assine para aumentar a
+          exposição dos seus anúncios.
+        </p>
+        <Link href="/premium" className={buttonVariants({ block: true })}>
+          Conhecer o Premium
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <form action={ativarAction} className="p-5 pt-2 space-y-4">
+      <input type="hidden" name="spaceId" value={spaceId} />
+      <input type="hidden" name="type" value={tipo} />
+
+      {ativarState?.message && !ativarState.ok && <Alert tone="critical">{ativarState.message}</Alert>}
+
+      <div className="space-y-2">
+        <OpcaoPromocao
+          selecionado={tipo === 'destaque'}
+          onSelect={() => setTipo('destaque')}
+          beneficio={destaqueBenefit}
+          icone={Star}
+          titulo="Destaque"
+          descricao="Mais visibilidade dentro do marketplace."
+        />
+        <OpcaoPromocao
+          selecionado={tipo === 'turbo'}
+          onSelect={() => setTipo('turbo')}
+          beneficio={turboBenefit}
+          icone={Zap}
+          titulo="Turbo"
+          descricao="Prioridade máxima de exposição."
+        />
+      </div>
+
+      <SubmitButton disabled={!tipo}>
+        {tipo ? `Ativar ${tipo === 'turbo' ? 'Turbo' : 'Destaque'}` : 'Escolha uma opção'}
+      </SubmitButton>
+    </form>
   );
 }
 

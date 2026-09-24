@@ -226,10 +226,16 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
           <section className="rounded-[var(--radius-card)] border p-5 space-y-4">
             <div className="space-y-1">
               <h2 className="font-semibold">Quem anuncia</h2>
-              <p className="flex items-center gap-2 flex-wrap text-[var(--content-muted)]">
+              {/*
+                div, nao p: PremiumBadge renderiza um <dialog> (nao e
+                "phrasing content"), invalido dentro de <p> — o parser HTML
+                fecharia o <p> mais cedo, dando uma arvore diferente da que o
+                React espera e causando erro de hidratacao.
+              */}
+              <div className="flex items-center gap-2 flex-wrap text-[var(--content-muted)]">
                 {space.owner.fullName ?? 'Proprietário'}
                 {space.owner.isPremium && <PremiumBadge />}
-              </p>
+              </div>
             </div>
             <TrustBadges
               input={{

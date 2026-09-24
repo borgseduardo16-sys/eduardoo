@@ -126,6 +126,8 @@ const LONGE = { lat: -20.3297, lng: -40.2925 };
  * TESTE B/E/F esperam — ja aconteceu uma vez, corrigido isolando aqui.
  */
 const ISOLADO = { lat: -18.0001, lng: -40.0001 };
+/** Isolada tambem, so pro TESTE O — mesmo motivo de ISOLADO, sem dividir o ponto com o TESTE L. */
+const ISOLADO_PROMO = { lat: -18.777, lng: -40.222 };
 const GPS_EXIF = { lat: '19/1 32/1 1896/100', lng: '40/1 37/1 4620/100' };
 
 /** Foto como sai de um celular: grande, com GPS e identificacao do aparelho. */
@@ -168,6 +170,9 @@ const outroId = crypto.randomUUID();
 /** Fase 11: administrador do TESTE N, e a conta que ele acaba suspendendo. */
 const adminId = crypto.randomUUID();
 const alvoAdminId = crypto.randomUUID();
+/** Fase 13: dono Premium do TESTE O — precisa de identidade propria porque
+ * `donoId` ja participa de A-N com estado proprio (fotos, reservas, chat). */
+const donoPromoId = crypto.randomUUID();
 
 let testbed: Testbed | null = null;
 let nextProc: ChildProcess | null = null;
@@ -246,7 +251,7 @@ async function main() {
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMN').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNO').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -261,6 +266,7 @@ async function main() {
   if (quais.includes('L')) await testeLPagamento();
   if (quais.includes('M')) await testeMChat();
   if (quais.includes('N')) await testeNAdmin();
+  if (quais.includes('O')) await testeOPromocoes();
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -1996,6 +2002,200 @@ async function testeNAdmin() {
   await pageAdmin.context().close();
 }
 
+async function testeOPromocoes() {
+  secao('TESTE O (navegador) - Destaque/Turbo/Premium (Fase 13, Parte 5)');
+
+  /*
+   * Identidade e coordenada proprias (ISOLADO_PROMO) — mesmo motivo do
+   * TESTE L/N: nao contaminar a contagem exata por raio de B/E/F.
+   * Premium concedido direto por SQL aqui (simula "de algum jeito a pessoa
+   * ja e Premium") porque o CAMINHO de concessao pelo admin ja e coberto,
+   * pela interface de verdade, mais abaixo neste mesmo teste, com uma
+   * identidade DIFERENTE — as duas coisas nao precisam ser a mesma conta.
+   */
+  await sql`INSERT INTO auth.users (id, email) VALUES (${donoPromoId}, ${`${tag}-donopromo@exemplo.invalid`})`;
+  await sql`UPDATE profiles SET role='owner', full_name=${`Dono Promo ${tag}`} WHERE id=${donoPromoId}`;
+  await sql`INSERT INTO premium_memberships (user_id, status, source, granted_by)
+    VALUES (${donoPromoId}, 'active', 'admin_grant', ${donoPromoId})`;
+
+  const espacoDisponivel = await publicarDireto(
+    donoPromoId, `${tag}-promo-disponivel`, 'Sala para teste de Destaque', 'sala', 30000,
+    ISOLADO_PROMO, 'Colatina', 'coberto',
+  );
+  const espacoIndisponivelId = await publicarDireto(
+    donoPromoId, `${tag}-promo-indisponivel`, 'Sala pausada para teste de favoritos', 'sala', 40000,
+    { lat: ISOLADO_PROMO.lat + 0.01, lng: ISOLADO_PROMO.lng }, 'Colatina', 'coberto',
+  );
+  await sql`UPDATE spaces SET status='paused' WHERE id=${espacoIndisponivelId}`;
+
+  // outro (identidade ja existente, A-N) favorita os dois — um com preco
+  // diferente do atual, pra provar o aviso de "preco mudou" sem precisar de
+  // um segundo passo mudando o preco depois.
+  await sql`INSERT INTO favorites (user_id, space_id, price_cents_at_favorite)
+    VALUES (${outroId}, ${espacoDisponivel}, 25000)`;
+  await sql`INSERT INTO favorites (user_id, space_id, price_cents_at_favorite)
+    VALUES (${outroId}, ${espacoIndisponivelId}, 40000)`;
+
+  testbed!.users.set(donoPromoId, {
+    id: donoPromoId, email: `${tag}-donopromo@exemplo.invalid`, token: fakeJwt(donoPromoId, 'donopromo'),
+  });
+
+  // =========================================================================
+  // 1. Ativar Destaque pela interface, em Meus espacos
+  // =========================================================================
+  const pageDonoPromo = await novaAba(testbed!.users.get(donoPromoId)!, { viewport: { width: 1280, height: 900 } });
+  await pageDonoPromo.goto(`${baseUrl}/meus-espacos`, { waitUntil: 'domcontentloaded' });
+  // getByRole('heading', ...) de proposito, nao getByText: o dialog de
+  // Destacar (PromoteSpaceDialog) fica sempre no DOM, so escondido — e ecoa
+  // o titulo do espaco num <p>, o que faria um getByText solto bater em dois
+  // elementos (o <h2> do card e o <p> escondido do dialog).
+  await pageDonoPromo.getByRole('heading', { name: 'Sala para teste de Destaque' }).waitFor({ timeout: 20_000 });
+
+  const cardDisponivel = pageDonoPromo.locator('li', { hasText: 'Sala para teste de Destaque' }).first();
+  await cardDisponivel.getByTestId('botao-destacar').click();
+
+  const dialogPromo = pageDonoPromo.locator('dialog[open]');
+  await dialogPromo.getByText('Escolha como promover').waitFor({ timeout: 10_000 });
+  ok('dialog de destacar abre, com as duas opcoes');
+  await dialogPromo.getByText('2 de 2 disponíveis').waitFor({ timeout: 5_000 });
+  ok('mostra o saldo real do mes (2 de 2 Destaques) — nada de saldo inventado');
+
+  await dialogPromo.getByRole('radio').first().check();
+  await dialogPromo.getByRole('button', { name: 'Ativar Destaque' }).click();
+  await dialogPromo.getByText('Destaque ativado com sucesso.').waitFor({ timeout: 20_000 });
+  ok('ativa Destaque pela interface e mostra a confirmacao real');
+
+  await aguardarCondicao(async () => {
+    const [row] = await sql<{ status: string }[]>`
+      SELECT status FROM promotions WHERE space_id=${espacoDisponivel} AND status='active'`;
+    return Boolean(row);
+  }, 'o banco reflete a promocao ativada pela tela');
+
+  await pageDonoPromo.reload({ waitUntil: 'domcontentloaded' });
+  // data-testid proprio do card (nao o texto "Destaque" solto): o dialog,
+  // mesmo fechado, tambem mostra "Destaque" (no proprio selo do estado
+  // "promocao ativa" ali dentro) — um getByText exact ia bater nos dois.
+  const textoBadgeCard = await pageDonoPromo
+    .locator('li', { hasText: 'Sala para teste de Destaque' })
+    .getByTestId('promocao-badge').innerText();
+  assert('o selo de Destaque aparece no card depois de recarregar', textoBadgeCard.includes('Destaque'), textoBadgeCard);
+
+  // =========================================================================
+  // 2. Home: secao "Espacos em destaque"
+  // =========================================================================
+  await pageDonoPromo.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await pageDonoPromo.getByRole('heading', { name: 'Espaços em destaque' }).waitFor({ timeout: 20_000 });
+  const cardNaHome = pageDonoPromo.locator('[data-testid="resultado-card"]', { hasText: 'Sala para teste de Destaque' });
+  await cardNaHome.waitFor({ timeout: 20_000 });
+  await cardNaHome.getByText('Destaque', { exact: true }).waitFor({ timeout: 5_000 });
+  ok('a secao "Espacos em destaque" da home mostra o anuncio, com o selo');
+
+  // =========================================================================
+  // 3. Busca (/espacos): o mesmo selo aparece no resultado
+  // =========================================================================
+  await pageDonoPromo.goto(`${baseUrl}/espacos?onde=Colatina`, { waitUntil: 'domcontentloaded' });
+  const cardNaBusca = pageDonoPromo.locator('[data-testid="resultado-card"]', { hasText: 'Sala para teste de Destaque' });
+  await cardNaBusca.waitFor({ timeout: 20_000 });
+  const textoBadgeBusca = await cardNaBusca.getByTestId('resultado-promocao').innerText();
+  assert('o resultado da busca tambem mostra o selo de Destaque', textoBadgeBusca.includes('Destaque'), textoBadgeBusca);
+
+  // =========================================================================
+  // 4. /premium: consumo real do mes
+  // =========================================================================
+  await pageDonoPromo.goto(`${baseUrl}/premium`, { waitUntil: 'domcontentloaded' });
+  await pageDonoPromo.getByText('1 de 2 utilizado').waitFor({ timeout: 20_000 });
+  ok('/premium mostra o consumo real (1 de 2 Destaques) apos ativar pela tela');
+  await pageDonoPromo.context().close();
+
+  // =========================================================================
+  // 5. Selo "Membro Premium" no anuncio, visto por outra pessoa
+  // =========================================================================
+  const pageOutroVe = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 1280, height: 900 } });
+  await pageOutroVe.goto(`${baseUrl}/espacos/${tag}-promo-disponivel`, { waitUntil: 'domcontentloaded' });
+  const seloPremium = pageOutroVe.getByRole('button', { name: /Membro Premium/ });
+  await seloPremium.waitFor({ timeout: 20_000 });
+  ok('quem NAO e o dono ve o selo "Membro Premium" no anuncio');
+  await seloPremium.click();
+  await pageOutroVe.getByText('2 Destaques gratuitos por mês').waitFor({ timeout: 10_000 });
+  await pageOutroVe.getByRole('link', { name: 'Torne-se membro' }).waitFor({ timeout: 5_000 });
+  ok('clicar no selo abre o painel com os beneficios e o CTA — descoberta organica, como pedido');
+
+  // =========================================================================
+  // 6. Favoritos: separado em Disponiveis/Indisponiveis + aviso de preco
+  // =========================================================================
+  await pageOutroVe.goto(`${baseUrl}/favoritos`, { waitUntil: 'domcontentloaded' });
+  // exact: true de proposito — "Indisponíveis (1)" contem "disponíveis (1)"
+  // como substring (comparacao sem exact e sem diferenciar maiusculas), o
+  // que bateria nas duas headings de uma vez so.
+  await pageOutroVe.getByRole('heading', { name: 'Disponíveis (1)', exact: true }).waitFor({ timeout: 20_000 });
+  await pageOutroVe.getByRole('heading', { name: 'Indisponíveis (1)', exact: true }).waitFor({ timeout: 5_000 });
+  ok('favoritos separa disponiveis e indisponiveis em secoes proprias');
+
+  await pageOutroVe.getByText('O preço mudou — era R$ 250,00 quando você favoritou.').waitFor({ timeout: 10_000 });
+  ok('aviso de mudanca de preco aparece, com o valor real salvo no momento de favoritar');
+
+  await pageOutroVe.getByText('Pausado pelo anunciante').waitFor({ timeout: 5_000 });
+  ok('anuncio pausado aparece na secao indisponivel, com o motivo certo');
+  await pageOutroVe.context().close();
+
+  // =========================================================================
+  // 7. Cancelar a promocao pela interface
+  // =========================================================================
+  const pageDonoCancela = await novaAba(testbed!.users.get(donoPromoId)!, { viewport: { width: 1280, height: 900 } });
+  await pageDonoCancela.goto(`${baseUrl}/meus-espacos`, { waitUntil: 'domcontentloaded' });
+  await pageDonoCancela.getByRole('heading', { name: 'Sala para teste de Destaque' }).waitFor({ timeout: 20_000 });
+  const cardParaCancelar = pageDonoCancela.locator('li', { hasText: 'Sala para teste de Destaque' }).first();
+  await cardParaCancelar.getByTestId('botao-destacar').click();
+
+  const dialogCancelar = pageDonoCancela.locator('dialog[open]');
+  await dialogCancelar.getByText('Ativo até').waitFor({ timeout: 10_000 });
+  ok('reabrir o dialog num anuncio ja promovido mostra o status real, nao o formulario de escolha');
+  await dialogCancelar.getByRole('button', { name: 'Cancelar promoção' }).click();
+  await dialogCancelar.getByText('Destaque cancelado.').waitFor({ timeout: 20_000 });
+  ok('cancela a promocao pela interface');
+
+  await aguardarCondicao(async () => {
+    const [row] = await sql<{ status: string }[]>`
+      SELECT status FROM promotions WHERE space_id=${espacoDisponivel} AND status='active'`;
+    return !row;
+  }, 'o banco reflete o cancelamento feito pela tela');
+
+  await pageDonoCancela.reload({ waitUntil: 'domcontentloaded' });
+  const temSeloAindaCount = await pageDonoCancela
+    .locator('li', { hasText: 'Sala para teste de Destaque' })
+    .getByTestId('promocao-badge').count();
+  expect('o selo de Destaque some do card apos cancelar', temSeloAindaCount, 0);
+  await pageDonoCancela.context().close();
+
+  // =========================================================================
+  // 8. Admin concede Premium pela interface de verdade (nao so pela action)
+  // =========================================================================
+  const pageAdminPromo = await novaAba(testbed!.users.get(adminId)!, { viewport: { width: 1000, height: 900 } });
+  await pageAdminPromo.goto(`${baseUrl}/admin/usuarios?q=${encodeURIComponent('Outro')}`, { waitUntil: 'domcontentloaded' });
+  const cardOutroAdmin = pageAdminPromo.locator('li', { hasText: `Outro ${tag}` });
+  await cardOutroAdmin.waitFor({ timeout: 20_000 });
+  await cardOutroAdmin.getByRole('button', { name: 'Conceder Premium' }).click();
+  await cardOutroAdmin.getByText('Premium concedido.').waitFor({ timeout: 20_000 });
+  ok('admin concede Premium pela interface real de /admin/usuarios');
+
+  await aguardarCondicao(async () => {
+    const [row] = await sql<{ status: string }[]>`
+      SELECT status FROM premium_memberships WHERE user_id=${outroId} AND status='active'`;
+    return Boolean(row);
+  }, 'o banco reflete o Premium concedido pela tela');
+
+  await pageAdminPromo.reload({ waitUntil: 'domcontentloaded' });
+  await pageAdminPromo.getByText('✦ Premium').waitFor({ timeout: 10_000 });
+  ok('o selo "✦ Premium" aparece no card da conta depois de conceder');
+
+  // Revoga de volta — outroId e reusado por outros testes (A-N) que nao
+  // esperam Premium concedido; deixar isto sujaria a identidade compartilhada.
+  await cardOutroAdmin.getByRole('button', { name: 'Revogar Premium' }).click();
+  await cardOutroAdmin.getByText('Premium revogado.').waitFor({ timeout: 20_000 });
+  ok('admin revoga Premium pela interface (limpeza da identidade compartilhada)');
+  await pageAdminPromo.context().close();
+}
+
 // ---------------------------------------------------------------------------
 
 /*
@@ -2037,7 +2237,7 @@ async function limpar() {
   }
 
   try {
-    const idsDosEspacos = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE owner_id IN (${donoId}, ${outroId})`;
+    const idsDosEspacos = await sql<{ id: string }[]>`SELECT id FROM spaces WHERE owner_id IN (${donoId}, ${outroId}, ${donoPromoId})`;
     for (const { id } of idsDosEspacos) {
       try {
         await sql`DELETE FROM spaces WHERE id = ${id}`;
@@ -2084,6 +2284,24 @@ async function limpar() {
     });
   } catch (err) {
     console.log(`  ${FRACO}limpeza de adminId/alvoAdminId: ${String(err).slice(0, 140)}${FIM}`);
+  }
+
+  try {
+    /*
+     * donoPromoId (TESTE O) tambem grava audit_logs de verdade — ativar e
+     * cancelar Destaque pela tela loga la, mesmo motivo do bloco de
+     * donoId/outroId acima. Em transacao separada deles: donoPromoId nunca
+     * cria reserva/pagamento, entao nao ha razao pra ficar preso por causa
+     * de um lancamento no razao de outra identidade.
+     */
+    await sql.begin(async (tx) => {
+      await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
+      await tx`DELETE FROM public.audit_logs WHERE actor_id = ${donoPromoId}`;
+      await tx`DELETE FROM auth.users WHERE id = ${donoPromoId}`;
+      await tx`ALTER TABLE public.audit_logs ENABLE TRIGGER audit_logs_append_only`;
+    });
+  } catch (err) {
+    console.log(`  ${FRACO}limpeza de donoPromoId: ${String(err).slice(0, 140)}${FIM}`);
   }
 
   await browser?.close().catch(() => {});

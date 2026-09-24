@@ -95,8 +95,12 @@ export async function getMonthlyBenefitUsage(ownerId: string): Promise<BenefitUs
 
   return {
     premium: membership?.status === 'active',
-    periodStart: periodo!.period_start,
-    periodEnd: periodo!.period_end,
+    // `db.execute` devolve o valor bruto do driver — uma string, nao um
+    // Date, apesar do generic dizer o contrario (e so um cast, nao converte
+    // nada em runtime). `new Date(...)` garante o tipo que `BenefitUsage`
+    // promete.
+    periodStart: new Date(periodo!.period_start),
+    periodEnd: new Date(periodo!.period_end),
     destaque: {
       used: destaqueUsed,
       limit: destaqueLimit,
