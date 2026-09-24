@@ -1,6 +1,24 @@
+import { timingSafeEqual } from 'node:crypto';
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireIntegration, IntegrationNotConfiguredError } from '@/lib/env';
 import { processAsaasWebhook, type AsaasWebhookPayload } from '@/lib/payments/webhook';
+
+/**
+ * Compara os dois tokens em tempo constante.
+ *
+ * `!==` sai mais rapido quanto mais cedo os bytes divergem — um atacante
+ * medindo a latencia da resposta consegue, byte a byte, descobrir o token
+ * certo (timing attack). `timingSafeEqual` sempre compara todos os bytes,
+ * mas exige os dois buffers do MESMO tamanho — por isso o `if` de tamanho
+ * vem antes, e sozinho nao vaza informacao util (so "acertou o tamanho",
+ * nao o conteudo).
+ */
+function tokensIguais(recebido: string, esperado: string): boolean {
+  const a = Buffer.from(recebido);
+  const b = Buffer.from(esperado);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 /**
  * POST /api/webhooks/asaas
@@ -29,7 +47,7 @@ export async function POST(request: NextRequest) {
   }
 
   const recebido = request.headers.get('asaas-access-token');
-  if (!recebido || recebido !== webhookToken) {
+  if (!recebido || !tokensIguais(recebido, webhookToken)) {
     // Nunca logar o valor recebido nem o esperado — so o fato de ter divergido.
     console.error('[webhook asaas] token invalido ou ausente');
     return NextResponse.json({ ok: false, reason: 'token invalido' }, { status: 401 });

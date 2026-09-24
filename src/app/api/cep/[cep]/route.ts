@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { lookupCep } from '@/lib/maps/cep-lookup';
 import { CepError, CEP_MESSAGES, onlyDigits } from '@/lib/maps/cep';
+import { rateLimit } from '@/lib/rate-limit';
 
 /**
  * GET /api/cep/29700000  →  endereco do CEP.
@@ -31,29 +32,12 @@ export const dynamic = 'force-dynamic';
 
 /*
  * Freio simples para ninguem transformar esta rota em proxy de raspagem do
- * ViaCEP. Vale por instancia e por janela; nao e defesa contra ataque
- * distribuido — para isso entra o Upstash na fase de producao (ver
- * `requireIntegration('rateLimit')`).
+ * ViaCEP. Usa o mesmo limitador compartilhado (`src/lib/rate-limit.ts`) das
+ * acoes de autenticacao: com Upstash configurado o limite vale entre TODAS
+ * as instancias; sem ele, cai sozinho para um limitador em memoria por
+ * instancia — nunca fica sem freio nenhum, so menos eficaz em multi-instancia.
  */
-const JANELA_MS = 60_000;
-const MAX_POR_JANELA = 40;
-const contagem = new Map<string, { inicio: number; n: number }>();
-
-function excedeuLimite(ip: string): boolean {
-  const agora = Date.now();
-  const atual = contagem.get(ip);
-
-  if (!atual || agora - atual.inicio > JANELA_MS) {
-    contagem.set(ip, { inicio: agora, n: 1 });
-    if (contagem.size > 10_000) {
-      for (const [k, v] of contagem) if (agora - v.inicio > JANELA_MS) contagem.delete(k);
-    }
-    return false;
-  }
-
-  atual.n += 1;
-  return atual.n > MAX_POR_JANELA;
-}
+const CEP_LIMIT = { limit: 40, windowSeconds: 60 };
 
 function clientIp(req: NextRequest): string {
   const fwd = req.headers.get('x-forwarded-for');
@@ -77,10 +61,11 @@ export async function GET(
     );
   }
 
-  if (excedeuLimite(clientIp(request))) {
+  const limite = await rateLimit(`cep:${clientIp(request)}`, CEP_LIMIT);
+  if (!limite.allowed) {
     return NextResponse.json(
       { ok: false, reason: 'indisponivel', message: CEP_MESSAGES.indisponivel },
-      { status: 429, headers: { 'retry-after': '60' } },
+      { status: 429, headers: { 'retry-after': String(limite.retryAfterSeconds || 60) } },
     );
   }
 
