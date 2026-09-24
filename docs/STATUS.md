@@ -444,6 +444,29 @@ compartilhamento, não só sucesso de uma chamada isolada.
 
 ---
 
+## Revisão visual manual ✅ *(pendência antiga da "Parte 4")*
+
+Além dos 656 testes automatizados, uma passada olhando de verdade cada tela
+— desktop e mobile, deslogado/proprietário/locatário/admin — num app real
+rodando (não só o resultado de asserções). Testes automatizados provam que
+o dado certo chega e a ação certa acontece; não provam que a tela **parece**
+certa num celular real.
+
+**Achado e corrigido**: o botão "Anunciar meu espaço" no cabeçalho de quem
+não está logado quebrava em duas linhas e distorcia a altura do cabeçalho em
+telas de 390px ou menos (iPhone SE, 12/13 mini) — um aparelho bem comum. Isso
+nunca apareceu em `pnpm verify:integracoes` porque o viewport mobile dos
+testes é 430px, largura suficiente por pouco. Corrigido com um rótulo curto
+("Anunciar") abaixo do breakpoint `sm`, texto completo a partir do desktop —
+testado em 320/390/430px depois do ajuste. `pnpm verify:integracoes` (184
+checagens) continua passando.
+
+Nenhum outro problema visual encontrado nas telas cobertas: home, busca,
+detalhe do anúncio, cadastro, login, proteção, meus espaços, solicitações,
+financeiro, mensagens, reservas, favoritos e o painel administrativo.
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
