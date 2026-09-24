@@ -13,7 +13,7 @@
 -- Ao terminar, a saida mostra quantas migracoes foram aplicadas agora e
 -- quantas ja estavam no banco.
 --
--- Gerado por scripts/build-supabase-setup.ts a partir de 12 migracoes
+-- Gerado por scripts/build-supabase-setup.ts a partir de 13 migracoes
 -- testadas contra um Postgres real. Nao edite a mao: altere src/db/schema/,
 -- gere a migracao e rode este script de novo.
 -- ============================================================================
@@ -2179,6 +2179,98 @@ END
 $mp_bloco_11$;
 
 
+-- ----------------------------------------------------------------------------
+-- Migracao 12: 0012_absurd_banshee  (20 comandos)
+-- ----------------------------------------------------------------------------
+DO $mp_bloco_12$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = 'c215f21b3e8b05dfc10f576416c59e0f97dc64f2971336b903b4b1e54a57f32e'
+  ) THEN
+    RAISE NOTICE 'Migracao 12 (0012_absurd_banshee) ja aplicada — pulando.';
+  ELSE
+    EXECUTE $mp_12_0$CREATE TYPE "public"."premium_membership_source" AS ENUM('admin_grant', 'subscription');$mp_12_0$;
+
+    EXECUTE $mp_12_1$CREATE TYPE "public"."premium_membership_status" AS ENUM('active', 'cancelled');$mp_12_1$;
+
+    EXECUTE $mp_12_2$CREATE TYPE "public"."promotion_source" AS ENUM('premium_benefit', 'purchase');$mp_12_2$;
+
+    EXECUTE $mp_12_3$CREATE TYPE "public"."promotion_status" AS ENUM('scheduled', 'active', 'expired', 'cancelled');$mp_12_3$;
+
+    EXECUTE $mp_12_4$CREATE TYPE "public"."promotion_type" AS ENUM('destaque', 'turbo');$mp_12_4$;
+
+    EXECUTE $mp_12_5$CREATE TABLE "premium_memberships" (
+	"user_id" uuid PRIMARY KEY NOT NULL,
+	"status" "premium_membership_status" DEFAULT 'active' NOT NULL,
+	"source" "premium_membership_source" DEFAULT 'admin_grant' NOT NULL,
+	"granted_by" uuid,
+	"granted_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"cancelled_by" uuid,
+	"cancelled_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "premium_memberships_cancelled_has_timestamp" CHECK (("premium_memberships"."status" <> 'cancelled') OR ("premium_memberships"."cancelled_at" IS NOT NULL))
+);$mp_12_5$;
+
+    EXECUTE $mp_12_6$CREATE TABLE "promotions" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"space_id" uuid NOT NULL,
+	"owner_id" uuid NOT NULL,
+	"type" "promotion_type" NOT NULL,
+	"status" "promotion_status" DEFAULT 'active' NOT NULL,
+	"source" "promotion_source" NOT NULL,
+	"transaction_id" text,
+	"started_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"expires_at" timestamp with time zone NOT NULL,
+	"cancelled_at" timestamp with time zone,
+	"cancelled_by" uuid,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "promotions_expires_after_started" CHECK ("promotions"."expires_at" > "promotions"."started_at"),
+	CONSTRAINT "promotions_cancelled_has_timestamp" CHECK (("promotions"."status" <> 'cancelled') OR ("promotions"."cancelled_at" IS NOT NULL))
+);$mp_12_6$;
+
+    EXECUTE $mp_12_7$ALTER TABLE "premium_memberships" ADD CONSTRAINT "premium_memberships_user_id_profiles_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."profiles"("id") ON DELETE cascade ON UPDATE no action;$mp_12_7$;
+
+    EXECUTE $mp_12_8$ALTER TABLE "premium_memberships" ADD CONSTRAINT "premium_memberships_granted_by_profiles_id_fk" FOREIGN KEY ("granted_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_12_8$;
+
+    EXECUTE $mp_12_9$ALTER TABLE "premium_memberships" ADD CONSTRAINT "premium_memberships_cancelled_by_profiles_id_fk" FOREIGN KEY ("cancelled_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_12_9$;
+
+    EXECUTE $mp_12_10$ALTER TABLE "promotions" ADD CONSTRAINT "promotions_space_id_spaces_id_fk" FOREIGN KEY ("space_id") REFERENCES "public"."spaces"("id") ON DELETE cascade ON UPDATE no action;$mp_12_10$;
+
+    EXECUTE $mp_12_11$ALTER TABLE "promotions" ADD CONSTRAINT "promotions_owner_id_profiles_id_fk" FOREIGN KEY ("owner_id") REFERENCES "public"."profiles"("id") ON DELETE restrict ON UPDATE no action;$mp_12_11$;
+
+    EXECUTE $mp_12_12$ALTER TABLE "promotions" ADD CONSTRAINT "promotions_cancelled_by_profiles_id_fk" FOREIGN KEY ("cancelled_by") REFERENCES "public"."profiles"("id") ON DELETE set null ON UPDATE no action;$mp_12_12$;
+
+    EXECUTE $mp_12_13$CREATE INDEX "premium_memberships_status_idx" ON "premium_memberships" USING btree ("status");$mp_12_13$;
+
+    EXECUTE $mp_12_14$CREATE INDEX "promotions_space_idx" ON "promotions" USING btree ("space_id");$mp_12_14$;
+
+    EXECUTE $mp_12_15$CREATE INDEX "promotions_owner_period_idx" ON "promotions" USING btree ("owner_id","type","source","created_at");$mp_12_15$;
+
+    EXECUTE $mp_12_16$CREATE INDEX "promotions_status_expires_idx" ON "promotions" USING btree ("status","expires_at");$mp_12_16$;
+
+    EXECUTE $mp_12_17$CREATE UNIQUE INDEX "promotions_one_active_per_space" ON "promotions" USING btree ("space_id") WHERE status IN ('scheduled','active');$mp_12_17$;
+
+    EXECUTE $mp_12_18$-- Tabela nasceu depois do loop generico de RLS da migracao 0001 (que so
+-- alcancou as tabelas que ja existiam naquela hora) — precisa ligar aqui.
+-- Sem nenhuma policy de proposito: mesma categoria de bookings/payments,
+-- so o servidor (conexao privilegiada) le. `ALTER DEFAULT PRIVILEGES` da
+-- migracao 0001 ja revoga o acesso de anon/authenticated por padrao em
+-- tabela nova; isto fecha a mesma porta pelo lado do RLS tambem.
+ALTER TABLE "promotions" ENABLE ROW LEVEL SECURITY;$mp_12_18$;
+
+    EXECUTE $mp_12_19$ALTER TABLE "premium_memberships" ENABLE ROW LEVEL SECURITY;$mp_12_19$;
+
+    INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
+    VALUES ('c215f21b3e8b05dfc10f576416c59e0f97dc64f2971336b903b4b1e54a57f32e', 1790256376220);
+
+    RAISE NOTICE 'Migracao 12 (0012_absurd_banshee) aplicada.';
+  END IF;
+END
+$mp_bloco_12$;
+
+
 -- ============================================================================
 -- Resumo
 -- ============================================================================
@@ -2187,7 +2279,7 @@ DECLARE aplicadas integer;
 BEGIN
   SELECT count(*) INTO aplicadas FROM drizzle.__drizzle_migrations;
   RAISE NOTICE '---';
-  RAISE NOTICE 'Pronto: % de 12 migracoes registradas no banco.', aplicadas;
+  RAISE NOTICE 'Pronto: % de 13 migracoes registradas no banco.', aplicadas;
 END
 $mp_resumo$;
 

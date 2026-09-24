@@ -209,3 +209,51 @@ export const webhookStatus = pgEnum('webhook_status', [
   'failed',
   'ignored',
 ]);
+
+/**
+ * Nivel de promocao de um anuncio. Hierarquia fixa: normal < destaque < turbo.
+ * So dois niveis pagos existem de proposito — o pedido explicito foi "sem
+ * transformar isso em ranking absoluto de todos os anuncios".
+ */
+export const promotionType = pgEnum('promotion_type', ['destaque', 'turbo']);
+
+/**
+ * Estado real de uma promocao — nunca um booleano `is_featured`.
+ * scheduled -> active -> (expired | cancelled)
+ * `scheduled` nao e alcancado pelo fluxo de hoje (toda promocao comeca
+ * `active` na hora), mas existe para permitir agendamento futuro (campanha
+ * comprada para comecar numa data especifica) sem precisar de migracao nova.
+ */
+export const promotionStatus = pgEnum('promotion_status', [
+  'scheduled',
+  'active',
+  'expired',
+  'cancelled',
+]);
+
+/**
+ * De onde veio a promocao. Hoje so `premium_benefit` e alcancavel (credito
+ * mensal do Premium); `purchase` existe pronta para quando a compra avulsa
+ * de Destaque/Turbo for implementada — ver `transactionId` em `promotions`.
+ */
+export const promotionSource = pgEnum('promotion_source', ['premium_benefit', 'purchase']);
+
+/**
+ * Estado da assinatura Premium. Sem `expired` de proposito: enquanto o unico
+ * jeito de virar Premium e o admin conceder manualmente (ver
+ * `premiumMembershipSource`), nao existe uma data de renovacao real para
+ * expirar sozinha — so `cancelled`, decidido por uma pessoa.
+ */
+export const premiumMembershipStatus = pgEnum('premium_membership_status', ['active', 'cancelled']);
+
+/**
+ * Como a pessoa virou Premium.
+ * `admin_grant`  : mecanismo interino de hoje — o admin concede pelo painel,
+ *                  mesmo padrao de suspender/ativar conta (auditado, reversivel).
+ * `subscription` : plano pago, ainda a definir. Existe aqui pronta para
+ *                  quando esse fluxo for decidido, sem precisar de migracao nova.
+ */
+export const premiumMembershipSource = pgEnum('premium_membership_source', [
+  'admin_grant',
+  'subscription',
+]);
