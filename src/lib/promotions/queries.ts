@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { promotions, premiumMemberships, spaces } from '@/db/schema';
+import { promotions, premiumMemberships, spaces, promotionPurchases } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
 import { monthlyBenefitLimit, featuredSectionLimit } from './settings';
 import { hasSearchContext, compatibilityScoreExpr, sameCityAsSearchExpr, type CompatibilityContext } from './compatibility';
@@ -170,9 +170,20 @@ export type PromotionHistoryRow = ActivePromotion & {
   spaceSlug: string;
   source: 'premium_benefit' | 'purchase';
   cancelledAt: Date | null;
+  /** Valor pago, em centavos — so existe pra `source: 'purchase'`; benefício Premium é sempre grátis (null). */
+  priceCents: number | null;
 };
 
-/** Historico de promocoes do proprietario — usado na pagina /premium. */
+/**
+ * Historico de promocoes do proprietario — cada linha e uma promocao que
+ * REALMENTE chegou a existir (a compra avulsa so cria a linha em
+ * `promotions` quando o pagamento confirma, ver `handlePurchaseConfirmed`
+ * em src/lib/payments/webhook.ts), nao toda tentativa de compra.
+ *
+ * `priceCents` vem de um LEFT JOIN com `promotion_purchases` — so preenchido
+ * quando a origem foi `purchase`; benefício Premium nunca tem linha de
+ * cobranca correspondente.
+ */
 export async function listOwnerPromotions(ownerId: string, limit = 20): Promise<PromotionHistoryRow[]> {
   await expireStalePromotions();
   return db
@@ -187,9 +198,11 @@ export async function listOwnerPromotions(ownerId: string, limit = 20): Promise<
       spaceId: promotions.spaceId,
       spaceTitle: spaces.title,
       spaceSlug: spaces.slug,
+      priceCents: promotionPurchases.priceCents,
     })
     .from(promotions)
     .innerJoin(spaces, eq(spaces.id, promotions.spaceId))
+    .leftJoin(promotionPurchases, eq(promotionPurchases.promotionId, promotions.id))
     .where(eq(promotions.ownerId, ownerId))
     .orderBy(desc(promotions.createdAt))
     .limit(limit);

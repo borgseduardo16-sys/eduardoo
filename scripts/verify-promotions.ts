@@ -207,7 +207,7 @@ async function main() {
 
   const { activatePromotionAction, cancelPromotionAction, purchasePromotionAction } =
     await import('../src/lib/promotions/actions');
-  const { getMonthlyBenefitUsage, getActivePromotionForSpace, listFeaturedSpaces, expireStalePromotions } =
+  const { getMonthlyBenefitUsage, getActivePromotionForSpace, listFeaturedSpaces, expireStalePromotions, listOwnerPromotions } =
     await import('../src/lib/promotions/queries');
   const { processAsaasWebhook } = await import('../src/lib/payments/webhook');
 
@@ -678,6 +678,37 @@ async function main() {
   const posRecNormal = recomendados.findIndex((r) => r.id === espacoNormalAlto);
   assert('"Recomendados" nao ignora um espaco so por ele ter Destaque, nem promove so por isso',
     posRecDestaque >= 0 && posRecNormal >= 0);
+
+  // =========================================================================
+  secao('14. Area de gerenciamento — historico enriquecido com valor pago');
+  // =========================================================================
+
+  // dono2Id: uma promocao COMPRADA (espacoDono2, estornada na 12f) e outra
+  // ATIVA agora (espacoConcorrencia, da corrida de compras da 12i). A
+  // segunda compra concorrente (compraConc2) NUNCA virou promocao — so deve
+  // aparecer aqui 2 linhas, nao 3, confirmando que o historico e de
+  // promocoes que existiram de verdade, nao de toda tentativa de cobranca.
+  const historicoDono2 = await listOwnerPromotions(dono2Id, 50);
+  expect('dono2 tem exatamente 2 promocoes no historico (a compra sem ativar nao aparece)',
+    historicoDono2.length, 2);
+
+  const linhaEstornada = historicoDono2.find((p) => p.spaceId === espacoDono2);
+  assert('a promocao estornada continua no historico, com o valor pago preservado',
+    linhaEstornada?.status === 'cancelled' && linhaEstornada?.priceCents === 1290,
+    JSON.stringify(linhaEstornada));
+  expect('origem da promocao estornada e purchase', linhaEstornada?.source, 'purchase');
+
+  const linhaAtivaConc = historicoDono2.find((p) => p.spaceId === espacoConcorrencia);
+  assert('a promocao ativa da corrida aparece com valor pago e status active',
+    linhaAtivaConc?.status === 'active' && linhaAtivaConc?.priceCents === 1290,
+    JSON.stringify(linhaAtivaConc));
+
+  // donoCompatId: as duas promocoes da secao 13 vieram do beneficio Premium
+  // gratis — nunca tem cobranca associada, priceCents tem que vir null.
+  const historicoCompat = await listOwnerPromotions(donoCompatId, 50);
+  assert('promocoes do beneficio Premium aparecem no historico sem valor pago (gratis)',
+    historicoCompat.length === 2 && historicoCompat.every((p) => p.source === 'premium_benefit' && p.priceCents === null),
+    JSON.stringify(historicoCompat.map((p) => ({ source: p.source, priceCents: p.priceCents }))));
 
   await limpar([donoCompatId]);
 
