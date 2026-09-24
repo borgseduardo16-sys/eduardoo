@@ -330,6 +330,9 @@ export const getPublicSpaceBySlug = cache(async (slug: string) => {
         documentVerifiedAt: profiles.documentVerifiedAt,
         completedBookingsCount: profiles.completedBookingsCount,
         upheldReportCount: profiles.upheldReportCount,
+        isPremium: sql<boolean>`EXISTS (
+          SELECT 1 FROM premium_memberships pm WHERE pm.user_id = ${profiles.id} AND pm.status = 'active'
+        )`,
       })
       .from(profiles)
       .where(eq(profiles.id, space.ownerId))

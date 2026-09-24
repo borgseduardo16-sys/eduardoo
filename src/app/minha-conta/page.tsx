@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ChevronRight, CircleCheck, ShieldCheck } from 'lucide-react';
+import { ChevronRight, CircleCheck, ShieldCheck, Sparkle } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
+import { isPremium } from '@/lib/promotions/queries';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { Alert } from '@/components/ui/alert';
@@ -25,6 +26,7 @@ export default async function MinhaContaPage({
 }) {
   const user = await requireUser('/minha-conta');
   const params = await searchParams;
+  const premium = await isPremium(user.id);
 
   return (
     <>
@@ -83,48 +85,44 @@ export default async function MinhaContaPage({
         </section>
 
         <section className="space-y-3">
-          <h2 className="font-semibold">Segurança</h2>
-          <Link
-            href="/minha-conta/seguranca"
-            className="flex items-center justify-between gap-4 rounded-[var(--radius-card)] border p-4 hover:bg-[var(--surface-sunken)] transition-colors"
-          >
-            <span className="flex gap-3 items-start min-w-0">
-              <ShieldCheck className="size-4 mt-0.5 shrink-0 text-[var(--accent)]" aria-hidden />
-              <span className="min-w-0">
-                <span className="block font-medium text-[0.9375rem]">Centro de segurança</span>
-                <span className="block text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
-                  Gerencie bloqueios e veja como denunciar um problema.
+          <h2 className="font-semibold">Atalhos</h2>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Link
+              href="/minha-conta/seguranca"
+              className="flex items-center justify-between gap-4 rounded-[var(--radius-card)] border p-4 hover:bg-[var(--surface-sunken)] transition-colors"
+            >
+              <span className="flex gap-3 items-start min-w-0">
+                <ShieldCheck className="size-4 mt-0.5 shrink-0 text-[var(--accent)]" aria-hidden />
+                <span className="min-w-0">
+                  <span className="block font-medium text-[0.9375rem]">Centro de segurança</span>
+                  <span className="block text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
+                    Gerencie bloqueios e veja como denunciar um problema.
+                  </span>
                 </span>
               </span>
-            </span>
-            <ChevronRight className="size-4 shrink-0 text-[var(--content-subtle)]" aria-hidden />
-          </Link>
-        </section>
+              <ChevronRight className="size-4 shrink-0 text-[var(--content-subtle)]" aria-hidden />
+            </Link>
 
-        <section className="space-y-3">
-          <h2 className="font-semibold">Ainda em construção</h2>
-          <p className="text-[0.9375rem] text-[var(--content-muted)] leading-relaxed">
-            Estas seções fazem parte das próximas fases e ainda não existem. Elas aparecem aqui
-            para você acompanhar o que falta, não como funcionalidade disponível.
-          </p>
-          <ul className="grid gap-2 sm:grid-cols-2 text-[0.875rem]">
-            {[
-              ['Espaços alugados', 'Fase 5'],
-              ['Pagamentos e próximos vencimentos', 'Fase 7'],
-              ['Favoritos', 'Fase 4'],
-              ['Mensagens', 'Fase 6'],
-            ].map(([label, fase]) => (
-              <li
-                key={label}
-                className="flex items-center justify-between gap-3 rounded-[var(--radius-field)] border px-4 py-3 text-[var(--content-muted)]"
-              >
-                {label}
-                <span className="text-2xs uppercase tracking-wide text-[var(--content-subtle)]">
-                  {fase}
+            <Link
+              href="/premium"
+              className="flex items-center justify-between gap-4 rounded-[var(--radius-card)] border p-4 hover:bg-[var(--surface-sunken)] transition-colors"
+            >
+              <span className="flex gap-3 items-start min-w-0">
+                <Sparkle className="size-4 mt-0.5 shrink-0 text-[var(--accent)]" aria-hidden fill="currentColor" />
+                <span className="min-w-0">
+                  <span className="block font-medium text-[0.9375rem]">
+                    {premium ? 'Você é Membro Premium' : 'Conheça o Premium'}
+                  </span>
+                  <span className="block text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
+                    {premium
+                      ? 'Veja seus Destaques e Turbo disponíveis este mês.'
+                      : 'Destaques e Turbo gratuitos todo mês para seus anúncios.'}
+                  </span>
                 </span>
-              </li>
-            ))}
-          </ul>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-[var(--content-subtle)]" aria-hidden />
+            </Link>
+          </div>
         </section>
 
         <Link

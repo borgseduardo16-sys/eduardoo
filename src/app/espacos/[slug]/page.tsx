@@ -22,6 +22,7 @@ import { VisitChecklist } from '@/components/safety/visit-checklist';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { ShareButton } from '@/components/espacos/share-button';
 import { StartConversationButton } from '@/components/messaging/start-conversation-button';
+import { PremiumBadge } from '@/components/promotions/premium-badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
@@ -221,8 +222,9 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
           <section className="rounded-[var(--radius-card)] border p-5 space-y-4">
             <div className="space-y-1">
               <h2 className="font-semibold">Quem anuncia</h2>
-              <p className="text-[var(--content-muted)]">
+              <p className="flex items-center gap-2 flex-wrap text-[var(--content-muted)]">
                 {space.owner.fullName ?? 'Proprietário'}
+                {space.owner.isPremium && <PremiumBadge />}
               </p>
             </div>
             <TrustBadges
