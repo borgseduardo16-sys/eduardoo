@@ -172,7 +172,9 @@ async function main() {
   } as never;
 
   const { createReportAction } = await import('../src/lib/safety/actions');
-  const { resolveReportAction, updateAccountStatusAction } = await import('../src/lib/admin/actions');
+  const { resolveReportAction, updateAccountStatusAction, togglePremiumMembershipAction } = await import(
+    '../src/lib/admin/actions'
+  );
   const { listModerationQueue, getModerationQueueCount, searchAccounts, getAccountById } = await import(
     '../src/lib/admin/queries'
   );
@@ -369,7 +371,50 @@ async function main() {
   assert('admin nao consegue alterar a propria conta', !rSelf.ok, JSON.stringify(rSelf));
 
   // =========================================================================
-  secao('6. Busca de contas');
+  secao('6. Premium — mecanismo interino de concessao pelo admin (Fase 13)');
+  // =========================================================================
+
+  function fdPremium(userId: string, acao: 'conceder' | 'revogar'): FormData {
+    const f = new FormData();
+    f.set('userId', userId);
+    f.set('acao', acao);
+    return f;
+  }
+
+  entrarComo(reporterIds[0], 'user', 'Denunciante 0');
+  let bloqueadoPremium = false;
+  try {
+    await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder'));
+  } catch {
+    bloqueadoPremium = true;
+  }
+  assert('usuario comum nao consegue conceder Premium', bloqueadoPremium);
+
+  entrarComo(adminId, 'admin', 'Moderador');
+
+  const rConcede = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder'));
+  assert('admin concede Premium', rConcede.ok, JSON.stringify(rConcede));
+  const contaComPremium = await getAccountById(targetId);
+  expect('conta aparece como Premium na consulta', contaComPremium?.isPremium, true);
+
+  const rConcedeDeNovo = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder'));
+  assert('conceder de novo (ja e Premium) e idempotente, nao quebra', rConcedeDeNovo.ok, JSON.stringify(rConcedeDeNovo));
+
+  const rRevoga = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'revogar'));
+  assert('admin revoga Premium', rRevoga.ok, JSON.stringify(rRevoga));
+  const contaSemPremium = await getAccountById(targetId);
+  expect('conta deixa de aparecer como Premium', contaSemPremium?.isPremium, false);
+
+  const rRevogaDeNovo = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'revogar'));
+  assert('revogar quem ja nao e Premium e recusado', !rRevogaDeNovo.ok, JSON.stringify(rRevogaDeNovo));
+
+  const rSelfPremium = await togglePremiumMembershipAction(undefined, fdPremium(adminId, 'conceder'));
+  assert('admin nao concede Premium a propria conta', !rSelfPremium.ok, JSON.stringify(rSelfPremium));
+
+  await sql`DELETE FROM premium_memberships WHERE user_id = ${targetId}`;
+
+  // =========================================================================
+  secao('7. Busca de contas');
   // =========================================================================
 
   const busca = await searchAccounts('Alvo');
@@ -390,6 +435,7 @@ async function limpar() {
     await sql`DELETE FROM conversations WHERE id = ${conversaId}`;
     await sql`DELETE FROM spaces WHERE owner_id = ${targetId}`;
     const todosIds = [adminId, targetId, targetLivreId, ...reporterIds];
+    await sql`DELETE FROM premium_memberships WHERE user_id = ANY(${todosIds})`;
     await sql.begin(async (tx) => {
       await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
       await tx`DELETE FROM public.audit_logs WHERE actor_id IN ${sql(todosIds)}`;

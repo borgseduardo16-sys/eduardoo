@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { reports, profiles, spaces, messages } from '@/db/schema';
+import { reports, profiles, spaces, messages, premiumMemberships } from '@/db/schema';
 
 /** Ordem de gravidade na fila — mais grave primeiro, sem depender da ordem alfabética do enum. */
 const severityRank = sql<number>`CASE ${reports.severity}
@@ -94,6 +94,20 @@ export type AdminAccountRow = {
   upheldReportCount: number;
   completedBookingsCount: number;
   createdAt: Date;
+  /** Mecanismo interino (Fase 13): so alcancado por concessao manual daqui. */
+  isPremium: boolean;
+};
+
+const accountColumns = {
+  id: profiles.id,
+  fullName: profiles.fullName,
+  role: sql<string>`${profiles.role}::text`,
+  status: sql<string>`${profiles.status}::text`,
+  statusReason: profiles.statusReason,
+  upheldReportCount: profiles.upheldReportCount,
+  completedBookingsCount: profiles.completedBookingsCount,
+  createdAt: profiles.createdAt,
+  isPremium: sql<boolean>`${premiumMemberships.status} = 'active'`,
 };
 
 /** Busca contas por nome (painel de usuários) — sem e-mail, que mora em auth.users. */
@@ -101,34 +115,18 @@ export async function searchAccounts(query: string, limit = 20): Promise<AdminAc
   const termo = query.trim();
   if (!termo) return [];
   return db
-    .select({
-      id: profiles.id,
-      fullName: profiles.fullName,
-      role: sql<string>`${profiles.role}::text`,
-      status: sql<string>`${profiles.status}::text`,
-      statusReason: profiles.statusReason,
-      upheldReportCount: profiles.upheldReportCount,
-      completedBookingsCount: profiles.completedBookingsCount,
-      createdAt: profiles.createdAt,
-    })
+    .select(accountColumns)
     .from(profiles)
+    .leftJoin(premiumMemberships, eq(premiumMemberships.userId, profiles.id))
     .where(sql`${profiles.fullName} ILIKE ${'%' + termo + '%'}`)
     .limit(limit);
 }
 
 export async function getAccountById(id: string): Promise<AdminAccountRow | null> {
   const [row] = await db
-    .select({
-      id: profiles.id,
-      fullName: profiles.fullName,
-      role: sql<string>`${profiles.role}::text`,
-      status: sql<string>`${profiles.status}::text`,
-      statusReason: profiles.statusReason,
-      upheldReportCount: profiles.upheldReportCount,
-      completedBookingsCount: profiles.completedBookingsCount,
-      createdAt: profiles.createdAt,
-    })
+    .select(accountColumns)
     .from(profiles)
+    .leftJoin(premiumMemberships, eq(premiumMemberships.userId, profiles.id))
     .where(eq(profiles.id, id))
     .limit(1);
   return row ?? null;

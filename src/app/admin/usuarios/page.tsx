@@ -6,6 +6,7 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { AdminSubnav } from '@/components/layout/admin-subnav';
 import { AccountStatusForm } from '@/components/admin/account-status-form';
+import { PremiumMembershipForm } from '@/components/admin/premium-membership-form';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -71,9 +72,12 @@ export default async function AdminUsuariosPage({
                       {c.upheldReportCount > 0 && ` · ${c.upheldReportCount} denúncia(s) procedente(s)`}
                     </p>
                   </div>
-                  <Badge tone={(STATUS_INFO[c.status] ?? STATUS_INFO.active).tone} className="shrink-0">
-                    {(STATUS_INFO[c.status] ?? STATUS_INFO.active).label}
-                  </Badge>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <Badge tone={(STATUS_INFO[c.status] ?? STATUS_INFO.active).tone}>
+                      {(STATUS_INFO[c.status] ?? STATUS_INFO.active).label}
+                    </Badge>
+                    {c.isPremium && <Badge tone="accent">✦ Premium</Badge>}
+                  </div>
                 </div>
 
                 {c.statusReason && c.status !== 'active' && (
@@ -81,6 +85,7 @@ export default async function AdminUsuariosPage({
                 )}
 
                 <AccountStatusForm userId={c.id} currentStatus={c.status} currentReason={c.statusReason} />
+                <PremiumMembershipForm userId={c.id} isPremium={c.isPremium} />
               </li>
             ))}
           </ul>

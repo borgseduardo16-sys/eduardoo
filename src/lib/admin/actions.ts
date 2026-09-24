@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { reports, profiles, auditLogs } from '@/db/schema';
+import { reports, profiles, auditLogs, premiumMemberships } from '@/db/schema';
 import { requireAdminOrThrow } from '@/lib/auth/dal';
 
 export type AdminActionState = {
@@ -170,4 +170,86 @@ export async function updateAccountStatusAction(
   revalidatePath('/admin/usuarios');
 
   return { ok: true, message: 'Status da conta atualizado.' };
+}
+
+// ---------------------------------------------------------------------------
+// Premium (mecanismo interino — Fase 13)
+// ---------------------------------------------------------------------------
+
+const togglePremiumSchema = z.object({
+  userId: z.uuid('Usuário inválido.'),
+  acao: z.enum(['conceder', 'revogar'], { error: 'Ação inválida.' }),
+});
+
+/**
+ * Concede ou revoga Premium manualmente.
+ *
+ * Mecanismo INTERINO: hoje não existe assinatura paga, então este é o único
+ * jeito de alguém virar Premium. Mesmo padrão de `updateAccountStatusAction`
+ * (auditado, admin não mexe na própria conta) — quando o plano pago for
+ * decidido, essa ação continua existindo do mesmo jeito (útil para suporte
+ * conceder um período de cortesia), só deixa de ser o ÚNICO caminho.
+ */
+export async function togglePremiumMembershipAction(
+  _prev: AdminActionState | undefined,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const admin = await requireAdminOrThrow();
+
+  const parsed = togglePremiumSchema.safeParse({
+    userId: formData.get('userId'),
+    acao: formData.get('acao'),
+  });
+  if (!parsed.success) {
+    return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const { userId, acao } = parsed.data;
+
+  if (userId === admin.id) {
+    return { ok: false, message: 'Você não pode conceder Premium à própria conta.' };
+  }
+
+  const [alvo] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.id, userId)).limit(1);
+  if (!alvo) return { ok: false, message: 'Conta não encontrada.' };
+
+  if (acao === 'conceder') {
+    await db
+      .insert(premiumMemberships)
+      .values({ userId, status: 'active', source: 'admin_grant', grantedBy: admin.id, grantedAt: new Date() })
+      .onConflictDoUpdate({
+        target: premiumMemberships.userId,
+        set: {
+          status: 'active',
+          source: 'admin_grant',
+          grantedBy: admin.id,
+          grantedAt: new Date(),
+          cancelledBy: null,
+          cancelledAt: null,
+          updatedAt: new Date(),
+        },
+      });
+  } else {
+    const atualizadas = await db
+      .update(premiumMemberships)
+      .set({ status: 'cancelled', cancelledBy: admin.id, cancelledAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(premiumMemberships.userId, userId), eq(premiumMemberships.status, 'active')))
+      .returning({ userId: premiumMemberships.userId });
+    if (atualizadas.length === 0) {
+      return { ok: false, message: 'Esta conta não é Premium no momento.' };
+    }
+  }
+
+  await db.insert(auditLogs).values({
+    actorId: admin.id,
+    actorRole: admin.role,
+    action: acao === 'conceder' ? 'premium.granted' : 'premium.revoked',
+    entityType: 'profile',
+    entityId: userId,
+    metadata: { acao },
+    ip: await clientIp(),
+  });
+
+  revalidatePath('/admin/usuarios');
+
+  return { ok: true, message: acao === 'conceder' ? 'Premium concedido.' : 'Premium revogado.' };
 }
