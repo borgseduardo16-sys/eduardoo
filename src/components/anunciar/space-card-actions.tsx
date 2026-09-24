@@ -9,6 +9,8 @@ import {
 } from '@/lib/spaces/actions';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
+import { PromoteSpaceDialog } from '@/components/promotions/promote-space-dialog';
+import type { ActivePromotion, BenefitUsage } from '@/lib/promotions/queries';
 
 function IconSubmit({
   icon: Icon, label, variant = 'ghost',
@@ -33,12 +35,16 @@ function IconSubmit({
  * para desfazer — pausar e retomar são reversíveis, e por isso vão direto.
  */
 export function SpaceCardActions({
-  spaceId, slug, status, draftStep,
+  spaceId, slug, title, status, draftStep, activePromotion, benefitUsage,
 }: {
   spaceId: string;
   slug: string;
+  /** So obrigatorio para o dialog de Destacar — o titulo aparece no cabecalho dele. */
+  title?: string;
   status: string;
   draftStep: number;
+  activePromotion?: ActivePromotion | null;
+  benefitUsage?: BenefitUsage;
 }) {
   const [toggleState, toggleAction] = useActionState<SpaceActionState | undefined, FormData>(
     toggleSpaceStatusAction, undefined,
@@ -87,6 +93,17 @@ export function SpaceCardActions({
             <Eye className="size-4" aria-hidden />
             Ver
           </Link>
+        )}
+
+        {isPublished && benefitUsage && (
+          <PromoteSpaceDialog
+            spaceId={spaceId}
+            spaceTitle={title ?? ''}
+            activePromotion={activePromotion ?? null}
+            premium={benefitUsage.premium}
+            destaqueBenefit={benefitUsage.destaque}
+            turboBenefit={benefitUsage.turbo}
+          />
         )}
 
         {(isPublished || isPaused) && (

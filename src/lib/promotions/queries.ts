@@ -194,17 +194,13 @@ export async function listOwnerPromotions(ownerId: string, limit = 20): Promise<
 // Vitrine publica — home
 // ---------------------------------------------------------------------------
 
-export type FeaturedSpace = {
-  id: string;
-  slug: string;
-  type: string;
-  title: string;
-  district: string | null;
-  city: string | null;
-  priceMonthlyCents: number;
-  approxLat: number | null;
-  approxLng: number | null;
-  coverPath: string | null;
+/**
+ * Mesmo formato de `PublicSpace` (src/lib/spaces/queries.ts) — para poder
+ * reusar `ResultCard` direto, sem duplicar a montagem do card. `distanceMeters`
+ * fica sempre null: a home não tem ponto de busca, e favoritar/ver
+ * características funciona igual ao resultado normal.
+ */
+export type FeaturedSpace = import('@/lib/spaces/queries').PublicSpace & {
   promotionType: 'destaque' | 'turbo';
 };
 
@@ -226,12 +222,25 @@ export async function listFeaturedSpaces(limit?: number): Promise<FeaturedSpace[
       title: spaces.title,
       district: spaces.district,
       city: spaces.city,
+      state: spaces.state,
       priceMonthlyCents: spaces.priceMonthlyCents,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
+      distanceMeters: sql<number | null>`NULL`,
       coverPath: sql<string | null>`(
         SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
         WHERE si.space_id = spaces.id ORDER BY si.position ASC LIMIT 1
+      )`,
+      photoCount: sql<number>`(
+        SELECT count(*)::int FROM space_images si WHERE si.space_id = spaces.id
+      )`,
+      featureLabels: sql<string[]>`(
+        SELECT COALESCE(array_agg(f.label ORDER BY f.sort_order), '{}')
+        FROM (
+          SELECT feature_key FROM space_features sf2
+          WHERE sf2.space_id = spaces.id LIMIT 3
+        ) sf
+        JOIN features f ON f.key = sf.feature_key
       )`,
       promotionType: promotions.type,
       startedAt: promotions.startedAt,

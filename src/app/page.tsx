@@ -8,7 +8,12 @@ import {
   OctagonAlert,
   ShieldCheck,
 } from 'lucide-react';
+import { getCurrentUser } from '@/lib/auth/dal';
+import { listFeaturedSpaces } from '@/lib/promotions/queries';
+import { listUserFavoriteIds } from '@/lib/favorites/queries';
+import { signImagePaths } from '@/lib/storage/signed-urls';
 import { SearchBar } from '@/components/search/search-bar';
+import { ResultCard } from '@/components/espacos/result-card';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 
@@ -21,7 +26,14 @@ const TIPOS_POPULARES = [
   { label: 'Terreno', value: 'terreno' },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const [viewer, destaques] = await Promise.all([getCurrentUser(), listFeaturedSpaces()]);
+
+  const [urls, favoritosIds] = await Promise.all([
+    signImagePaths(destaques.map((d) => d.coverPath).filter(Boolean) as string[]),
+    viewer ? listUserFavoriteIds(viewer.id) : Promise.resolve(new Set<string>()),
+  ]);
+
   return (
     <>
       <SiteHeader />
@@ -53,6 +65,30 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {/*
+          Espaços em destaque: só existe quando há promoção ativa de verdade
+          — nada de seção vazia nem anúncio fictício. Reusa ResultCard, o
+          mesmo card da busca, para não duplicar a montagem visual.
+        */}
+        {destaques.length > 0 && (
+          <section className="px-4 sm:px-6 pb-16 sm:pb-20">
+            <div className="mx-auto max-w-6xl space-y-6">
+              <h2 className="text-[1.375rem] sm:text-[1.625rem] font-semibold">Espaços em destaque</h2>
+              <ul className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                {destaques.map((d) => (
+                  <ResultCard
+                    key={d.id}
+                    space={d}
+                    coverUrl={d.coverPath ? (urls.get(d.coverPath) ?? null) : null}
+                    favorited={favoritosIds.has(d.id)}
+                    loggedIn={Boolean(viewer)}
+                  />
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
 
         {/* Faixa do proprietário: o outro lado do marketplace. */}
         <section className="px-4 sm:px-6 py-16 sm:py-20 bg-[var(--surface-sunken)] border-y">

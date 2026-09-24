@@ -4,6 +4,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm'
 import { db } from '@/db/client';
 import { spaces, spaceImages, spaceFeatures, features, profiles } from '@/db/schema';
 import { latOf, lngOf, withinMeters, distanceMeters, type LatLng } from '@/db/schema/_types';
+import { promotionTierExpr } from '@/lib/promotions/queries';
 
 /**
  * Leitura de anuncios.
@@ -80,6 +81,8 @@ export type PublicSpace = {
   distanceMeters: number | null;
   /** Ate 3 nomes de caracteristica, para a linha resumo do card. */
   featureLabels: string[];
+  /** Null quando o anuncio nao tem promocao ativa no momento. */
+  promotionType: 'destaque' | 'turbo' | null;
 };
 
 export type SearchSort = 'distance' | 'price_asc' | 'price_desc' | 'recent';
@@ -209,11 +212,26 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
 
   const distanceExpr = point ? distanceMeters(spaces.approxLocation, point) : sql<number | null>`NULL`;
 
+  /*
+   * Promocao entra na ordenacao de dois jeitos, nunca do mesmo:
+   *
+   * - 'recent' (padrao, sem ponto/preco escolhido pela pessoa): promocao
+   *   MANDA, desempatado por mais recente — e o unico caso em que o
+   *   Destaque/Turbo entrega o que promete (mais exposicao na navegacao
+   *   comum). Sem isso a promocao nunca teria efeito pratico nenhum: dois
+   *   anuncios raramente tem o mesmo published_at ate o milissegundo.
+   * - 'distance'/'price_asc'/'price_desc' (a pessoa pediu essa ordem
+   *   explicitamente): promocao so DESEMPATA, depois da ordenacao pedida —
+   *   nunca troca um resultado relevante por um distante/mais caro so por
+   *   ter Turbo. E exatamente o caso que o pedido original citou: "vaga de
+   *   garagem em Colatina" nao pode trazer um galpao longe so por Turbo.
+   */
+  const tierExpr = promotionTierExpr();
   const orderBy =
-    sort === 'distance' ? [asc(distanceExpr)]
-    : sort === 'price_asc' ? [asc(spaces.priceMonthlyCents)]
-    : sort === 'price_desc' ? [desc(spaces.priceMonthlyCents)]
-    : [desc(spaces.publishedAt)];
+    sort === 'distance' ? [asc(distanceExpr), desc(tierExpr)]
+    : sort === 'price_asc' ? [asc(spaces.priceMonthlyCents), desc(tierExpr)]
+    : sort === 'price_desc' ? [desc(spaces.priceMonthlyCents), desc(tierExpr)]
+    : [desc(tierExpr), desc(spaces.publishedAt)];
 
   const rows = await db
     .select({
@@ -253,6 +271,11 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
           WHERE sf2.space_id = spaces.id LIMIT 3
         ) sf
         JOIN features f ON f.key = sf.feature_key
+      )`,
+      promotionType: sql<'destaque' | 'turbo' | null>`(
+        SELECT p.type::text FROM promotions p
+        WHERE p.space_id = spaces.id AND p.status = 'active'
+        LIMIT 1
       )`,
     })
     .from(spaces)

@@ -12,6 +12,8 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { OwnerSubnav } from '@/components/layout/owner-subnav';
 import { SpaceCardActions } from '@/components/anunciar/space-card-actions';
+import { PromotionBadge } from '@/components/promotions/promotion-badge';
+import { getMonthlyBenefitUsage, getActivePromotionsForSpaces } from '@/lib/promotions/queries';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -42,12 +44,16 @@ export default async function MeusEspacosPage({
   const { filtro = 'todos' } = await searchParams;
 
   const ativo = FILTROS.find((f) => f.key === filtro) ?? FILTROS[0];
-  const [spaces, contagem] = await Promise.all([
+  const [spaces, contagem, benefitUsage] = await Promise.all([
     listOwnerSpaces(user.id, ativo.status ? [...ativo.status] : undefined),
     countOwnerSpacesByStatus(user.id),
+    getMonthlyBenefitUsage(user.id),
   ]);
 
-  const urls = await signImagePaths(spaces.map((s) => s.coverPath).filter(Boolean) as string[]);
+  const [urls, promocoesPorEspaco] = await Promise.all([
+    signImagePaths(spaces.map((s) => s.coverPath).filter(Boolean) as string[]),
+    getActivePromotionsForSpaces(spaces.map((s) => s.id)),
+  ]);
   const total = Object.values(contagem).reduce((a, b) => a + b, 0);
 
   return (
@@ -126,6 +132,7 @@ export default async function MeusEspacosPage({
             {spaces.map((s) => {
               const badge = STATUS_BADGE[s.status] ?? STATUS_BADGE.draft!;
               const url = s.coverPath ? urls.get(s.coverPath) : null;
+              const promocao = promocoesPorEspaco.get(s.id) ?? null;
 
               return (
                 <li key={s.id} className="rounded-[var(--radius-card)] border overflow-hidden">
@@ -145,7 +152,10 @@ export default async function MeusEspacosPage({
                         <h2 className="font-medium truncate">
                           {s.title?.trim() || `${spaceTypeLabel(s.type as SpaceTypeKey)} sem título`}
                         </h2>
-                        <Badge tone={badge.tone} className="shrink-0">{badge.label}</Badge>
+                        <span className="flex items-center gap-1.5 shrink-0">
+                          {promocao && <PromotionBadge type={promocao.type} size="xs" />}
+                          <Badge tone={badge.tone}>{badge.label}</Badge>
+                        </span>
                       </div>
 
                       <p className="text-[0.875rem] text-[var(--content-muted)] truncate">
@@ -171,7 +181,8 @@ export default async function MeusEspacosPage({
 
                   <div className="px-3 sm:px-4 pb-3 sm:pb-4">
                     <SpaceCardActions
-                      spaceId={s.id} slug={s.slug} status={s.status} draftStep={s.draftStep}
+                      spaceId={s.id} slug={s.slug} title={s.title} status={s.status} draftStep={s.draftStep}
+                      activePromotion={promocao} benefitUsage={benefitUsage}
                     />
                   </div>
                 </li>

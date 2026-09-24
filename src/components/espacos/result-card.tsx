@@ -5,6 +5,7 @@ import { formatBRL } from '@/lib/money';
 import { formatDistance } from '@/lib/spaces/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
+import { PromotionBadge } from '@/components/promotions/promotion-badge';
 import type { PublicSpace } from '@/lib/spaces/queries';
 
 /**
@@ -49,12 +50,19 @@ export function ResultCard({
             </span>
           )}
 
-          {space.distanceMeters != null && (
-            <span
-              data-testid="resultado-distancia"
-              className="absolute top-2 left-2 px-2 py-0.5 rounded-[var(--radius-pill)] bg-[var(--surface)]/90 backdrop-blur-sm text-[0.6875rem] font-medium"
-            >
-              ≈ {formatDistance(space.distanceMeters)}
+          {(space.promotionType || space.distanceMeters != null) && (
+            <span className="absolute top-2 left-2 flex flex-col items-start gap-1">
+              {space.promotionType && (
+                <PromotionBadge type={space.promotionType} size="xs" data-testid="resultado-promocao" />
+              )}
+              {space.distanceMeters != null && (
+                <span
+                  data-testid="resultado-distancia"
+                  className="px-2 py-0.5 rounded-[var(--radius-pill)] bg-[var(--surface)]/90 backdrop-blur-sm text-[0.6875rem] font-medium"
+                >
+                  ≈ {formatDistance(space.distanceMeters)}
+                </span>
+              )}
             </span>
           )}
 
