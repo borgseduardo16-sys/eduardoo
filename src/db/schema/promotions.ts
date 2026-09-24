@@ -2,13 +2,22 @@ import {
   pgTable,
   uuid,
   text,
+  integer,
   timestamp,
+  jsonb,
   index,
   uniqueIndex,
   check,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
-import { promotionType, promotionStatus, promotionSource, premiumMembershipStatus, premiumMembershipSource } from './enums';
+import {
+  promotionType,
+  promotionStatus,
+  promotionSource,
+  premiumMembershipStatus,
+  premiumMembershipSource,
+  paymentStatus,
+} from './enums';
 import { profiles } from './users';
 import { spaces } from './spaces';
 
@@ -118,9 +127,69 @@ export const premiumMemberships = pgTable(
   ],
 );
 
+/**
+ * Compra avulsa de Destaque/Turbo — preco fixo por duracao, cobranca UNICA no
+ * gateway (nao recorrente, sem split: o dinheiro e inteiro da plataforma).
+ *
+ * Espelha `payments`, mas nao referencia `bookings`: e por isso uma tabela
+ * propria, nao uma reforma de `payments` (que tem `booking_id NOT NULL` e
+ * regras de payout/ledger que nao se aplicam aqui).
+ *
+ * A `promotions` correspondente so e criada quando o pagamento CONFIRMA (no
+ * webhook) — antes disso so existe o registro da compra, pendente. Por isso
+ * `promotion_id` comeca NULL.
+ */
+export const promotionPurchases = pgTable(
+  'promotion_purchases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    spaceId: uuid('space_id')
+      .notNull()
+      .references(() => spaces.id, { onDelete: 'cascade' }),
+    ownerId: uuid('owner_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'restrict' }),
+
+    type: promotionType('type').notNull(),
+    /** Duracao contratada, em horas — 24/72/120 (1/3/5 dias de Destaque) ou 1/5/12/24 (Turbo). */
+    durationHours: integer('duration_hours').notNull(),
+    /** Preco pago, em centavos — sempre um dos valores fixos do catalogo (src/lib/promotions/purchase-pricing.ts). */
+    priceCents: integer('price_cents').notNull(),
+
+    provider: text('provider').notNull().default('asaas'),
+    providerPaymentId: text('provider_payment_id').notNull(),
+    status: paymentStatus('status').notNull().default('pending'),
+    invoiceUrl: text('invoice_url'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    failureReason: text('failure_reason'),
+    providerPayload: jsonb('provider_payload').$type<Record<string, unknown>>(),
+
+    /** Preenchido no webhook, so quando o pagamento confirma e a promocao e criada. */
+    promotionId: uuid('promotion_id').references(() => promotions.id, { onDelete: 'set null' }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('promotion_purchases_provider_id_key').on(t.provider, t.providerPaymentId),
+    index('promotion_purchases_space_idx').on(t.spaceId),
+    index('promotion_purchases_owner_idx').on(t.ownerId, t.createdAt),
+    index('promotion_purchases_status_idx').on(t.status),
+    check('promotion_purchases_price_positive', sql`${t.priceCents} > 0`),
+    check('promotion_purchases_duration_positive', sql`${t.durationHours} > 0`),
+  ],
+);
+
 export const promotionsRelations = relations(promotions, ({ one }) => ({
   space: one(spaces, { fields: [promotions.spaceId], references: [spaces.id] }),
   owner: one(profiles, { fields: [promotions.ownerId], references: [profiles.id] }),
+}));
+
+export const promotionPurchasesRelations = relations(promotionPurchases, ({ one }) => ({
+  space: one(spaces, { fields: [promotionPurchases.spaceId], references: [spaces.id] }),
+  owner: one(profiles, { fields: [promotionPurchases.ownerId], references: [profiles.id] }),
+  promotion: one(promotions, { fields: [promotionPurchases.promotionId], references: [promotions.id] }),
 }));
 
 export const premiumMembershipsRelations = relations(premiumMemberships, ({ one }) => ({

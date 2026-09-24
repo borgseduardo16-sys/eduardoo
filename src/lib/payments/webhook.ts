@@ -1,4 +1,5 @@
 import 'server-only';
+import postgres from 'postgres';
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import {
@@ -11,8 +12,12 @@ import {
   notifications,
   auditLogs,
   ownerPayoutAccounts,
+  promotionPurchases,
+  promotions,
 } from '@/db/schema';
 import { platformNetCents } from '@/lib/money';
+
+const { PostgresError } = postgres;
 
 /**
  * Processamento de webhook do Asaas.
@@ -99,28 +104,45 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
         .where(and(eq(payments.provider, 'asaas'), eq(payments.providerPaymentId, providerPaymentId)))
         .limit(1);
 
-      if (!pagamento) {
+      if (pagamento) {
+        const [booking] = await tx.select().from(bookings).where(eq(bookings.id, pagamento.bookingId)).limit(1);
+        if (!booking) {
+          // Nao deveria acontecer: bookings.id e referenciado com ON DELETE RESTRICT.
+          throw new Error(`reserva ${pagamento.bookingId} da cobranca ${pagamento.id} nao encontrada`);
+        }
+
+        await handleEvent(tx, event, pagamento, booking, payload);
+
         await tx
           .update(webhookEvents)
-          .set({ status: 'ignored', processedAt: new Date(), lastError: 'providerPaymentId sem cobranca correspondente no banco' })
+          .set({ status: 'processed', processedAt: new Date() })
           .where(eq(webhookEvents.id, claimed.id));
-        return { ok: true, reason: 'providerPaymentId sem cobranca correspondente no banco' };
+
+        return { ok: true };
       }
 
-      const [booking] = await tx.select().from(bookings).where(eq(bookings.id, pagamento.bookingId)).limit(1);
-      if (!booking) {
-        // Nao deveria acontecer: bookings.id e referenciado com ON DELETE RESTRICT.
-        throw new Error(`reserva ${pagamento.bookingId} da cobranca ${pagamento.id} nao encontrada`);
-      }
+      const [compra] = await tx
+        .select()
+        .from(promotionPurchases)
+        .where(and(eq(promotionPurchases.provider, 'asaas'), eq(promotionPurchases.providerPaymentId, providerPaymentId)))
+        .limit(1);
 
-      await handleEvent(tx, event, pagamento, booking, payload);
+      if (compra) {
+        await handlePromotionPurchaseEvent(tx, event, compra, payload);
+
+        await tx
+          .update(webhookEvents)
+          .set({ status: 'processed', processedAt: new Date() })
+          .where(eq(webhookEvents.id, claimed.id));
+
+        return { ok: true };
+      }
 
       await tx
         .update(webhookEvents)
-        .set({ status: 'processed', processedAt: new Date() })
+        .set({ status: 'ignored', processedAt: new Date(), lastError: 'providerPaymentId sem cobranca correspondente no banco' })
         .where(eq(webhookEvents.id, claimed.id));
-
-      return { ok: true };
+      return { ok: true, reason: 'providerPaymentId sem cobranca correspondente no banco' };
     });
   } catch (err) {
     console.error('[asaas webhook] falha processando evento:', event, providerPaymentId, err);
@@ -370,5 +392,166 @@ async function handleDeleted(tx: Tx, pagamento: PaymentRow) {
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.deleted',
     entityType: 'payment', entityId: pagamento.id, metadata: {},
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Compra avulsa de Destaque/Turbo — cobranca UNICA, sem split, sem reserva.
+// ---------------------------------------------------------------------------
+
+type PromotionPurchaseRow = typeof promotionPurchases.$inferSelect;
+
+/**
+ * `true` quando o erro veio do indice unico que impede duas promocoes
+ * vigentes no mesmo espaco (`promotions_one_active_per_space`) — mesmo
+ * codigo `23505` usado em `promotions/actions.ts`.
+ */
+function isOverlappingPromotionConflict(err: unknown): boolean {
+  const pg = err instanceof PostgresError
+    ? err
+    : err instanceof Error && err.cause instanceof PostgresError
+      ? err.cause
+      : null;
+  return pg?.code === '23505' && pg.constraint_name === 'promotions_one_active_per_space';
+}
+
+async function handlePromotionPurchaseEvent(
+  tx: Tx,
+  event: string,
+  compra: PromotionPurchaseRow,
+  payload: AsaasWebhookPayload,
+) {
+  switch (event) {
+    case 'PAYMENT_CONFIRMED':
+      return handlePurchaseConfirmed(tx, compra, payload);
+    case 'PAYMENT_RECEIVED':
+      return handlePurchaseReceived(tx, compra);
+    case 'PAYMENT_OVERDUE':
+      await tx.update(promotionPurchases).set({ status: 'overdue', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
+      return;
+    case 'PAYMENT_REPROVED_BY_RISK_ANALYSIS':
+      await tx
+        .update(promotionPurchases)
+        .set({ status: 'failed', failureReason: 'Recusado na analise de risco do gateway.', updatedAt: new Date() })
+        .where(eq(promotionPurchases.id, compra.id));
+      return;
+    case 'PAYMENT_REFUNDED':
+      return handlePurchaseRefunded(tx, compra);
+    case 'PAYMENT_DELETED':
+      await tx.update(promotionPurchases).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
+      return;
+  }
+}
+
+/**
+ * Pagamento confirmado: a promocao nasce AGORA (nao no momento da compra) —
+ * `startedAt`/`expiresAt` contam a partir de quando o dinheiro esta
+ * confirmado, nao de quando a pessoa clicou em comprar.
+ *
+ * Se o espaco ja tiver uma promocao vigente nesse meio-tempo (ex.: usou um
+ * beneficio Premium gratis enquanto a cobranca estava pendente), o indice
+ * unico recusa o INSERT — o pagamento fica confirmado mesmo assim, mas sem
+ * `promotion_id`, com o motivo registrado para suporte resolver (reembolso
+ * manual), em vez de perder o dinheiro silenciosamente ou quebrar o webhook
+ * inteiro.
+ */
+async function handlePurchaseConfirmed(tx: Tx, compra: PromotionPurchaseRow, payload: AsaasWebhookPayload) {
+  if (compra.promotionId) return; // ja processado (reentrega do mesmo evento nao deveria chegar aqui, mas por garantia)
+
+  const startedAt = new Date();
+  const expiresAt = new Date(startedAt.getTime() + compra.durationHours * 60 * 60 * 1000);
+
+  /*
+   * O INSERT arriscado (pode colidir com `promotions_one_active_per_space`)
+   * fica isolado num SAVEPOINT: uma vez que um INSERT falha, o Postgres
+   * aborta a transacao INTEIRA ate ela terminar — nenhum outro comando
+   * roda, nem sequer o UPDATE de recuperacao no catch. `tx.transaction()`
+   * aninhado vira SAVEPOINT de verdade (suporte nativo do Drizzle sobre
+   * postgres.js): se o INSERT falhar, so ELE desfaz, e o `tx` de fora
+   * continua saudavel para gravar o resultado (com ou sem promocao).
+   */
+  let promotionId: string | null = null;
+  let conflito = false;
+  try {
+    await tx.transaction(async (tx2) => {
+      const [criada] = await tx2
+        .insert(promotions)
+        .values({
+          spaceId: compra.spaceId,
+          ownerId: compra.ownerId,
+          type: compra.type,
+          status: 'active',
+          source: 'purchase',
+          transactionId: compra.providerPaymentId,
+          startedAt,
+          expiresAt,
+        })
+        .returning({ id: promotions.id });
+      promotionId = criada!.id;
+    });
+  } catch (err) {
+    if (!isOverlappingPromotionConflict(err)) throw err;
+    conflito = true;
+  }
+
+  if (!conflito) {
+    await tx
+      .update(promotionPurchases)
+      .set({
+        status: 'confirmed', paidAt: startedAt, promotionId,
+        providerPayload: payload as Record<string, unknown>, updatedAt: new Date(),
+      })
+      .where(eq(promotionPurchases.id, compra.id));
+
+    await tx.insert(notifications).values({
+      userId: compra.ownerId, type: 'payment_confirmed', title: 'Promoção ativada',
+      body: `Pagamento confirmado — seu anúncio está com ${compra.type === 'turbo' ? 'Turbo' : 'Destaque'} ativo.`,
+      linkPath: '/meus-espacos', data: { spaceId: compra.spaceId, promotionId },
+    });
+    await tx.insert(auditLogs).values({
+      actorId: null, actorRole: 'system', action: 'promotion_purchase.confirmed',
+      entityType: 'promotion_purchase', entityId: compra.id,
+      metadata: { spaceId: compra.spaceId, type: compra.type, promotionId },
+    });
+  } else {
+    await tx
+      .update(promotionPurchases)
+      .set({
+        status: 'confirmed', paidAt: startedAt,
+        failureReason: 'Pagamento confirmado, mas o anúncio já tinha outra promoção vigente — precisa de reembolso manual.',
+        providerPayload: payload as Record<string, unknown>, updatedAt: new Date(),
+      })
+      .where(eq(promotionPurchases.id, compra.id));
+
+    await tx.insert(auditLogs).values({
+      actorId: null, actorRole: 'system', action: 'promotion_purchase.confirmed_without_activation',
+      entityType: 'promotion_purchase', entityId: compra.id,
+      metadata: { spaceId: compra.spaceId, type: compra.type, reason: 'overlapping_promotion' },
+    });
+  }
+}
+
+async function handlePurchaseReceived(tx: Tx, compra: PromotionPurchaseRow) {
+  await tx.update(promotionPurchases).set({ status: 'received', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
+  await tx.insert(auditLogs).values({
+    actorId: null, actorRole: 'system', action: 'promotion_purchase.received',
+    entityType: 'promotion_purchase', entityId: compra.id, metadata: { spaceId: compra.spaceId },
+  });
+}
+
+/** Estorno depois de confirmado: cancela a promocao tambem — sem cobranca, sem boost. */
+async function handlePurchaseRefunded(tx: Tx, compra: PromotionPurchaseRow) {
+  await tx.update(promotionPurchases).set({ status: 'refunded', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
+
+  if (compra.promotionId) {
+    await tx
+      .update(promotions)
+      .set({ status: 'cancelled', cancelledAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(promotions.id, compra.promotionId), sql`${promotions.status} IN ('scheduled','active')`));
+  }
+
+  await tx.insert(auditLogs).values({
+    actorId: null, actorRole: 'system', action: 'promotion_purchase.refunded',
+    entityType: 'promotion_purchase', entityId: compra.id, metadata: { spaceId: compra.spaceId, promotionId: compra.promotionId },
   });
 }

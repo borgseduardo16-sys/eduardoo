@@ -269,6 +269,31 @@ export async function listSubscriptionPayments(
   );
 }
 
+export type CreatePaymentInput = {
+  customer: string;
+  billingType: AsaasBillingType;
+  /** Em REAIS, nao centavos. */
+  value: number;
+  /** yyyy-mm-dd. */
+  dueDate: string;
+  description?: string;
+  /** Nosso id, para reconciliar em auditoria/suporte — sem split aqui. */
+  externalReference: string;
+};
+
+/**
+ * Cria uma cobranca UNICA (nao recorrente) — `POST /payments`, endpoint
+ * separado de `/subscriptions`. Usado para compra avulsa de Destaque/Turbo:
+ * dinheiro inteiro da plataforma, sem `split` (isso so existe para reservas,
+ * onde uma parte vai para a carteira do proprietario).
+ */
+export async function createPayment(input: CreatePaymentInput): Promise<AsaasPayment> {
+  return asaasFetch<AsaasPayment>('/payments', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 /**
  * Estorna uma cobranca. Sem `valueCents`, estorna o valor cheio.
  *

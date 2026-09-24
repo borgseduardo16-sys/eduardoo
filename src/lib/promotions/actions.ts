@@ -2,14 +2,19 @@
 
 import 'server-only';
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { db } from '@/db/client';
-import { promotions, premiumMemberships, auditLogs } from '@/db/schema';
+import { promotions, premiumMemberships, auditLogs, promotionPurchases, profiles, renterBillingProfiles } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { getOwnedSpace } from '@/lib/spaces/queries';
+import { getRenterBillingProfile } from '@/lib/payments/queries';
+import * as asaas from '@/lib/payments/asaas';
 import { monthlyBenefitLimit, promotionDurationHours } from './settings';
-import { activatePromotionSchema, cancelPromotionSchema } from './schemas';
+import { getActivePromotionForSpace } from './queries';
+import { findPriceOption } from './purchase-pricing';
+import { activatePromotionSchema, cancelPromotionSchema, purchasePromotionSchema } from './schemas';
 
 /** Mesmo desembrulho de PostgresError usado em bookings/actions.ts — ver o comentário lá. */
 const { PostgresError } = postgres;
@@ -210,4 +215,137 @@ export async function cancelPromotionAction(
   revalidateAfterChange();
 
   return { ok: true, message: `${TYPE_LABEL[updated[0]!.type]} cancelado.` };
+}
+
+export type PurchasePromotionActionState = { ok: boolean; message?: string };
+
+function hojeISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Compra avulsa de Destaque/Turbo — preco fixo, independente de ser Premium
+ * ou nao (o beneficio gratis do Premium e `activatePromotionAction`, esta
+ * aqui e sempre paga).
+ *
+ * Mesmo padrao de `startCheckoutAction` (booking): cria/reaproveita o
+ * cliente Asaas do comprador, cria uma cobranca (aqui UNICA, sem split — o
+ * dinheiro e da plataforma), grava a compra como `pending` e redireciona
+ * pra fatura. A promocao so nasce quando o webhook confirma o pagamento —
+ * ver `handlePurchaseConfirmed` em src/lib/payments/webhook.ts.
+ */
+export async function purchasePromotionAction(
+  _prev: PurchasePromotionActionState | undefined,
+  formData: FormData,
+): Promise<PurchasePromotionActionState> {
+  const user = await requireUserOrThrow();
+
+  const parsed = purchasePromotionSchema.safeParse({
+    spaceId: formData.get('spaceId'),
+    type: formData.get('type'),
+    durationHours: formData.get('durationHours'),
+    cpfCnpj: formData.get('cpfCnpj'),
+  });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Dados inválidos.' };
+  }
+  const { spaceId, type, durationHours, cpfCnpj } = parsed.data;
+
+  let space: Awaited<ReturnType<typeof getOwnedSpace>>;
+  try {
+    space = await getOwnedSpace(spaceId, user.id);
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Anúncio não encontrado.' };
+  }
+  if (space.status !== 'published') {
+    return { ok: false, message: 'Só é possível promover um anúncio publicado.' };
+  }
+
+  const vigente = await getActivePromotionForSpace(spaceId);
+  if (vigente) {
+    return { ok: false, message: 'Este anúncio já tem uma promoção ativa agora.' };
+  }
+
+  // Preco NUNCA vem do formulario — so o (tipo, duracao) escolhidos, contra o catalogo fixo.
+  const opcao = findPriceOption(type, durationHours);
+  if (!opcao) {
+    return { ok: false, message: 'Duração inválida para esta modalidade.' };
+  }
+
+  await db.update(profiles).set({ cpfCnpj }).where(eq(profiles.id, user.id));
+
+  let billing = await getRenterBillingProfile(user.id);
+  if (!billing) {
+    const [perfil] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
+    let cliente: asaas.AsaasCustomer;
+    try {
+      cliente = await asaas.createCustomer({
+        name: perfil?.fullName ?? user.fullName ?? 'Anunciante',
+        cpfCnpj,
+        email: user.email,
+        mobilePhone: perfil?.phone ?? undefined,
+        externalReference: user.id,
+      });
+    } catch (err) {
+      if (err instanceof asaas.AsaasError) {
+        console.error('[promotions] Asaas recusou a criação do cliente:', err.status, err.body);
+        return { ok: false, message: `O Asaas recusou seus dados: ${err.message}` };
+      }
+      throw err;
+    }
+    const [novoBilling] = await db
+      .insert(renterBillingProfiles)
+      .values({ userId: user.id, provider: 'asaas', providerCustomerId: cliente.id })
+      .returning();
+    billing = novoBilling!;
+  }
+
+  let cobranca: asaas.AsaasPayment;
+  try {
+    cobranca = await asaas.createPayment({
+      customer: billing.providerCustomerId,
+      billingType: 'UNDEFINED',
+      value: opcao.priceCents / 100,
+      dueDate: hojeISO(),
+      externalReference: `promotion:${spaceId}:${type}`,
+      description: `MyPlace — ${TYPE_LABEL[type]} (${opcao.label}) — ${space.title}`,
+    });
+  } catch (err) {
+    if (err instanceof asaas.AsaasError) {
+      console.error('[promotions] Asaas recusou a criação da cobrança:', err.status, err.body);
+      return { ok: false, message: `Não foi possível iniciar o pagamento: ${err.message}` };
+    }
+    throw err;
+  }
+
+  if (!cobranca.invoiceUrl) {
+    console.error('[promotions] cobrança criada sem invoiceUrl:', cobranca.id);
+    return { ok: false, message: 'O gateway não devolveu um link de pagamento. Tente novamente.' };
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.insert(promotionPurchases).values({
+      spaceId,
+      ownerId: user.id,
+      type,
+      durationHours: opcao.durationHours,
+      priceCents: opcao.priceCents,
+      provider: 'asaas',
+      providerPaymentId: cobranca.id,
+      status: 'pending',
+      invoiceUrl: cobranca.invoiceUrl,
+    });
+
+    await tx.insert(auditLogs).values({
+      actorId: user.id,
+      actorRole: user.role,
+      action: 'promotion_purchase.started',
+      entityType: 'space',
+      entityId: spaceId,
+      metadata: { type, durationHours: opcao.durationHours, priceCents: opcao.priceCents, providerPaymentId: cobranca.id },
+    });
+  });
+
+  revalidatePath('/meus-espacos');
+  redirect(cobranca.invoiceUrl);
 }

@@ -408,6 +408,27 @@ export async function startTestbed(port = 0): Promise<Testbed> {
 
               status = json(res, 200, { ...assinatura, firstPaymentId: payId });
             }
+          } else if (req.method === 'POST' && rota === '/v3/payments') {
+            // Cobranca UNICA (nao recorrente) — compra avulsa de Destaque/Turbo.
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+              customer?: string; value?: number; dueDate?: string;
+            };
+            if (!corpo.customer || !corpo.value || !corpo.dueDate) {
+              status = json(res, 400, {
+                errors: [{ code: 'invalid_payment', description: 'customer, value e dueDate sao obrigatorios' }],
+              });
+            } else if (!asaasCustomers.has(corpo.customer)) {
+              status = json(res, 400, { errors: [{ code: 'invalid_customer', description: 'customer nao existe' }] });
+            } else {
+              const payId = `pay_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+              const pagamento = {
+                id: payId, status: 'PENDING', value: corpo.value, netValue: null,
+                invoiceUrl: `http://127.0.0.1/fake-invoice/${payId}`, dueDate: corpo.dueDate,
+                refundedCents: 0, subscription: null,
+              };
+              asaasPayments.set(payId, pagamento);
+              status = json(res, 200, pagamento);
+            }
           } else if (req.method === 'DELETE' && /^\/v3\/subscriptions\/[^/]+$/.test(rota)) {
             const id = rota.split('/').pop()!;
             const existente = asaasSubscriptions.get(id);

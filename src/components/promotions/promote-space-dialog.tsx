@@ -1,16 +1,17 @@
 'use client';
 
 import { useActionState, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { Rocket, Star, Zap, X } from 'lucide-react';
 import {
   activatePromotionAction, cancelPromotionAction, type PromotionActionState,
 } from '@/lib/promotions/actions';
 import { formatPromotionDateLong } from '@/lib/promotions/format';
+import { priceOptionsFor } from '@/lib/promotions/purchase-pricing';
+import { formatBRL } from '@/lib/money';
 import { PromotionBadge } from './promotion-badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { PromotionPurchaseForm } from './promotion-purchase-form';
+import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
-import { SubmitButton } from '@/components/auth/form-shell';
 import { cn } from '@/lib/utils';
 
 type PromotionType = 'destaque' | 'turbo';
@@ -26,6 +27,7 @@ export function PromoteSpaceDialog({
   premium,
   destaqueBenefit,
   turboBenefit,
+  cpfSugerido,
 }: {
   spaceId: string;
   spaceTitle: string;
@@ -33,6 +35,7 @@ export function PromoteSpaceDialog({
   premium: boolean;
   destaqueBenefit: BenefitInfo;
   turboBenefit: BenefitInfo;
+  cpfSugerido?: string | null;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [open, setOpen] = useState(false);
@@ -98,6 +101,7 @@ export function PromoteSpaceDialog({
           premium={premium}
           destaqueBenefit={destaqueBenefit}
           turboBenefit={turboBenefit}
+          cpfSugerido={cpfSugerido}
           onDone={() => setOpen(false)}
         />
       </dialog>
@@ -119,16 +123,18 @@ export function PromoteSpaceDialog({
  * proxima abertura, depois que a pessoa ja fechou o dialog.
  */
 function PromoteDialogBody({
-  spaceId, activePromotion, premium, destaqueBenefit, turboBenefit, onDone,
+  spaceId, activePromotion, premium, destaqueBenefit, turboBenefit, cpfSugerido, onDone,
 }: {
   spaceId: string;
   activePromotion: ActivePromotion | null;
   premium: boolean;
   destaqueBenefit: BenefitInfo;
   turboBenefit: BenefitInfo;
+  cpfSugerido?: string | null;
   onDone: () => void;
 }) {
-  const [tipo, setTipo] = useState<PromotionType | ''>('');
+  /** Qual modalidade esta com o formulario de COMPRA aberto — null = tela de escolha. */
+  const [comprando, setComprando] = useState<PromotionType | null>(null);
 
   const [ativarState, ativarAction] = useActionState<PromotionActionState | undefined, FormData>(
     activatePromotionAction, undefined,
@@ -188,98 +194,109 @@ function PromoteDialogBody({
     );
   }
 
-  if (!premium) {
+  if (comprando) {
     return (
       <div className="p-5 pt-2 space-y-4">
-        <p className="text-[0.9375rem] text-[var(--content-muted)] leading-relaxed">
-          Destaque e Turbo são benefícios de quem é Membro Premium. Assine para aumentar a
-          exposição dos seus anúncios.
-        </p>
-        <Link href="/premium" className={buttonVariants({ block: true })}>
-          Conhecer o Premium
-        </Link>
+        <div className="flex items-center gap-2">
+          {comprando === 'turbo' ? (
+            <Zap className="size-4 text-[var(--accent)]" aria-hidden fill="currentColor" />
+          ) : (
+            <Star className="size-4 text-[var(--accent)]" aria-hidden />
+          )}
+          <p className="font-medium text-[0.9375rem]">
+            Comprar {comprando === 'turbo' ? 'Turbo' : 'Destaque'}
+          </p>
+        </div>
+        <PromotionPurchaseForm
+          spaceId={spaceId}
+          type={comprando}
+          cpfSugerido={cpfSugerido}
+          onCancel={() => setComprando(null)}
+        />
       </div>
     );
   }
 
   return (
-    <form action={ativarAction} className="p-5 pt-2 space-y-4">
-      <input type="hidden" name="spaceId" value={spaceId} />
-      <input type="hidden" name="type" value={tipo} />
-
+    <div className="p-5 pt-2 space-y-3">
       {ativarState?.message && !ativarState.ok && <Alert tone="critical">{ativarState.message}</Alert>}
 
-      <div className="space-y-2">
-        <OpcaoPromocao
-          selecionado={tipo === 'destaque'}
-          onSelect={() => setTipo('destaque')}
-          beneficio={destaqueBenefit}
-          icone={Star}
-          titulo="Destaque"
-          descricao="Mais visibilidade dentro do marketplace."
-        />
-        <OpcaoPromocao
-          selecionado={tipo === 'turbo'}
-          onSelect={() => setTipo('turbo')}
-          beneficio={turboBenefit}
-          icone={Zap}
-          titulo="Turbo"
-          descricao="Prioridade máxima de exposição."
-        />
-      </div>
-
-      <SubmitButton disabled={!tipo}>
-        {tipo ? `Ativar ${tipo === 'turbo' ? 'Turbo' : 'Destaque'}` : 'Escolha uma opção'}
-      </SubmitButton>
-    </form>
+      <ModalidadeCard
+        spaceId={spaceId}
+        titulo="Destaque" icone={Star}
+        descricao="Mais visibilidade dentro do marketplace."
+        beneficio={premium ? destaqueBenefit : null}
+        precoAPartir={priceOptionsFor('destaque')[0]!.priceCents}
+        ativarAction={ativarAction}
+        onComprar={() => setComprando('destaque')}
+      />
+      <ModalidadeCard
+        spaceId={spaceId}
+        titulo="Turbo" icone={Zap}
+        descricao="Prioridade máxima de exposição."
+        beneficio={premium ? turboBenefit : null}
+        precoAPartir={priceOptionsFor('turbo')[0]!.priceCents}
+        ativarAction={ativarAction}
+        onComprar={() => setComprando('turbo')}
+      />
+    </div>
   );
 }
 
-function OpcaoPromocao({
-  selecionado, onSelect, beneficio, icone: Icone, titulo, descricao,
+function ModalidadeCard({
+  spaceId, titulo, icone: Icone, descricao, beneficio, precoAPartir, ativarAction, onComprar,
 }: {
-  selecionado: boolean;
-  onSelect: () => void;
-  beneficio: BenefitInfo;
-  icone: React.ComponentType<{ className?: string }>;
+  spaceId: string;
   titulo: string;
+  icone: React.ComponentType<{ className?: string }>;
   descricao: string;
+  /** null = nao e Premium, nunca mostra a opcao gratis. */
+  beneficio: BenefitInfo | null;
+  precoAPartir: number;
+  ativarAction: (formData: FormData) => void;
+  onComprar: () => void;
 }) {
-  const disponivel = beneficio.remaining > 0;
+  const tipo = titulo === 'Turbo' ? 'turbo' : 'destaque';
+  const gratisDisponivel = beneficio !== null && beneficio.remaining > 0;
 
   return (
-    <label
-      className={cn(
-        'flex gap-3 items-start p-3 rounded-[var(--radius-field)] border transition-colors',
-        disponivel ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
-        selecionado
-          ? 'border-[var(--accent)] bg-[var(--accent-subtle)]'
-          : 'border-[var(--border-strong)] hover:bg-[var(--surface-sunken)]',
-      )}
-    >
-      <input
-        type="radio"
-        name="tipo-visual"
-        checked={selecionado}
-        onChange={onSelect}
-        disabled={!disponivel}
-        className="mt-1 size-4 accent-[var(--accent)] shrink-0"
-      />
-      <Icone className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-2">
-          <span className="block text-[0.9375rem] font-medium">{titulo}</span>
-          <span className="shrink-0 text-[0.75rem] tabular-nums text-[var(--content-muted)]">
-            {beneficio.remaining} de {beneficio.limit} disponíve{beneficio.limit === 1 ? 'l' : 'is'}
-          </span>
-        </span>
-        <span className="block text-[0.8125rem] text-[var(--content-muted)] leading-snug">{descricao}</span>
-        {!disponivel && (
-          <span className="block text-[0.75rem] text-[var(--color-caution)] mt-1">
-            Você já usou {titulo.toLowerCase() === 'turbo' ? 'o' : 'os'} {beneficio.limit} este mês.
-          </span>
+    <div className="rounded-[var(--radius-field)] border border-[var(--border-strong)] p-3 space-y-2.5">
+      <div className="flex items-start gap-2.5">
+        <Icone className="mt-0.5 size-4 shrink-0 text-[var(--accent)]" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[0.9375rem] font-medium">{titulo}</p>
+          <p className="text-[0.8125rem] text-[var(--content-muted)] leading-snug">{descricao}</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {gratisDisponivel && (
+          <form action={ativarAction} className="flex-1">
+            <input type="hidden" name="spaceId" value={spaceId} />
+            <input type="hidden" name="type" value={tipo} />
+            <button
+              type="submit"
+              className="w-full h-9 rounded-[var(--radius-field)] border border-[var(--border-strong)] text-[0.8125rem] font-medium hover:bg-[var(--surface-sunken)] transition-colors"
+            >
+              Usar grátis ({beneficio.remaining} de {beneficio.limit})
+            </button>
+          </form>
         )}
-      </span>
-    </label>
+        <button
+          type="button"
+          onClick={onComprar}
+          className="flex-1 h-9 rounded-[var(--radius-field)] border border-[var(--border-strong)] text-[0.8125rem] font-medium hover:bg-[var(--surface-sunken)] transition-colors"
+        >
+          Comprar a partir de {formatBRL(precoAPartir)}
+        </button>
+      </div>
+
+      {beneficio !== null && !gratisDisponivel && (
+        <p className="text-[0.75rem] text-[var(--content-subtle)]">
+          Benefício grátis do mês já usado — comprar continua disponível.
+        </p>
+      )}
+    </div>
   );
 }
+

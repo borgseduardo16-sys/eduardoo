@@ -20,6 +20,7 @@ req.cache[req.resolve('server-only')] = {
 
 import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
+import { startTestbed, type Testbed } from './testbed/server';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -56,6 +57,24 @@ const tag = `promo-${Date.now()}`;
 const dono1Id = crypto.randomUUID(); // Premium
 const dono2Id = crypto.randomUUID(); // nao Premium
 const outroId = crypto.randomUUID(); // tenta mexer no espaco alheio
+
+/**
+ * `profiles.cpf_cnpj` tem UNIQUE de verdade no banco — mesmo padrao de
+ * verify-payments.ts: um valor fixo reusado por identidades DIFERENTES
+ * nesta mesma execucao colide direto (nao so entre execucoes). Cada compra
+ * avulsa da secao 12 usa uma identidade com o proprio CPF gerado agora.
+ */
+function gerarCpfValido(): string {
+  const nove = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+  const calcularDv = (digs: number[], pesos: number[]) => {
+    const soma = digs.reduce((acc, d, i) => acc + d * pesos[i]!, 0);
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+  const dv1 = calcularDv(nove, [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const dv2 = calcularDv([...nove, dv1], [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return [...nove, dv1, dv2].join('');
+}
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string; email: string };
 let identidadeAtual: Identidade = { id: '', role: 'user', fullName: '', email: '' };
@@ -144,6 +163,8 @@ async function limpar(ids: string[]) {
   }
 }
 
+let testbed: Testbed | undefined;
+
 async function main() {
   secao('0. Semente');
   await seedPerfis();
@@ -153,6 +174,13 @@ async function main() {
   const espacoRascunho = await seedEspacoRascunho(dono1Id, 'rascunho');
   const espacoDono2 = await seedEspacoPublicado(dono2Id, 'dono2');
   ok('semente criada', `2 donos (1 premium), 4 espacos publicados + 1 rascunho`);
+
+  testbed = await startTestbed();
+  process.env.ASAAS_API_BASE_URL = `${testbed.url}/v3`;
+  process.env.ASAAS_API_KEY = testbed.asaasApiKey;
+  process.env.ASAAS_ENV = 'sandbox';
+  process.env.ASAAS_WEBHOOK_TOKEN = `token-${tag}`;
+  ok('testbed do Asaas no ar (compra avulsa de Destaque/Turbo)', testbed.url);
 
   // Mock da DAL (identidade) e do next/cache — mesmo padrao de verify-payments.ts.
   const dalPath = req.resolve('../src/lib/auth/dal.ts');
@@ -177,14 +205,33 @@ async function main() {
     exports: { revalidatePath: () => {}, revalidateTag: () => {} },
   } as never;
 
-  const { activatePromotionAction, cancelPromotionAction } = await import('../src/lib/promotions/actions');
+  const { activatePromotionAction, cancelPromotionAction, purchasePromotionAction } =
+    await import('../src/lib/promotions/actions');
   const { getMonthlyBenefitUsage, getActivePromotionForSpace, listFeaturedSpaces, expireStalePromotions } =
     await import('../src/lib/promotions/queries');
+  const { processAsaasWebhook } = await import('../src/lib/payments/webhook');
 
   function fd(campos: Record<string, string>): FormData {
     const f = new FormData();
     for (const [k, v] of Object.entries(campos)) f.set(k, v);
     return f;
+  }
+
+  /*
+   * `redirect()` lanca NEXT_REDIRECT — capturamos aqui, mesmo padrao ja
+   * usado em verify-bookings.ts/verify-payments.ts. Nao tentamos extrair a
+   * URL do digest (formato interno do Next); confirmamos o destino
+   * consultando o banco depois.
+   */
+  async function chamarComRedirect<T>(fnc: () => Promise<T>): Promise<{ redirecionou: true } | { redirecionou: false; resultado: T }> {
+    try {
+      const resultado = await fnc();
+      return { redirecionou: false, resultado };
+    } catch (err) {
+      const digest = (err as { digest?: string }).digest ?? '';
+      if (!digest.startsWith('NEXT_REDIRECT')) throw err;
+      return { redirecionou: true };
+    }
   }
 
   // =========================================================================
@@ -409,18 +456,149 @@ async function main() {
   assert('espaco com promocao vencida some da vitrine', !vitrineDepois.map((v) => v.id).includes(espacoRascunho));
 
   // =========================================================================
+  secao('12. Compra avulsa de Destaque/Turbo — preco fixo, sem depender de Premium');
+  // =========================================================================
+
+  async function buscarCompra(providerPaymentId: string) {
+    const [row] = await sql<{
+      id: string; status: string; promotion_id: string | null; failure_reason: string | null;
+      price_cents: number; duration_hours: number;
+    }[]>`SELECT id, status, promotion_id, failure_reason, price_cents, duration_hours
+      FROM promotion_purchases WHERE provider_payment_id=${providerPaymentId}`;
+    return row;
+  }
+
+  const cpfDono1 = gerarCpfValido();
+  const cpfDono2 = gerarCpfValido();
+  const cpfOutro = gerarCpfValido();
+
+  entrarComo(dono2Id, 'owner', 'Dono Sem Premium');
+
+  // --- 12a. preco nunca vem do formulario: duracao fora do catalogo e recusada ANTES de cobrar ---
+  const rDuracaoInvalida = await purchasePromotionAction(undefined, fd({
+    spaceId: espacoDono2, type: 'destaque', durationHours: '999', cpfCnpj: cpfDono2,
+  }));
+  assert('duracao fora do catalogo fixo e recusada', !rDuracaoInvalida.ok, rDuracaoInvalida.message ?? '');
+  const [{ n: comprasAntes }] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM promotion_purchases WHERE owner_id=${dono2Id}`;
+  expect('nada foi cobrado — nenhuma linha de compra criada', comprasAntes, 0);
+
+  // --- 12b. dono SEM Premium compra Destaque avulso mesmo assim (preco fixo do catalogo) ---
+  const rCompra1 = await chamarComRedirect(() => purchasePromotionAction(undefined, fd({
+    spaceId: espacoDono2, type: 'destaque', durationHours: '24', cpfCnpj: cpfDono2,
+  })));
+  assert('compra avulsa (sem ser Premium) redireciona pra fatura', rCompra1.redirecionou);
+
+  const [{ provider_payment_id: pagamentoId1, price_cents: precoGravado1 }] = await sql<
+    { provider_payment_id: string; price_cents: number }[]
+  >`SELECT provider_payment_id, price_cents FROM promotion_purchases WHERE owner_id=${dono2Id} AND space_id=${espacoDono2}`;
+  expect('preco gravado bate com o catalogo (1 dia = R$ 12,90)', precoGravado1, 1290);
+  const compraPendente1 = await buscarCompra(pagamentoId1);
+  expect('compra comeca como pending, promocao ainda nao existe', [compraPendente1!.status, compraPendente1!.promotion_id], ['pending', null]);
+
+  // --- 12c. webhook PAYMENT_CONFIRMED ativa a promocao AGORA (nao no momento da compra) ---
+  const rConfirmado1 = await processAsaasWebhook({ event: 'PAYMENT_CONFIRMED', payment: { id: pagamentoId1, value: 12.9 } });
+  assert('webhook PAYMENT_CONFIRMED processado', rConfirmado1.ok, rConfirmado1.reason ?? '');
+
+  const compraConfirmada1 = await buscarCompra(pagamentoId1);
+  expect('compra vira confirmed e ganha promotion_id', compraConfirmada1!.status, 'confirmed');
+  assert('promotion_id foi preenchido', Boolean(compraConfirmada1!.promotion_id));
+
+  const promoComprada = await getActivePromotionForSpace(espacoDono2);
+  assert('promocao comprada aparece como vigente pro espaco', promoComprada?.status === 'active');
+  expect('tipo bate com o que foi comprado', promoComprada?.type, 'destaque');
+  const [{ source: origemGravada }] = await sql<{ source: string }[]>`
+    SELECT source::text FROM promotions WHERE id=${compraConfirmada1!.promotion_id}`;
+  expect('origem gravada como purchase (nao premium_benefit)', origemGravada, 'purchase');
+
+  // --- 12d. duracao de 1 dia (24h) — expiresAt bate, sem depender do benefit mensal do Premium ---
+  const [{ started_at: iniciouEm, expires_at: expiraEm }] = await sql<{ started_at: Date; expires_at: Date }[]>`
+    SELECT started_at, expires_at FROM promotions WHERE id=${compraConfirmada1!.promotion_id}`;
+  const horasReais = (new Date(expiraEm).getTime() - new Date(iniciouEm).getTime()) / 3_600_000;
+  assert('duracao gravada e de 24h (1 dia)', Math.abs(horasReais - 24) < 0.01, `${horasReais}h`);
+
+  // --- 12e. nao deixa comprar de novo enquanto ja tem promocao vigente (nao cobra a toa) ---
+  const rCompraDuplicada = await purchasePromotionAction(undefined, fd({
+    spaceId: espacoDono2, type: 'turbo', durationHours: '1', cpfCnpj: cpfDono2,
+  }));
+  assert('comprar de novo com promocao ja vigente e recusado antes de cobrar', !rCompraDuplicada.ok, rCompraDuplicada.message ?? '');
+  const [{ n: comprasDepoisDuplicada }] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM promotion_purchases WHERE owner_id=${dono2Id} AND space_id=${espacoDono2}`;
+  expect('nenhuma cobranca nova foi criada pela tentativa duplicada', comprasDepoisDuplicada, 1);
+
+  // --- 12f. estorno depois de confirmada cancela a promocao tambem ---
+  const rEstornado1 = await processAsaasWebhook({ event: 'PAYMENT_REFUNDED', payment: { id: pagamentoId1, value: 12.9 } });
+  assert('webhook PAYMENT_REFUNDED processado', rEstornado1.ok, rEstornado1.reason ?? '');
+  const [{ status: statusPosEstorno }] = await sql<{ status: string }[]>`
+    SELECT status::text FROM promotions WHERE id=${compraConfirmada1!.promotion_id}`;
+  expect('promocao cancelada apos o estorno', statusPosEstorno, 'cancelled');
+  const compraPosEstorno = await buscarCompra(pagamentoId1);
+  expect('compra marcada como refunded', compraPosEstorno!.status, 'refunded');
+
+  // --- 12g. autorizacao: outro usuario nao compra promocao pro espaco alheio ---
+  entrarComo(outroId, 'owner', 'Outro Dono');
+  const rCompraAlheia = await purchasePromotionAction(undefined, fd({
+    spaceId: espacoDono2, type: 'turbo', durationHours: '1', cpfCnpj: cpfOutro,
+  }));
+  assert('outro usuario nao compra promocao pro espaco alheio', !rCompraAlheia.ok, rCompraAlheia.message ?? '');
+
+  // --- 12h. so anuncio PUBLICADO pode ser promovido, mesmo pagando ---
+  // Espaco NOVO de proposito: `espacoRascunho` (semente) ja foi publicado na
+  // secao 11 (testar a expiracao precisava disso) — reusa-lo aqui testaria
+  // a premissa errada.
+  entrarComo(dono1Id, 'owner', 'Dono Premium');
+  const espacoAindaRascunho = await seedEspacoRascunho(dono1Id, 'rascunho-compra');
+  const rCompraRascunho = await purchasePromotionAction(undefined, fd({
+    spaceId: espacoAindaRascunho, type: 'destaque', durationHours: '24', cpfCnpj: cpfDono1,
+  }));
+  assert('rascunho nao pode ser promovido nem pagando', !rCompraRascunho.ok, rCompraRascunho.message ?? '');
+
+  // --- 12i. duas compras pendentes pro MESMO espaco: a 2a confirmacao nao perde o dinheiro nem quebra ---
+  const espacoConcorrencia = await seedEspacoPublicado(dono2Id, 'concorrencia-compra');
+  entrarComo(dono2Id, 'owner', 'Dono Sem Premium');
+
+  const rCompraConc1 = await chamarComRedirect(() => purchasePromotionAction(undefined, fd({
+    spaceId: espacoConcorrencia, type: 'destaque', durationHours: '24', cpfCnpj: cpfDono2,
+  })));
+  assert('1a compra concorrente redireciona', rCompraConc1.redirecionou);
+  const rCompraConc2 = await chamarComRedirect(() => purchasePromotionAction(undefined, fd({
+    spaceId: espacoConcorrencia, type: 'turbo', durationHours: '1', cpfCnpj: cpfDono2,
+  })));
+  assert('2a compra concorrente (nenhuma confirmou ainda) tambem redireciona', rCompraConc2.redirecionou);
+
+  const [pagIdConc1, pagIdConc2] = (await sql<{ provider_payment_id: string }[]>`
+    SELECT provider_payment_id FROM promotion_purchases WHERE space_id=${espacoConcorrencia}
+    ORDER BY created_at ASC`).map((r) => r.provider_payment_id);
+
+  await processAsaasWebhook({ event: 'PAYMENT_CONFIRMED', payment: { id: pagIdConc1!, value: 12.9 } });
+  const rSegundaConfirmacao = await processAsaasWebhook({ event: 'PAYMENT_CONFIRMED', payment: { id: pagIdConc2!, value: 9.9 } });
+  assert('webhook da 2a confirmacao nao quebra (so nao ativa)', rSegundaConfirmacao.ok, rSegundaConfirmacao.reason ?? '');
+
+  const compraConc1 = await buscarCompra(pagIdConc1!);
+  const compraConc2 = await buscarCompra(pagIdConc2!);
+  assert('1a compra confirmada e ativou a promocao', compraConc1!.status === 'confirmed' && Boolean(compraConc1!.promotion_id));
+  assert('2a compra confirmada, mas SEM ativar (ja tinha promocao vigente) — dinheiro sinalizado, nao perdido',
+    compraConc2!.status === 'confirmed' && !compraConc2!.promotion_id && Boolean(compraConc2!.failure_reason));
+
+  const [{ n: promosVigentesConc }] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM promotions WHERE space_id=${espacoConcorrencia} AND status IN ('scheduled','active')`;
+  expect('so UMA promocao vigente no espaco, mesmo com duas compras confirmadas', promosVigentesConc, 1);
+
+  // =========================================================================
   await limpar([dono3Id, dono1Id, dono2Id, outroId]);
 
   console.log(`\n\x1b[1mResultado:\x1b[0m ${passed} passaram, ${failed} falharam`);
   if (failed > 0) {
     console.log('Falharam:', falhas.join(', '));
   }
+  await testbed?.close();
   await sql.end();
   if (failed > 0) process.exit(1);
 }
 
 main().catch(async (err) => {
   console.error(err);
+  await testbed?.close();
   await sql.end();
   process.exit(1);
 });

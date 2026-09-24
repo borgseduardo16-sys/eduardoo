@@ -35,7 +35,7 @@ function IconSubmit({
  * para desfazer — pausar e retomar são reversíveis, e por isso vão direto.
  */
 export function SpaceCardActions({
-  spaceId, slug, title, status, draftStep, activePromotion, benefitUsage,
+  spaceId, slug, title, status, draftStep, activePromotion, benefitUsage, cpfSugerido,
 }: {
   spaceId: string;
   slug: string;
@@ -45,6 +45,8 @@ export function SpaceCardActions({
   draftStep: number;
   activePromotion?: ActivePromotion | null;
   benefitUsage?: BenefitUsage;
+  /** CPF/CNPJ ja conhecido do dono, pra pre-preencher a compra avulsa. */
+  cpfSugerido?: string | null;
 }) {
   const [toggleState, toggleAction] = useActionState<SpaceActionState | undefined, FormData>(
     toggleSpaceStatusAction, undefined,
@@ -103,6 +105,7 @@ export function SpaceCardActions({
             premium={benefitUsage.premium}
             destaqueBenefit={benefitUsage.destaque}
             turboBenefit={benefitUsage.turbo}
+            cpfSugerido={cpfSugerido}
           />
         )}
 

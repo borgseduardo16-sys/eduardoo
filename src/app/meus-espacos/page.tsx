@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
+import { eq } from 'drizzle-orm';
 import { ImageOff, Plus } from 'lucide-react';
+import { db } from '@/db/client';
+import { profiles } from '@/db/schema';
 import { requireUser } from '@/lib/auth/dal';
 import { listOwnerSpaces, countOwnerSpacesByStatus } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
@@ -44,10 +47,11 @@ export default async function MeusEspacosPage({
   const { filtro = 'todos' } = await searchParams;
 
   const ativo = FILTROS.find((f) => f.key === filtro) ?? FILTROS[0];
-  const [spaces, contagem, benefitUsage] = await Promise.all([
+  const [spaces, contagem, benefitUsage, [perfil]] = await Promise.all([
     listOwnerSpaces(user.id, ativo.status ? [...ativo.status] : undefined),
     countOwnerSpacesByStatus(user.id),
     getMonthlyBenefitUsage(user.id),
+    db.select({ cpfCnpj: profiles.cpfCnpj }).from(profiles).where(eq(profiles.id, user.id)).limit(1),
   ]);
 
   const [urls, promocoesPorEspaco] = await Promise.all([
@@ -182,7 +186,7 @@ export default async function MeusEspacosPage({
                   <div className="px-3 sm:px-4 pb-3 sm:pb-4">
                     <SpaceCardActions
                       spaceId={s.id} slug={s.slug} title={s.title} status={s.status} draftStep={s.draftStep}
-                      activePromotion={promocao} benefitUsage={benefitUsage}
+                      activePromotion={promocao} benefitUsage={benefitUsage} cpfSugerido={perfil?.cpfCnpj}
                     />
                   </div>
                 </li>
