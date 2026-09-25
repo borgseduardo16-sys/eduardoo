@@ -530,6 +530,167 @@ async function main() {
            'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste')`,
       'sqa_photos_score_range',
     );
+
+    console.log('\n\x1b[1m11. Sugestao de valor de aluguel (Fase 17)\x1b[0m');
+    const sqaPriceCols = `
+      (space_id, requested_by, conservation_state, age_years, renovated_recently,
+       photos_score, location_score, structure_score, extras_score, base_score,
+       conservation_factor, age_factor, renovation_factor, final_score, classification,
+       ai_conservation_state, ai_findings, explanation,
+       price_comparables_count, price_low_confidence, price_base_cents,
+       price_score_factor_bps, price_extras_factor_bps,
+       suggested_price_ideal_cents, suggested_price_min_cents, suggested_price_max_cents,
+       price_market_warning)`;
+    const sqaAiFindings = sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' });
+
+    await mustAccept(
+      'insercao valida com preco (base 1000,00 x medio 1,0 x extras 5,00->1,075) e aceita',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste preco',
+           5, false, 100000,
+           10000, 10750,
+           107500, 96750, 118250,
+           null)`,
+    );
+
+    await mustReject(
+      'preco ideal que nao bate com base x fatores e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste',
+           5, false, 100000,
+           10000, 10750,
+           999999, 96750, 118250,
+           null)`,
+      'sqa_price_ideal_matches_formula',
+    );
+
+    await mustReject(
+      'preco minimo que nao bate com ideal x 0,90 e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste',
+           5, false, 100000,
+           10000, 10750,
+           107500, 1, 118250,
+           null)`,
+      'sqa_price_min_matches_formula',
+    );
+
+    await mustReject(
+      'preco maximo que nao bate com ideal x 1,10 e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste',
+           5, false, 100000,
+           10000, 10750,
+           107500, 96750, 1,
+           null)`,
+      'sqa_price_max_matches_formula',
+    );
+
+    await mustReject(
+      'fator de score que nao bate com a classificacao desta linha e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste',
+           5, false, 100000,
+           7000, 10750,
+           75250, 67725, 82775,
+           null)`,
+      'sqa_price_score_factor_matches_classification',
+    );
+
+    await mustReject(
+      'fator de extras que nao bate com extras_score desta linha e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste',
+           5, false, 100000,
+           10000, 11000,
+           110000, 99000, 121000,
+           null)`,
+      'sqa_price_extras_factor_matches_score',
+    );
+
+    await mustReject(
+      'colunas de preco preenchidas so em parte (nao todas juntas) e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation, price_base_cents)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste', 100000)`,
+      'sqa_price_columns_null_together',
+    );
+
+    await mustReject(
+      'price_low_confidence que nao bate com a contagem real de comparaveis e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation,
+           price_comparables_count, price_low_confidence)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste', 10, true)`,
+      'sqa_price_low_confidence_matches_count',
+    );
+
+    await mustReject(
+      'alerta de mercado "acima_da_media" sem o preco realmente estar acima e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           5.00, 5.00, 5.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sqaAiFindings}, 'teste',
+           5, false, 100000,
+           10000, 10750,
+           107500, 96750, 118250,
+           'acima_da_media')`,
+      'sqa_price_market_warning_matches',
+    );
+
+    await mustAccept(
+      'alerta "acima_da_media" quando o preco de fato passa 1,5x da media (luxo + extras no maximo) e aceito',
+      () => sql`
+        INSERT INTO space_quality_assessments ${sql.unsafe(sqaPriceCols)}
+        VALUES
+          (${spaceId}, ${ownerId}, 'excelente', 10, false,
+           10.00, 10.00, 10.00, 10.00, 10.00, 1.10, 1.10, 1.10, 10.00, 'luxo',
+           'excelente', ${sqaAiFindings}, 'teste',
+           5, false, 100000,
+           15000, 11500,
+           172500, 155250, 189750,
+           'acima_da_media')`,
+    );
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.

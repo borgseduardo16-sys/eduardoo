@@ -11,7 +11,7 @@ import {
   check,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
-import { spaceConservationState, spaceQualityClassification } from './enums';
+import { spaceConservationState, spaceQualityClassification, spacePriceMarketWarning } from './enums';
 import { profiles } from './users';
 import { spaces } from './spaces';
 
@@ -38,6 +38,12 @@ export type AiPhotoFindings = {
  * titulo/descricao do anuncio — o risco de um bug aqui e gastar uma
  * chamada de IA por engano, nao vazar dinheiro nem fabricar avaliacao de
  * terceiro.
+ *
+ * Fase 17 acrescentou a sugestao de valor de aluguel (colunas `price*`/
+ * `suggestedPrice*`), derivada deste mesmo score — sem chamada de IA nova,
+ * so aritmetica sobre comparaveis reais. E dinheiro, entao as colunas sao
+ * INTEGER em centavos (nunca numeric/float) e os CHECKs abaixo refazem a
+ * conta inteira em basis points, mesma disciplina de `src/lib/money.ts`.
  */
 export const spaceQualityAssessments = pgTable(
   'space_quality_assessments',
@@ -78,6 +84,23 @@ export const spaceQualityAssessments = pgTable(
 
     explanation: text('explanation').notNull(),
 
+    // ---- Sugestao de valor de aluguel (Fase 17) — deriva deste mesmo score,
+    // sem chamada de IA nova. Colunas nulas em conjunto quando nao ha
+    // NENHUM comparavel real (nunca inventa um valor sem dado nenhum). ----
+    priceComparablesCount: integer('price_comparables_count').notNull().default(0),
+    /** < 5 comparaveis (recomendacao do proprio motor) — nunca escondido do proprietario. */
+    priceLowConfidence: boolean('price_low_confidence').notNull().default(true),
+    /** Mediana real de aluguel de anuncios comparaveis (mesmo tipo, mesma cidade, metragem +-20%) no momento desta classificacao. */
+    priceBaseCents: integer('price_base_cents'),
+    /** 7000 (economico) a 15000 (luxo) — basis points, tabela fixa por classificacao. */
+    priceScoreFactorBps: integer('price_score_factor_bps'),
+    /** 10000 a 11500 — basis points, funcao linear de extras_score. */
+    priceExtrasFactorBps: integer('price_extras_factor_bps'),
+    suggestedPriceIdealCents: integer('suggested_price_ideal_cents'),
+    suggestedPriceMinCents: integer('suggested_price_min_cents'),
+    suggestedPriceMaxCents: integer('suggested_price_max_cents'),
+    priceMarketWarning: spacePriceMarketWarning('price_market_warning'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -116,6 +139,57 @@ export const spaceQualityAssessments = pgTable(
        OR (${t.classification} = 'medio'       AND ${t.finalScore} >= 4 AND ${t.finalScore} < 7)
        OR (${t.classification} = 'alto_padrao' AND ${t.finalScore} >= 7 AND ${t.finalScore} < 9)
        OR (${t.classification} = 'luxo'        AND ${t.finalScore} >= 9 AND ${t.finalScore} <= 10)`,
+    ),
+
+    /** price_low_confidence e puramente derivado da contagem — nunca escondido/forcado. */
+    check('sqa_price_low_confidence_matches_count', sql`${t.priceLowConfidence} = (${t.priceComparablesCount} < 5)`),
+    check('sqa_price_comparables_count_range', sql`${t.priceComparablesCount} BETWEEN 0 AND 200`),
+
+    /** As 6 colunas de preco sao nulas TODAS JUNTAS (sem comparavel nenhum) ou preenchidas TODAS JUNTAS. */
+    check(
+      'sqa_price_columns_null_together',
+      sql`(${t.priceBaseCents} IS NULL AND ${t.priceScoreFactorBps} IS NULL AND ${t.priceExtrasFactorBps} IS NULL
+           AND ${t.suggestedPriceIdealCents} IS NULL AND ${t.suggestedPriceMinCents} IS NULL AND ${t.suggestedPriceMaxCents} IS NULL)
+       OR (${t.priceBaseCents} IS NOT NULL AND ${t.priceScoreFactorBps} IS NOT NULL AND ${t.priceExtrasFactorBps} IS NOT NULL
+           AND ${t.suggestedPriceIdealCents} IS NOT NULL AND ${t.suggestedPriceMinCents} IS NOT NULL AND ${t.suggestedPriceMaxCents} IS NOT NULL)`,
+    ),
+    check('sqa_price_base_positive', sql`${t.priceBaseCents} IS NULL OR ${t.priceBaseCents} > 0`),
+    check('sqa_price_ideal_positive', sql`${t.suggestedPriceIdealCents} IS NULL OR ${t.suggestedPriceIdealCents} > 0`),
+    /** Tabela fixa por classificacao: economico 0,70x .. luxo 1,50x. */
+    check('sqa_price_score_factor_valid', sql`${t.priceScoreFactorBps} IS NULL OR ${t.priceScoreFactorBps} IN (7000, 10000, 12000, 15000)`),
+    /** price_score_factor_bps tem que bater com a tabela por classificacao — nunca solto do score real desta linha. */
+    check(
+      'sqa_price_score_factor_matches_classification',
+      sql`${t.priceScoreFactorBps} IS NULL OR ${t.priceScoreFactorBps} = CASE ${t.classification}
+            WHEN 'economico' THEN 7000 WHEN 'medio' THEN 10000 WHEN 'alto_padrao' THEN 12000 WHEN 'luxo' THEN 15000 END`,
+    ),
+    /** Funcao linear de extras_score (0..10) -> 1,00x..1,15x, refeita pelo banco a partir da coluna ja gravada. */
+    check(
+      'sqa_price_extras_factor_matches_score',
+      sql`${t.priceExtrasFactorBps} IS NULL OR ${t.priceExtrasFactorBps} = 10000 + ROUND(${t.extrasScore} * 150)`,
+    ),
+
+    /** ideal = round(round(base x fator_score / 10000) x fator_extras / 10000) — o banco refaz a conta. */
+    check(
+      'sqa_price_ideal_matches_formula',
+      sql`${t.suggestedPriceIdealCents} IS NULL OR ${t.suggestedPriceIdealCents} = ROUND(
+            ROUND(${t.priceBaseCents}::numeric * ${t.priceScoreFactorBps} / 10000) * ${t.priceExtrasFactorBps} / 10000
+          )`,
+    ),
+    /** min/max = ideal +-10%, mesma conta refeita pelo banco. */
+    check('sqa_price_min_matches_formula', sql`${t.suggestedPriceMinCents} IS NULL OR ${t.suggestedPriceMinCents} = ROUND(${t.suggestedPriceIdealCents}::numeric * 9000 / 10000)`),
+    check('sqa_price_max_matches_formula', sql`${t.suggestedPriceMaxCents} IS NULL OR ${t.suggestedPriceMaxCents} = ROUND(${t.suggestedPriceIdealCents}::numeric * 11000 / 10000)`),
+
+    /** O alerta de mercado, quando presente, bate com a comparacao real ideal vs. base. */
+    check(
+      'sqa_price_market_warning_matches',
+      sql`${t.priceMarketWarning} IS NULL OR (
+            ${t.suggestedPriceIdealCents} IS NOT NULL AND (
+              (${t.priceMarketWarning} = 'acima_da_media'  AND ${t.suggestedPriceIdealCents}::bigint * 10000 > ${t.priceBaseCents}::bigint * 15000)
+              OR
+              (${t.priceMarketWarning} = 'abaixo_da_media' AND ${t.suggestedPriceIdealCents}::bigint * 10000 < ${t.priceBaseCents}::bigint * 7000)
+            )
+          )`,
     ),
   ],
 );

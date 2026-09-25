@@ -1,7 +1,8 @@
-import { Sparkles } from 'lucide-react';
+import { Sparkles, TrendingUp, TriangleAlert } from 'lucide-react';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { CONSERVATION_LABEL, type ConservationState, type QualityClassification } from '@/lib/quality/scoring';
 import type { QualityAssessmentRow } from '@/lib/quality/queries';
+import { formatBRL } from '@/lib/money';
 import { cn } from '@/lib/utils';
 
 const CLASSIFICATION_INFO: Record<QualityClassification, { label: string; tone: BadgeProps['tone'] }> = {
@@ -74,6 +75,54 @@ export function AssessmentResult({ assessment }: { assessment: QualityAssessment
             ))}
           </ul>
         </div>
+      )}
+
+      <PriceSuggestionBlock assessment={assessment} />
+    </div>
+  );
+}
+
+function PriceSuggestionBlock({ assessment }: { assessment: QualityAssessmentRow }) {
+  if (assessment.suggestedPriceIdealCents == null) {
+    return (
+      <div className="pt-4 border-t space-y-1">
+        <p className="text-[0.8125rem] font-medium flex items-center gap-1.5">
+          <TrendingUp className="size-3.5" aria-hidden />
+          Sugestão de valor de aluguel
+        </p>
+        <p className="text-[0.8125rem] text-[var(--content-muted)]">
+          Nenhum anúncio comparável (mesmo tipo, mesma cidade) publicado ainda — sem dado real pra sugerir um
+          valor.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="pt-4 border-t space-y-2">
+      <p className="text-[0.8125rem] font-medium flex items-center gap-1.5">
+        <TrendingUp className="size-3.5" aria-hidden />
+        Sugestão de valor de aluguel
+      </p>
+      <p className="text-[1.375rem] font-semibold tabular-nums">{formatBRL(assessment.suggestedPriceIdealCents)}</p>
+      <p className="text-[0.8125rem] text-[var(--content-muted)]">
+        Faixa sugerida: {formatBRL(assessment.suggestedPriceMinCents!)} a {formatBRL(assessment.suggestedPriceMaxCents!)}
+        {' · '}baseado em {assessment.priceComparablesCount} anúncio{assessment.priceComparablesCount === 1 ? '' : 's'}{' '}
+        comparável{assessment.priceComparablesCount === 1 ? '' : 'eis'} — é uma sugestão, não obrigatório usar.
+      </p>
+      {assessment.priceLowConfidence && (
+        <p className="text-[0.8125rem] text-[color-mix(in_oklch,var(--color-caution)_75%,var(--content))] flex items-center gap-1.5">
+          <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+          Poucos anúncios comparáveis nesta cidade — confiabilidade baixa.
+        </p>
+      )}
+      {assessment.priceMarketWarning && (
+        <p className="text-[0.8125rem] text-[color-mix(in_oklch,var(--color-caution)_75%,var(--content))] flex items-center gap-1.5">
+          <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
+          {assessment.priceMarketWarning === 'acima_da_media'
+            ? 'Valor sugerido bem acima da média dos comparáveis.'
+            : 'Valor sugerido bem abaixo da média dos comparáveis.'}
+        </p>
       )}
     </div>
   );

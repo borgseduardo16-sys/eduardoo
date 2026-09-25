@@ -282,3 +282,9 @@ export const spaceQualityClassification = pgEnum('space_quality_classification',
   'alto_padrao',
   'luxo',
 ]);
+
+/** Alerta de incoerencia entre o valor de aluguel sugerido e a media real de comparaveis (Fase 17). */
+export const spacePriceMarketWarning = pgEnum('space_price_market_warning', [
+  'acima_da_media',
+  'abaixo_da_media',
+]);

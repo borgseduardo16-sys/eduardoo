@@ -10,15 +10,19 @@ import { rateLimit } from '@/lib/rate-limit';
 import { IntegrationNotConfiguredError } from '@/lib/env';
 import { analyzeSpacePhotos, AiVisionError } from './vision';
 import { computeQualityAssessment, InvalidAssessmentInputError } from './scoring';
+import { computePriceSuggestion } from './pricing';
 import { fetchFeatureApplicability, fetchLocationComparables, downloadSpacePhotosAsBase64 } from './queries';
 import { requestQualityAssessmentSchema } from './schemas';
 
 export type QualityActionState = { ok: boolean; message?: string };
 
 /**
- * Roda a classificação de padrão do espaço (Fase 16): baixa as fotos de
- * verdade, manda pra IA analisar, monta os comparáveis reais da cidade,
- * calcula o score e grava um snapshot completo.
+ * Roda a classificação de padrão do espaço (Fase 16) e, junto, a sugestão
+ * de valor de aluguel (Fase 17): baixa as fotos de verdade, manda pra IA
+ * analisar, monta os comparáveis reais da cidade, calcula o score e a
+ * faixa de preço sugerida, e grava um snapshot completo — tudo numa linha
+ * só, uma chamada de IA só (a sugestão de preço é aritmética em cima do
+ * mesmo score, nunca uma segunda chamada).
  *
  * Ferramenta do PRÓPRIO proprietário — não é um selo público. Cada chamada
  * custa uma requisição real de IA, por isso o limite de uso (ver
@@ -119,6 +123,13 @@ export async function requestQualityAssessmentAction(
     throw err;
   }
 
+  const priceSuggestion = computePriceSuggestion({
+    comparables,
+    thisSizeM2: sizeM2,
+    classification: computed.classification,
+    extrasScore: computed.extrasScore,
+  });
+
   await db.insert(spaceQualityAssessments).values({
     spaceId,
     requestedBy: user.id,
@@ -144,6 +155,15 @@ export async function requestQualityAssessmentAction(
     },
     userAiDivergent: computed.userAiDivergent,
     explanation: computed.explanation,
+    priceComparablesCount: priceSuggestion.comparablesCount,
+    priceLowConfidence: priceSuggestion.lowConfidence,
+    priceBaseCents: priceSuggestion.baseCents,
+    priceScoreFactorBps: priceSuggestion.scoreFactorBps,
+    priceExtrasFactorBps: priceSuggestion.extrasFactorBps,
+    suggestedPriceIdealCents: priceSuggestion.idealCents,
+    suggestedPriceMinCents: priceSuggestion.minCents,
+    suggestedPriceMaxCents: priceSuggestion.maxCents,
+    priceMarketWarning: priceSuggestion.marketWarning,
   });
 
   revalidatePath(`/meus-espacos/${spaceId}/classificacao`);

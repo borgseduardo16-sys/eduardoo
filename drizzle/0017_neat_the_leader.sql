@@ -1,0 +1,4 @@
+ALTER TABLE "space_quality_assessments" DROP CONSTRAINT "sqa_price_extras_factor_range";--> statement-breakpoint
+ALTER TABLE "space_quality_assessments" ADD CONSTRAINT "sqa_price_score_factor_matches_classification" CHECK ("space_quality_assessments"."price_score_factor_bps" IS NULL OR "space_quality_assessments"."price_score_factor_bps" = CASE "space_quality_assessments"."classification"
+            WHEN 'economico' THEN 7000 WHEN 'medio' THEN 10000 WHEN 'alto_padrao' THEN 12000 WHEN 'luxo' THEN 15000 END);--> statement-breakpoint
+ALTER TABLE "space_quality_assessments" ADD CONSTRAINT "sqa_price_extras_factor_matches_score" CHECK ("space_quality_assessments"."price_extras_factor_bps" IS NULL OR "space_quality_assessments"."price_extras_factor_bps" = 10000 + ROUND("space_quality_assessments"."extras_score" * 150));

@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 16 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados)
+> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 16 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA**
 
 Estados usados:
 
@@ -1021,6 +1021,82 @@ seguidas, 0 falhas depois da correção.
 
 ---
 
+## Fase 17 — Sugestão de valor de aluguel ✅ *(25/09/2026)*
+
+Pedido veio em duas partes coladas na conversa: "Parte 1" (avaliação
+inteligente) e "Parte 2" (cálculo do valor de aluguel), com a instrução
+explícita de adaptar tudo pro domínio real da MyPlace e valer para os
+próximos pedidos também — sem perguntar de novo o que já foi decidido na
+Fase 16 (adaptar pros espaços reais, usar a Claude).
+
+**Honestidade sobre a "Parte 1"**: é, em grande parte, uma redescrição
+mais detalhada do que a Fase 16 já entrega (mesmos 4 pilares com os
+mesmos pesos 45/25/15/15%, mesmas faixas de classificação, mesma
+explicabilidade). O que ela pede de genuinamente novo — a IA confirmar
+visualmente cada extra marcado e uma divergência em 3 níveis
+(concordância/sugestão/alerta, sempre não-bloqueante) em vez do ajuste
+automático binário que a Fase 16 já faz — **não foi implementado agora**.
+O ajuste automático atual (reduzir o fator quando a divergência é grande)
+é uma interpretação deliberadamente mais cautelosa contra autodeclaração
+falsa, e refazer isso não parecia o uso mais valioso do tempo frente à
+"Parte 2", que é inteiramente nova. Documentado aqui para não passar
+como se tivesse sido feito.
+
+**A "Parte 2" (sugestão de preço) é nova e foi implementada por inteiro**,
+adaptada ao domínio real: sem "casa vs. apartamento" (usa o `spaceType`
+que já existe), sem "quartos ±1" (não existe esse conceito fora do tipo
+`quarto` em si — a metragem ±20% já cobre o papel de filtro estrutural),
+e **sem o micro-ajuste por rua** (±5% "rua mais valorizada") do pedido
+original — não existe dado real de valorização por logradouro neste
+marketplace, e inventar um número aqui seria exatamente o tipo de coisa
+que este projeto nunca faz. A fórmula restante (mediana de comparáveis ×
+fator de score × fator de extras, faixa ±10%, alerta de incoerência) foi
+preservada.
+
+### É dinheiro — mesma disciplina de `money.ts`
+
+Diferente do score de padrão (Fase 16, que usa `numeric` porque não é
+dinheiro), a sugestão de preço é **inteiro em centavos**, do início ao
+fim. As multiplicações por fator usam basis points com arredondamento em
+inteiro — a mesma técnica de `applyBps` que `money.ts` já usa para taxa —
+e o banco reconfere a conta inteira a partir das colunas gravadas.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `price_base_cents` | ✅ | mediana real de até 200 comparáveis (mesmo tipo, mesma cidade, metragem ±20% quando o anúncio tem metragem — sem filtro de metragem quando não tem, para não descartar o dado por um campo opcional vazio) |
+| Fator por classificação | ✅ | econômico 0,70x → luxo 1,50x, tabela fixa, CHECK reconfere contra a própria classificação da linha |
+| Fator por extras | ✅ | 1,00x a 1,15x, função linear do `extrasScore` já calculado na Fase 16 (reaproveitado, não recalculado) — CHECK reconfere a fórmula |
+| Faixa mín/ideal/máx | ✅ | ideal ± 10%, CHECK reconfere cada uma a partir do ideal já gravado |
+| Confiança | ✅ | `price_low_confidence` quando há menos de 5 comparáveis — nunca escondido, aparece na tela |
+| Alerta de mercado | ✅ | sinaliza quando o sugerido passa de +50% ou -30% da mediana real — CHECK reconfere contra a comparação de verdade, não deixa gravar um alerta que não bate com os números |
+| Sem comparável nenhum | ✅ | nenhuma sugestão é gravada (todas as colunas de preço nulas) — nunca um valor inventado sem nenhum anúncio real para basear |
+
+**Bug pego no próprio teste, de novo — desta vez no roteiro de teste, não
+no motor**: a primeira versão do script de estresse inseria
+`extras_score = 5,00` fixo na linha enquanto mandava um valor aleatório
+diferente para o cálculo do fator de extras — 284 de 500 tentativas
+"falhavam" porque os dados de teste é que eram inconsistentes entre si,
+não porque `pricing.ts` estivesse errado. Corrigido usando o mesmo valor
+nos dois lados; 2.000 execuções depois, 0 falhas reais no motor.
+
+### Interface
+
+Sem tela nova nem ação nova — a sugestão de preço aparece dentro do
+mesmo resultado da classificação (`/meus-espacos/[id]/classificacao`),
+porque depende do mesmo score e não pede nenhuma chamada de IA a mais.
+Sempre com a moldura "sugestão, não obrigatório usar" — nunca preenche o
+campo de preço sozinho.
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `scripts/verify-schema.ts`, seção 11 (nova) | ✅ | +10 checagens — inserção válida aceita, cada CHECK (fórmula do ideal/mín/máx, fator × classificação, fator × extras, colunas nulas em conjunto, confiança, alerta de mercado nos dois sentidos) testado individualmente — **49 no total, era 39** |
+| Motor de precificação (`src/lib/quality/pricing.ts`) | ✅ | 2.000 execuções aleatórias inseridas de verdade contra os CHECKs do banco, 0 falhas |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos |
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
@@ -1191,7 +1267,7 @@ colar o DSN ([SETUP.md §7](./SETUP.md#7-sentry-erros-antes-de-produção)).
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 815 checagens reais (`pnpm verify:tudo` = 591 de banco + 224 de
+São 825 checagens reais (`pnpm verify:tudo` = 601 de banco + 224 de
 navegador). As telas de foto, mapa, CEP, busca (com GPS real), filtros,
 favoritos, galeria, compartilhar, o fluxo de solicitar/aceitar/cancelar
 aluguel, o chat, os paineis financeiros (com webhook de pagamento disparado
@@ -1223,6 +1299,13 @@ chamada real à API da Claude nunca foi exercitada de ponta a ponta — este
 ambiente não tem `ANTHROPIC_API_KEY` real (ver Fase 16 acima para o que
 foi verificado sem ela).
 
+**Fase 17 (25/09/2026)**: a sugestão de valor de aluguel vive na mesma
+tela da Fase 16, então herda a mesma lacuna de navegador. Sem chamada de
+IA nenhuma (é aritmética sobre o score já calculado), então não há nem
+essa lacuna específica — só a de tela mesmo. Cobertura pesada de banco:
+2.000 execuções aleatórias contra os CHECKs reais + 10 checagens novas em
+`verify-schema.ts`.
+
 ### ⚠️ 8. Sem documentos jurídicos
 
 Termos de Uso, Política de Privacidade, LGPD, regras de cancelamento,
@@ -1240,7 +1323,7 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 591 checagens contra o Postgres real
+pnpm verify                          # 601 checagens contra o Postgres real
 pnpm verify:integracoes              # 224 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real
