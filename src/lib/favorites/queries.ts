@@ -1,8 +1,9 @@
 import 'server-only';
-import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { favorites, spaces } from '@/db/schema';
+import { favorites, spaces, spaceFeatures } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
+import type { FavoritePatternForType } from '@/lib/notifications/compatibility';
 
 /**
  * Leitura de favoritos.
@@ -28,6 +29,58 @@ export async function isFavorited(userId: string, spaceId: string): Promise<bool
     .where(and(eq(favorites.userId, userId), eq(favorites.spaceId, spaceId)))
     .limit(1);
   return Boolean(row);
+}
+
+/** Quem favoritou este espaço — usado pelos alertas de preço/disponibilidade (Fase 18). */
+export async function listFavoriterUserIds(spaceId: string): Promise<string[]> {
+  const rows = await db
+    .select({ userId: favorites.userId })
+    .from(favorites)
+    .where(eq(favorites.spaceId, spaceId));
+  return rows.map((r) => r.userId);
+}
+
+/**
+ * Padrão de favoritos por pessoa, agregado para o mesmo tipo+cidade de um
+ * espaço recém-publicado — usado por "novo espaço compatível" (Fase 18.3).
+ * Tipo e cidade são o portão (igualdade exata); o que volta aqui é só a
+ * faixa de preço e a união de características dos espaços que a pessoa já
+ * favoritou dentro desse portão, para o `computeCompatibilityScore` julgar.
+ * Limite de 500 pessoas é so uma valvula de seguranca de custo de consulta —
+ * o corte real de quem recebe notificação é a pontuação (ver compatibility.ts).
+ */
+export async function listFavoritePatternsForType(
+  spaceType: string,
+  city: string,
+  excludeSpaceId: string,
+  excludeUserId: string,
+): Promise<FavoritePatternForType[]> {
+  const rows = await db
+    .select({
+      userId: favorites.userId,
+      minPriceCents: sql<number>`min(${spaces.priceMonthlyCents})::int`,
+      maxPriceCents: sql<number>`max(${spaces.priceMonthlyCents})::int`,
+      featureKeys: sql<string[]>`coalesce(
+        array_agg(DISTINCT ${spaceFeatures.featureKey}) FILTER (WHERE ${spaceFeatures.featureKey} IS NOT NULL),
+        '{}'
+      )`,
+    })
+    .from(favorites)
+    .innerJoin(spaces, eq(spaces.id, favorites.spaceId))
+    .leftJoin(spaceFeatures, eq(spaceFeatures.spaceId, spaces.id))
+    .where(
+      and(
+        sql`${spaces.type}::text = ${spaceType}`,
+        eq(spaces.city, city),
+        ne(spaces.id, excludeSpaceId),
+        ne(favorites.userId, excludeUserId),
+        isNull(spaces.deletedAt),
+      ),
+    )
+    .groupBy(favorites.userId)
+    .limit(500);
+
+  return rows;
 }
 
 export type FavoriteSpace = {

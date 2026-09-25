@@ -39,6 +39,7 @@ const baseSchema = z.object({
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  CRON_SECRET: z.string().optional(),
 });
 
 function parseEnv() {
@@ -89,6 +90,11 @@ const INTEGRATIONS = {
     label: 'Classificação de padrão do espaço por IA (Claude)',
     vars: ['ANTHROPIC_API_KEY'],
     doc: 'docs/SETUP.md#10-anthropic-classificacao-de-padrao-do-espaco',
+  },
+  cron: {
+    label: 'Job agendado (Vercel Cron) — notificações de vencimento e resumo do proprietário',
+    vars: ['CRON_SECRET'],
+    doc: 'docs/SETUP.md#11-cron-secret-notificacoes-agendadas',
   },
 } as const;
 

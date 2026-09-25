@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 16 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA**
+> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 18 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma**
 
 Estados usados:
 
@@ -1097,6 +1097,92 @@ campo de preço sozinho.
 
 ---
 
+## Fase 18 — Sistema inteligente de notificações ✅ *(25/09/2026)*
+
+Pedido veio como uma "ETAPA — SISTEMA INTELIGENTE DE NOTIFICAÇÕES", 17
+seções cobrindo recomendação de imóvel compatível, "oportunidade"
+detectada, lembrete de aluguel vencendo, resumo de interações do
+proprietário, avaliação nova, um sistema formal de 3 níveis de prioridade
+e — o fio condutor do pedido inteiro — uma governança **anti-spam**: nunca
+acumular, nunca repetir, sempre preferir uma notificação agrupada a várias
+separadas, respeitar janela mínima entre avisos, e "melhor deixar de
+enviar do que incomodar". Mesma instrução padrão das Fases 16/17: adaptar
+tudo pro domínio real (espaços ociosos, aluguel mensal, não é imóvel
+residencial à venda) sem perguntar de novo.
+
+### O que foi deliberadamente deixado de fora, e por quê
+
+- **"Imóveis visualizados" e "histórico de busca"**: não existe
+  rastreamento de visualização nem persistência de busca nesta base. O
+  único sinal de preferência real e já existente é `favorites` — usá-lo
+  é honesto; inventar um "perfil de busca" não seria.
+- **"Oportunidade detectada" (potencial de valorização/investimento/liquidez)**:
+  não se aplica a um marketplace de aluguel mensal sem compra/venda.
+  Reduzido à única dimensão que É real e calculável — preço abaixo do
+  que a pessoa já demonstrou aceitar — e **dobrada dentro** da notificação
+  de "novo espaço compatível" (Fase 18.3), em vez de virar um segundo
+  pipeline paralelo. O próprio pedido já mandava usar isso "com grande
+  moderação".
+- **Alerta de AUMENTO de preço**: só queda notifica. Quem favoritou não
+  pode agir sobre um preço que já subiu, e a instrução do próprio pedido
+  ("melhor deixar de enviar...") pesa contra avisar de má notícia
+  inacionável.
+- **Sistema formal de 3 níveis de prioridade (coluna/enum + UI agrupada
+  por prioridade)**: não foi criado como estrutura separada. Prioridade
+  vira efeito prático da própria lógica de disparo — transacional
+  (reserva, pagamento) sempre dispara na hora, como já era; recomendação
+  (compatível) exige placar ≥ 80% E cooldown; resumo (proprietário) só
+  sai agrupado a cada 3 dias, nunca vazio. É a mesma hierarquia do
+  pedido, só que expressa em regra de decisão, não em campo gravado.
+- **"Busca personalizada" (digest de múltiplos imóveis agrupados)**:
+  dependeria de busca salva/histórico, que não existe (ver acima). Não
+  criado.
+- **Nova avaliação**: já está pronta desde a Fase 15.5 (`review_received`,
+  ligado em `createReviewAction`) — nenhum trabalho novo aqui, só
+  confirmação de que já cobre esse item do pedido.
+
+### O que foi construído
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Governança anti-spam (`src/lib/notifications/governor.ts`) | ✅ | `sendGovernedNotification`: limiar + cooldown por (pessoa, tipo, escopo opcional) — consulta a própria `notifications` como log, **sem tabela nova**. Toda notificação "de iniciativa da plataforma" desta fase passa por aqui; notificação transacional (reserva/pagamento/mensagem/avaliação) continua com insert direto, como já era — é inerentemente rara e relevante, throttle nela só esconderia algo importante |
+| Queda de preço em favorito | ✅ | limiar de 5% em bps (aritmética inteira, sem float), cooldown de 7 dias por (pessoa, espaço) — ligado em `saveStepAction` (etapa "preço") |
+| Disponibilidade de favorito mudou | ✅ | pausou/voltou ao ar, cooldown de 24h por (pessoa, espaço, direção) — ligado em `toggleSpaceStatusAction` |
+| "Novo espaço compatível" | ✅ | placar 0-100 (portão de tipo+cidade, preço por proximidade da faixa já favoritada, características por sobreposição real do catálogo), limiar 80%, no máximo 50 destinatários por publicação, cooldown de 48h por pessoa — ligado em `publishSpaceAction`, só na 1ª publicação |
+| Lembrete de aluguel vencendo | ✅ | exatamente 2 avisos por ciclo (7 dias e 1 dia antes), nunca contagem diária — reaproveita `subscriptions.next_due_date` e o tipo `payment_upcoming`, que já existiam no enum e no `format.ts` sem nunca terem sido usados |
+| Resumo de atividade do proprietário | ✅ | favoritos + conversas novas nos anúncios, agrupados numa notificação só, janela mínima de 3 dias, **nunca envia resumo vazio** |
+
+### Infraestrutura nova: primeiro cron real do projeto
+
+Até aqui, todo "job periódico" do app era uma **varredura preguiçosa**
+(ex.: `expireStaleBookingRequests`, chamada de dentro de uma consulta de
+leitura) — funciona bem para autocorreção de estado, mas não serve para
+um lembrete genuinamente proativo: quem nunca abre o app antes do
+vencimento nunca dispararia a varredura a tempo. Por isso a Fase 18.4/18.5
+introduz `vercel.json` + `src/app/api/cron/notificacoes/route.ts`,
+autenticada por `CRON_SECRET` (mesmo padrão de comparação em tempo
+constante do webhook do Asaas, agora compartilhado em
+`src/lib/security/tokens.ts`) — ver
+[SETUP.md §11](./SETUP.md#11-cron_secret--notificações-agendadas-fase-18).
+Sem a variável configurada, a rota recusa (503) em vez de rodar sem
+checar quem está chamando.
+
+**Sem a Vercel Cron configurada (ambiente local, ou antes do deploy),
+lembrete de vencimento e resumo do proprietário simplesmente não
+disparam sozinhos** — o resto do app funciona normalmente, e as duas
+funções (`runRentDueReminders`, `runOwnerActivityDigests`) continuam
+chamáveis manualmente para teste, como o `verify-notifications.ts` faz.
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `scripts/verify-notifications.ts` (novo) | ✅ | 51 checagens contra Postgres real — cooldown por escopo e por tipo, limiar de 5% (com o caso "abaixo do limiar" testado de propósito), disponibilidade nas duas direções, placar de compatibilidade (função pura, casos de fronteira), fan-out com portão/limiar/autoexclusão do dono/cooldown, os 2 hooks reais (`saveStepAction`, `toggleSpaceStatusAction`) E `publishSpaceAction` de ponta a ponta (inclusive "publicar de novo não duplica"), idempotência do lembrete de vencimento (7d/1d/controles negativos/rodada dupla no mesmo dia), e o resumo do proprietário (agrupado, nunca vazio, janela mínima, 2º resumo depois da janela) |
+| `scripts/verify-schema.ts` | ✅ | sem checagem nova — nenhuma coluna derivada foi persistida nesta fase (o placar de compatibilidade é calculado e descartado na hora, nunca gravado, então não há o que um CHECK reconferir) — continua em 49 |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos |
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
@@ -1267,7 +1353,7 @@ colar o DSN ([SETUP.md §7](./SETUP.md#7-sentry-erros-antes-de-produção)).
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 825 checagens reais (`pnpm verify:tudo` = 601 de banco + 224 de
+São 876 checagens reais (`pnpm verify:tudo` = 652 de banco + 224 de
 navegador). As telas de foto, mapa, CEP, busca (com GPS real), filtros,
 favoritos, galeria, compartilhar, o fluxo de solicitar/aceitar/cancelar
 aluguel, o chat, os paineis financeiros (com webhook de pagamento disparado
@@ -1306,6 +1392,15 @@ essa lacuna específica — só a de tela mesmo. Cobertura pesada de banco:
 2.000 execuções aleatórias contra os CHECKs reais + 10 checagens novas em
 `verify-schema.ts`.
 
+**Fase 18 (25/09/2026)**: não criou tela nova nenhuma — os 5 tipos de
+notificação novos renderizam pela mesma central de notificações da Fase
+15.2 (`/notificacoes` + sino no header), só com ícone/tom novos em
+`format.ts`. Por isso não há lacuna de navegador nova aqui: a cobertura
+real é a de banco/Server Action, com as 51 checagens de
+`verify-notifications.ts` chamando as próprias actions de produção
+(`saveStepAction`, `toggleSpaceStatusAction`, `publishSpaceAction`), não
+só as funções isoladas.
+
 ### ⚠️ 8. Sem documentos jurídicos
 
 Termos de Uso, Política de Privacidade, LGPD, regras de cancelamento,
@@ -1323,7 +1418,7 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 601 checagens contra o Postgres real
+pnpm verify                          # 652 checagens contra o Postgres real
 pnpm verify:integracoes              # 224 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real

@@ -1,5 +1,6 @@
 import {
   CircleCheck, CircleX, Ban, Wallet, Clock, MessageCircle, Star, ShieldCheck, Info, Bell,
+  TrendingDown, Sparkles, Users,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -19,6 +20,12 @@ export const NOTIFICATION_TYPE_INFO: Record<string, { icon: LucideIcon; tone: 'p
   review_received: { icon: Star, tone: 'positive' },
   report_resolved: { icon: ShieldCheck, tone: 'neutral' },
   account_notice: { icon: Info, tone: 'neutral' },
+  // --- Fase 18: sistema inteligente de notificações ---
+  favorite_price_drop: { icon: TrendingDown, tone: 'positive' },
+  favorite_unavailable: { icon: Ban, tone: 'caution' },
+  favorite_available_again: { icon: CircleCheck, tone: 'positive' },
+  new_compatible_space: { icon: Sparkles, tone: 'neutral' },
+  owner_activity_digest: { icon: Users, tone: 'neutral' },
 };
 
 export function notificationIcon(type: string): LucideIcon {

@@ -566,6 +566,33 @@ app (Asaas, Upstash, Sentry).
 
 ---
 
+## 11. CRON_SECRET — notificações agendadas (Fase 18)
+
+**Opcional, mas sem ele dois avisos não acontecem sozinhos:** o lembrete de
+aluguel vencendo (7 dias e 1 dia antes) e o resumo de atividade do
+proprietário (favoritos/conversas novas). O resto da Fase 18 (queda de
+preço, disponibilidade, "novo espaço compatível") dispara na hora, dentro da
+própria ação que muda o dado — só estes dois dependem de o tempo passar
+sozinho, sem ninguém abrir o app.
+
+1. Gere um valor aleatório longo, por exemplo:
+   ```bash
+   openssl rand -hex 32
+   ```
+2. Copie em `CRON_SECRET` (local e na Vercel)
+3. Na Vercel, **nenhuma configuração extra é necessária** além da env var: o
+   arquivo `vercel.json` já declara o agendamento (uma vez por dia), e a
+   Vercel manda esse mesmo valor automaticamente no header `Authorization`
+   de toda chamada agendada — convenção própria dela, documentada em
+   [vercel.com/docs/cron-jobs](https://vercel.com/docs/cron-jobs)
+
+Sem a variável configurada, `/api/cron/notificacoes` recusa a chamada
+(503) em vez de rodar sem checar quem está chamando — mesma regra de
+`requireIntegration` de todo o resto do app. Cron do plano **Hobby** roda no
+máximo 1x/dia, por isso o agendamento é diário (não a cada hora).
+
+---
+
 ## Regras que valem sempre
 
 1. **`.env.local` nunca vai para o Git.** Já está no `.gitignore`.

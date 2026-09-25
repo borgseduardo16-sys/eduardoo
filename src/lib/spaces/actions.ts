@@ -12,6 +12,11 @@ import { rateLimit } from '@/lib/rate-limit';
 import { lookupCep } from '@/lib/maps/cep-lookup';
 import { CepError, normalizeCep } from '@/lib/maps/cep';
 import { getOwnedSpace, NotSpaceOwnerError, SpaceNotFoundError } from './queries';
+import {
+  alertFavoritersOfPriceDrop,
+  alertFavoritersOfAvailabilityChange,
+  alertCompatibleFavoritersOfNewSpace,
+} from '@/lib/notifications/space-alerts';
 import { buildSlug } from './slug';
 import { SPACE_TYPES, type SpaceTypeKey } from './types';
 import {
@@ -176,6 +181,8 @@ export async function saveStepAction(
 
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   let nextStep = space.draftStep;
+  // So preenchido no case 'preco', para o alerta de queda depois do UPDATE (Fase 18.2).
+  let novoPrecoCents: number | null = null;
 
   switch (step) {
     case 'localizacao': {
@@ -345,6 +352,7 @@ export async function saveStepAction(
         priceMonthlyCents: parsed.data.priceMonthlyCents,
         availableFrom: parsed.data.availableFrom,
       });
+      novoPrecoCents = parsed.data.priceMonthlyCents;
       nextStep = Math.max(nextStep, 7);
       break;
     }
@@ -379,6 +387,25 @@ export async function saveStepAction(
 
   patch.draftStep = nextStep;
   await db.update(spaces).set(patch).where(eq(spaces.id, spaceId));
+
+  /*
+   * Alerta de queda de preço (Fase 18.2). So faz sentido quando o anuncio ja
+   * e visivel (rascunho nao tem favorito) e so dispara se o preco realmente
+   * caiu — a funcao mesma decide se a queda e significativa. Best-effort:
+   * uma falha aqui nunca pode derrubar o salvamento do preco, que ja
+   * aconteceu.
+   */
+  if (novoPrecoCents != null && space.status !== 'draft') {
+    try {
+      await alertFavoritersOfPriceDrop(
+        { id: spaceId, title: space.title, slug: space.slug },
+        space.priceMonthlyCents,
+        novoPrecoCents,
+      );
+    } catch (err) {
+      console.error('[preco] falha ao notificar favoritos sobre queda de preco:', err);
+    }
+  }
 
   revalidatePath(`/anunciar/${spaceId}`, 'layout');
   revalidatePath('/meus-espacos');
@@ -491,6 +518,25 @@ export async function publishSpaceAction(
     entityId: spaceId,
   });
 
+  // Só na primeira publicação: "de novo no ar" (retomar) não é espaço NOVO.
+  // Precisa vir antes do redirect() (ele lança para interromper a função).
+  if (primeiraPublicacao && space.city) {
+    try {
+      await alertCompatibleFavoritersOfNewSpace({
+        id: spaceId,
+        ownerId: user.id,
+        type: space.type,
+        city: space.city,
+        title: space.title,
+        slug: space.slug,
+        priceMonthlyCents: space.priceMonthlyCents,
+        featureKeys: space.featureKeys,
+      });
+    } catch (err) {
+      console.error('[publicar] falha ao notificar favoritos sobre espaço compatível:', err);
+    }
+  }
+
   revalidatePath('/espacos');
   revalidatePath('/meus-espacos');
   revalidatePath(`/espacos/${space.slug}`);
@@ -547,6 +593,15 @@ export async function toggleSpaceStatusAction(
     entityType: 'space',
     entityId: spaceId,
   });
+
+  try {
+    await alertFavoritersOfAvailabilityChange(
+      { id: spaceId, title: space.title, slug: space.slug },
+      novo === 'paused' ? 'unavailable' : 'available_again',
+    );
+  } catch (err) {
+    console.error('[status] falha ao notificar favoritos sobre disponibilidade:', err);
+  }
 
   revalidatePath('/meus-espacos');
   revalidatePath('/espacos');

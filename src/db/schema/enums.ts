@@ -200,6 +200,17 @@ export const notificationType = pgEnum('notification_type', [
   'review_received',
   'report_resolved',
   'account_notice',
+  // --- Fase 18: sistema inteligente de notificações ---
+  /** Preço de um espaço favoritado caiu de forma significativa (>=5%). */
+  'favorite_price_drop',
+  /** Espaço favoritado saiu do ar (pausado ou alugado por outra pessoa). */
+  'favorite_unavailable',
+  /** Espaço favoritado voltou a ficar disponível. */
+  'favorite_available_again',
+  /** Espaço recém-publicado compatível com o padrão de favoritos da pessoa. */
+  'new_compatible_space',
+  /** Resumo agrupado de favoritos/conversas novas nos anúncios do proprietário. */
+  'owner_activity_digest',
 ]);
 
 /** Estado do processamento de um evento de webhook (idempotencia). */

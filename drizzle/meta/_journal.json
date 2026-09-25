@@ -127,6 +127,13 @@
       "when": 1790355319260,
       "tag": "0017_neat_the_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790375730709,
+      "tag": "0018_misty_deathstrike",
+      "breakpoints": true
     }
   ]
 }
