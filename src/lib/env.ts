@@ -38,6 +38,7 @@ const baseSchema = z.object({
   UPSTASH_REDIS_REST_URL: z.string().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().optional(),
   NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
 });
 
 function parseEnv() {
@@ -83,6 +84,11 @@ const INTEGRATIONS = {
     label: 'Monitoramento de erro (Sentry)',
     vars: ['NEXT_PUBLIC_SENTRY_DSN'],
     doc: 'docs/SETUP.md#7-sentry-erros',
+  },
+  aiVision: {
+    label: 'Classificação de padrão do espaço por IA (Claude)',
+    vars: ['ANTHROPIC_API_KEY'],
+    doc: 'docs/SETUP.md#10-anthropic-classificacao-de-padrao-do-espaco',
   },
 } as const;
 

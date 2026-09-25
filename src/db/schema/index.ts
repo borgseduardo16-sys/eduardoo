@@ -8,3 +8,4 @@ export * from './messaging';
 export * from './trust';
 export * from './system';
 export * from './promotions';
+export * from './quality';

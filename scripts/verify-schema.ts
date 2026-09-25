@@ -424,6 +424,112 @@ async function main() {
         bad('reversao da suspensao', JSON.stringify(depoisDaCorrecao));
       }
     }
+
+    console.log('\n\x1b[1m10. Classificacao de padrao do espaco (Fase 16)\x1b[0m');
+
+    await mustAccept(
+      'insercao valida (8x0,45 + 6x0,25 + 7x0,15 + 5x0,15 = 6,90) e aceita',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           8.00, 6.00, 7.00, 5.00, 6.90, 1.00, 1.00, 1.00, 6.90, 'medio',
+           'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste verify-schema')`,
+    );
+
+    await mustReject(
+      'base_score que nao bate com os 4 componentes e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           8.00, 6.00, 7.00, 5.00, 5.00, 1.00, 1.00, 1.00, 5.00, 'medio',
+           'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste')`,
+      'sqa_base_score_matches_components',
+    );
+
+    await mustReject(
+      'final_score que nao bate com base x fatores e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           8.00, 6.00, 7.00, 5.00, 6.90, 1.05, 1.00, 1.00, 6.90, 'medio',
+           'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste')`,
+      'sqa_final_score_matches_formula',
+    );
+
+    await mustReject(
+      'classificacao incoerente com o score final e bloqueada',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           8.00, 6.00, 7.00, 5.00, 6.90, 1.00, 1.00, 1.00, 6.90, 'luxo',
+           'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste')`,
+      'sqa_classification_matches_score',
+    );
+
+    await mustReject(
+      'fator de conservacao fora da tabela fixa e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           8.00, 6.00, 7.00, 5.00, 6.90, 0.95, 1.00, 1.00, 6.56, 'medio',
+           'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste')`,
+      'sqa_conservation_factor_valid',
+    );
+
+    await mustReject(
+      'idade fora da faixa (0..200) e bloqueada',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 999, false,
+           8.00, 6.00, 7.00, 5.00, 6.90, 1.00, 1.00, 1.00, 6.90, 'medio',
+           'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste')`,
+      'sqa_age_years_range',
+    );
+
+    await mustReject(
+      'score de componente fora de 0..10 e bloqueado',
+      () => sql`
+        INSERT INTO space_quality_assessments
+          (space_id, requested_by, conservation_state, age_years, renovated_recently,
+           photos_score, location_score, structure_score, extras_score, base_score,
+           conservation_factor, age_factor, renovation_factor, final_score, classification,
+           ai_conservation_state, ai_findings, explanation)
+        VALUES
+          (${spaceId}, ${ownerId}, 'bom', 10, false,
+           11.00, 6.00, 7.00, 5.00, 8.25, 1.00, 1.00, 1.00, 8.25, 'alto_padrao',
+           'bom', ${sql.json({ acabamento: 7, modernidade: 6, sinaisDeDesgaste: [], resumo: 'teste' })}, 'teste')`,
+      'sqa_photos_score_range',
+    );
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.

@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 15 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário**
+> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 16 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados)
 
 Estados usados:
 
@@ -906,6 +906,121 @@ repetível ficou para trás). Ver Riscos §7, atualizada.
 
 ---
 
+## Fase 16 — Classificação de padrão do espaço, por IA de visão ✅ *(25/09/2026)*
+
+Pedido veio como um documento inteiro colado na conversa, especificando um
+"avaliador de imóvel" com IA — mas escrito pra casa/apartamento (quartos,
+banheiros, "imóvel"), que não é o que a MyPlace anuncia. Duas decisões
+ficaram explicitamente com o usuário antes de escrever qualquer código,
+porque nenhuma das duas era minha pra tomar sozinho:
+
+1. **Adaptar pros espaços reais da MyPlace** (garagem/depósito/galpão/sala/
+   vaga/terreno) em vez de tratar como um pedido de imóvel residencial —
+   confirmado.
+2. **Usar a API da Claude pra analisar as fotos**, com credencial real de
+   servidor (mesmo padrão de sempre: falha explícita sem a chave, nunca
+   simula resultado) — confirmado.
+
+O resto das dezenas de decisões de tradução do documento pro domínio real
+(quais campos viram o quê, o que a IA decide vs. o que fica de fora) ficou
+comigo, com a mesma régua usada em todo o projeto: nunca fingir dado que
+não existe, sempre preferir dado real já no banco a uma estimativa da IA
+quando os dois servem.
+
+**Isto é uma ferramenta do proprietário, não um selo público.** O
+resultado só aparece pra quem é dono do espaço — não vira selo na busca
+nem na página do anúncio. Uma nota gerada por IA, sem revisão humana,
+sendo mostrada a desconhecidos como se fosse fato objetivo é uma promessa
+mais forte do que este sistema sustenta hoje.
+
+### 16.1 — Schema
+
+Tabela nova `space_quality_assessments` — cada classificação é um
+snapshot completo (não só o resultado final), porque o proprietário pode
+reclassificar depois de uma reforma e o histórico anterior continua
+explicável sem precisar recalcular nada.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Faixas 0–10 em cada componente e no score final | ✅ | CHECK, testado |
+| `base_score` bate com os 4 componentes ponderados | ✅ | CHECK que refaz a conta a partir das colunas já gravadas — mesmo espírito de `bookings_total_matches` |
+| `final_score` bate com `base_score × fatores` | ✅ | idem, com `LEAST`/`GREATEST` garantindo o resultado em [0,10] |
+| Classificação bate com a faixa do score final | ✅ | `economico`/`medio`/`alto_padrao`/`luxo`, sem gap nem sobreposição |
+| Fatores restritos às tabelas fixas do motor | ✅ | conservação/idade/reforma só aceitam os valores do próprio algoritmo — nunca um número solto |
+
+### 16.2 — Integração real com IA (Claude)
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `ANTHROPIC_API_KEY` | ✅ | novo em `requireIntegration` (`src/lib/env.ts`), mesmo padrão do Asaas/Upstash/Sentry — [SETUP.md §10](./SETUP.md#10-anthropic-classificação-de-padrão-do-espaço-opcional) |
+| Cliente | ✅ | `@anthropic-ai/sdk` oficial (não HTTP cru como o Asaas — aqui existe SDK mantido pelo próprio provedor) |
+| Modelo | ✅ | `claude-haiku-4-5` — o mais barato da família com visão; é classificação estruturada, não raciocínio longo, Sonnet/Opus seria custo desproporcional |
+| Saída estruturada e validada | ✅ | `client.messages.parse` + schema Zod — a IA nunca devolve texto livre que o código tenta adivinhar |
+| Limite de uso | ✅ | 10 classificações por usuário a cada 24h (`rateLimit`, mesmo mecanismo usado em denúncia/cadastro) — cada chamada custa dinheiro de verdade |
+
+### 16.3 — Motor de cálculo (adaptado ao domínio real)
+
+Fórmula do pedido original preservada (`fotos×45% + localização×25% +
+estrutura×15% + extras×15%`, depois × fator conservação × fator idade ×
+fator reforma) — só os **ingredientes** de cada parte foram traduzidos pra
+o que existe de verdade no schema, em vez de inventar campo novo:
+
+| Componente | Fonte real | Observação |
+|------------|-----------|------------|
+| Fotos (45%) | Análise de IA nas fotos do anúncio | acabamento, "modernidade", sinais de desgaste — nunca "quartos" |
+| Localização (25%) | **Outros anúncios publicados, mesmo tipo, mesma cidade** | preço/m² deste anúncio comparado à mediana real dos comparáveis — não existe API de valorização de bairro pra este tipo de espaço, então usei dado real do próprio marketplace em vez de pedir pra IA "chutar" um número sem nenhum lastro |
+| Estrutura (15%) | `sizeM2` + `ceilingHeightM` + características de categoria "estrutura" | pé-direito, piso de concreto, iluminação etc. — o que existe pra garagem/depósito/galpão, não quarto/banheiro de casa |
+| Extras (15%) | Características de categoria "segurança"/"acesso"/"veículo" | mesmo catálogo já usado no anúncio, normalizado pelo que **de fato se aplica** ao tipo do espaço |
+
+**Bug real encontrado e corrigido durante o próprio teste que escrevi para
+esta parte**: a primeira versão arredondava a soma ponderada em ponto
+flutuante direto (`a×0,45 + b×0,25 + ...`, depois `×100` e arredondava) —
+em ~1,7% de 300 tentativas aleatórias contra o CHECK do banco, um valor
+que deveria arredondar exatamente em `X,XX5` caía do lado errado (ex.:
+2,385 virava `238.49999999999997` em ponto flutuante, arredondando pra
+2,38 em vez de 2,39). Corrigido fazendo a soma inteira em **centésimos**
+(mesma ideia de `money.ts` evitar float pra dinheiro) — 1.200 tentativas
+seguidas, 0 falhas depois da correção.
+
+### 16.4 — Ação e interface
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `/meus-espacos/[id]/classificacao` | ✅ | nova página — formulário (conservação/idade/reforma) + resultado (score, classificação, quebra por componente, texto explicativo, sinais de desgaste, histórico) |
+| Atalho "Classificar" | ✅ | em cada anúncio não-rascunho, em Meus espaços |
+| Autorização | ✅ | reaproveita `getOwnedSpace` (mesma função usada em todo o resto do painel do proprietário) — dono errado ou anúncio inexistente cai no mesmo 404 |
+| Validação IA vs. proprietário | ✅ | diferença de 2+ degraus entre o que o dono informou e o que a IA percebeu nas fotos reduz o fator de conservação usado, com aviso explícito na tela |
+| Sem foto = sem classificação | ✅ | mensagem clara, nunca um resultado fabricado sem ter o que analisar |
+
+### O que ficou fora desta etapa, por escopo — não por esquecimento
+
+- **Validação visual de extras** (a IA conferir se as fotos realmente
+  mostram cada característica marcada) e **penalização de incoerência
+  geral** (padrão alto num bairro simples, e vice-versa) — o pedido
+  original especifica os dois; entraram no motor só a comparação de
+  conservação (a mais claramente especificada, com exemplo concreto no
+  próprio pedido). Documentado no código, não escondido.
+- **A chamada real de IA não foi exercitada de ponta a ponta** — este
+  ambiente não tem `ANTHROPIC_API_KEY` real. O que FOI verificado: a
+  requisição chega certa nos servidores da Anthropic (testada com uma
+  chave falsa — erro `401` de autenticação, não um erro de formato de
+  requisição), e a falha explícita sem credencial (chave ausente).
+  O que falta pra fechar essa lacuna é a mesma coisa de sempre: você
+  criar a chave real ([SETUP.md §10](./SETUP.md#10-anthropic-classificação-de-padrão-do-espaço-opcional)).
+- **Sem teste de navegador** — a tela nova não ganhou seção em
+  `pnpm verify:integracoes` (ver Riscos §7).
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `scripts/verify-schema.ts`, seção 10 (nova) | ✅ | +7 checagens — inserção válida aceita, cada CHECK (base/final/classificação/fator/idade/faixa) testado individualmente rejeitando dado ruim — **39 no total, era 32** |
+| Motor de cálculo (`src/lib/quality/scoring.ts`) | ✅ | 1.200 execuções aleatórias inseridas de verdade contra os CHECKs do banco, 0 falhas (achou e corrigiu o bug de arredondamento acima) |
+| Integração de IA (`src/lib/quality/vision.ts`) | ✅ | `IntegrationNotConfiguredError` sem chave (testado), requisição real validada contra os servidores da Anthropic com chave falsa (testado) — **chamada com chave real, não testada** |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos, rota nova no build de produção |
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
@@ -1076,7 +1191,7 @@ colar o DSN ([SETUP.md §7](./SETUP.md#7-sentry-erros-antes-de-produção)).
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 808 checagens reais (`pnpm verify:tudo` = 584 de banco + 224 de
+São 815 checagens reais (`pnpm verify:tudo` = 591 de banco + 224 de
 navegador). As telas de foto, mapa, CEP, busca (com GPS real), filtros,
 favoritos, galeria, compartilhar, o fluxo de solicitar/aceitar/cancelar
 aluguel, o chat, os paineis financeiros (com webhook de pagamento disparado
@@ -1100,6 +1215,14 @@ checagens novas em `verify-payments.ts`. A parte de tela foi conferida uma
 um problema de layout na home) — não é repetível e não roda de novo
 sozinha.
 
+**Fase 16 (25/09/2026)**: a tela `/meus-espacos/[id]/classificacao`
+também não tem seção em `pnpm verify:integracoes`. O motor de cálculo e o
+schema têm cobertura pesada (1.200 execuções aleatórias inseridas de
+verdade contra o banco + 7 checagens novas em `verify-schema.ts`), mas a
+chamada real à API da Claude nunca foi exercitada de ponta a ponta — este
+ambiente não tem `ANTHROPIC_API_KEY` real (ver Fase 16 acima para o que
+foi verificado sem ela).
+
 ### ⚠️ 8. Sem documentos jurídicos
 
 Termos de Uso, Política de Privacidade, LGPD, regras de cancelamento,
@@ -1117,7 +1240,7 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 584 checagens contra o Postgres real
+pnpm verify                          # 591 checagens contra o Postgres real
 pnpm verify:integracoes              # 224 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real

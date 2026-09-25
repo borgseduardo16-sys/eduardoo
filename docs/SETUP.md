@@ -543,6 +543,29 @@ Se o bucket não existir, a mensagem é explícita ("Crie o bucket
 
 ---
 
+## 10. Anthropic — classificação de padrão do espaço (opcional)
+
+**Opcional** — o resto do app funciona inteiro sem isso. Habilita só a
+ferramenta "Classificar espaço" em Meus espaços (Fase 16): a IA analisa as
+fotos de verdade (acabamento, sinais de desgaste) pra compor um score de
+padrão que só o próprio proprietário vê.
+
+1. [console.anthropic.com](https://console.anthropic.com) → **Settings → API
+   Keys** → crie uma chave
+2. Copie em `ANTHROPIC_API_KEY`
+3. Cobrança é por uso (sem plano fixo) — o modelo usado
+   (`claude-haiku-4-5`) é o mais barato da família com visão, e a ação tem
+   limite de 10 classificações por usuário a cada 24h (`src/lib/quality/actions.ts`)
+   pra não deixar um uso em excesso, de propósito ou por engano, virar conta
+   alta sozinho
+
+Sem a chave, o botão continua na tela mas a ação recusa explicitamente
+("A classificação por IA ainda não está configurada"), nunca inventa um
+resultado — mesma regra de `requireIntegration` usada em todo o resto do
+app (Asaas, Upstash, Sentry).
+
+---
+
 ## Regras que valem sempre
 
 1. **`.env.local` nunca vai para o Git.** Já está no `.gitignore`.

@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { Eye, Pause, Pencil, Play, Trash2, TriangleAlert } from 'lucide-react';
+import { Eye, Pause, Pencil, Play, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import {
   toggleSpaceStatusAction, deleteSpaceAction, type SpaceActionState,
@@ -94,6 +94,16 @@ export function SpaceCardActions({
           >
             <Eye className="size-4" aria-hidden />
             Ver
+          </Link>
+        )}
+
+        {!isDraft && (
+          <Link
+            href={`/meus-espacos/${spaceId}/classificacao`}
+            className="inline-flex items-center gap-2 h-9 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)] transition-colors"
+          >
+            <Sparkles className="size-4" aria-hidden />
+            Classificar
           </Link>
         )}
 

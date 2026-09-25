@@ -437,6 +437,7 @@ export async function getOwnedSpace(spaceId: string, userId: string) {
         width: spaceImages.width,
         height: spaceImages.height,
         sizeBytes: spaceImages.sizeBytes,
+        contentType: spaceImages.contentType,
       })
       .from(spaceImages)
       .where(eq(spaceImages.spaceId, spaceId))

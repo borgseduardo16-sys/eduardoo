@@ -106,6 +106,13 @@
       "when": 1790283600163,
       "tag": "0014_hot_blink",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790341759006,
+      "tag": "0015_flashy_network",
+      "breakpoints": true
     }
   ]
 }

@@ -257,3 +257,28 @@ export const premiumMembershipSource = pgEnum('premium_membership_source', [
   'admin_grant',
   'subscription',
 ]);
+
+/**
+ * Estado de conservacao informado pelo proprietario na classificacao de
+ * padrao do espaco (Fase 16). Nao confundir com `reviews` — isto e uma
+ * autoavaliacao do dono sobre o proprio espaco, nao a nota de um locatario.
+ */
+export const spaceConservationState = pgEnum('space_conservation_state', [
+  'ruim',
+  'regular',
+  'bom',
+  'muito_bom',
+  'excelente',
+]);
+
+/**
+ * Faixa de padrao resultante do score final da classificacao (0-10).
+ * Limites (continuos, sem lacuna): [0,4) economico, [4,7) medio,
+ * [7,9) alto_padrao, [9,10] luxo — ver CHECK `sqa_classification_matches_score`.
+ */
+export const spaceQualityClassification = pgEnum('space_quality_classification', [
+  'economico',
+  'medio',
+  'alto_padrao',
+  'luxo',
+]);
