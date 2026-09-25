@@ -103,6 +103,8 @@ async function seedPerfis() {
     (${donoSemContaId}, ${`${tag}-dono-sem-conta@exemplo.invalid`}),
     (${renterId}, ${`${tag}-renter@exemplo.invalid`})`;
   await sql`UPDATE profiles SET role='owner' WHERE id IN (${donoId}, ${donoSemContaId})`;
+  // Nome real gravado so pro locatario: e o unico checado (autor de avaliacao, secao 9).
+  await sql`UPDATE profiles SET full_name='Locatario de Teste' WHERE id=${renterId}`;
 }
 
 /*
@@ -250,6 +252,9 @@ async function main() {
   const asaas = await import('../src/lib/payments/asaas');
   const { processAsaasWebhook } = await import('../src/lib/payments/webhook');
   const { createPayoutAccountAction, startCheckoutAction } = await import('../src/lib/payments/actions');
+  const { endBookingAction } = await import('../src/lib/bookings/actions');
+  const { createReviewAction } = await import('../src/lib/reviews/actions');
+  const { listReviewsForSpace, listReviewedBookingIds } = await import('../src/lib/reviews/queries');
 
   /*
    * `redirect()` lanca NEXT_REDIRECT — capturamos aqui, como ja e feito em
@@ -611,6 +616,129 @@ async function main() {
   assert('quem nao e o locatario nao consegue pagar a reserva de outra pessoa',
     !checkoutDeOutraPessoa.ok && (checkoutDeOutraPessoa.message?.includes('não encontrada') ?? false),
     checkoutDeOutraPessoa.message);
+
+  // =========================================================================
+  secao('8. Encerrar aluguel ativo — para a cobrança de verdade no gateway');
+  // =========================================================================
+
+  const [{ provider_payment_id: pagamentoSemContaId }] = await sql<{ provider_payment_id: string }[]>`
+    SELECT provider_payment_id FROM payments WHERE booking_id=${bookingSemConta}`;
+  const rAtivacao = await processAsaasWebhook({
+    event: 'PAYMENT_CONFIRMED', payment: { id: pagamentoSemContaId, value: precoCents / 100 },
+  });
+  assert('webhook ativa a reserva pra testar o encerramento', rAtivacao.ok, rAtivacao.reason ?? '');
+  const [{ status: statusPosAtivacao }] = await sql<{ status: string }[]>`
+    SELECT status FROM bookings WHERE id=${bookingSemConta}`;
+  expect('reserva esta "active" antes do teste de encerrar', statusPosAtivacao, 'active');
+
+  // --- quem nao e dono nem locatario nao encerra ---
+  entrarComo(donoId, 'owner', 'Dono de Outro Espaco', `${tag}-dono@exemplo.invalid`);
+  const rEncerraAlheio = await endBookingAction(undefined, formData({ bookingId: bookingSemConta }));
+  assert('quem nao participa da reserva nao consegue encerra-la',
+    !rEncerraAlheio.ok && (rEncerraAlheio.message?.includes('não encontrada') ?? false), rEncerraAlheio.message);
+
+  // --- so aluguel EM ANDAMENTO pode ser encerrado (ainda 'approved', nao 'active') ---
+  // `bookingDeOutraPessoa` pertence a donoId (nenhum ownerId foi passado ao seed-la, cai no padrao) — ja estamos como donoId acima.
+  const rEncerraAprovada = await endBookingAction(undefined, formData({ bookingId: bookingDeOutraPessoa }));
+  assert('reserva so "approved" (nunca ativou) nao pode ser encerrada por aqui',
+    !rEncerraAprovada.ok && (rEncerraAprovada.message?.includes('em andamento') ?? false), rEncerraAprovada.message);
+
+  // --- dono encerra a reserva ativa de verdade ---
+  entrarComo(donoSemContaId, 'owner', 'Proprietario Sem Conta', `${tag}-dono-sem-conta@exemplo.invalid`);
+  const rEncerra = await endBookingAction(undefined, formData({ bookingId: bookingSemConta }));
+  assert('dono encerra o aluguel ativo', rEncerra.ok, rEncerra.message);
+
+  const [bookingEncerrada] = await sql<{ status: string; ended_at: Date | null }[]>`
+    SELECT status, ended_at FROM bookings WHERE id=${bookingSemConta}`;
+  expect('reserva virou "ended"', bookingEncerrada!.status, 'ended');
+  assert('ended_at foi preenchido', bookingEncerrada!.ended_at !== null);
+
+  const [assinaturaCancelada] = await sql<{ status: string; cancelled_at: Date | null }[]>`
+    SELECT status, cancelled_at FROM subscriptions WHERE booking_id=${bookingSemConta}`;
+  expect('assinatura foi cancelada junto (nao so a reserva)', assinaturaCancelada?.status, 'cancelled');
+  assert('assinatura tem cancelled_at preenchido', assinaturaCancelada?.cancelled_at !== null);
+
+  const [notifEncerramento] = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM notifications WHERE data->>'bookingId' = ${bookingSemConta} AND title = 'Aluguel encerrado'`;
+  expect('locatario foi notificado do encerramento', notifEncerramento?.user_id, renterId);
+
+  const [logEncerramento] = await sql<{ action: string }[]>`
+    SELECT action FROM audit_logs WHERE entity_id=${bookingSemConta} AND action='booking.ended'`;
+  assert('encerramento foi auditado', Boolean(logEncerramento));
+
+  // --- nao da pra encerrar de novo o que ja esta encerrado ---
+  const rEncerraDeNovo = await endBookingAction(undefined, formData({ bookingId: bookingSemConta }));
+  assert('encerrar uma reserva ja encerrada e recusado', !rEncerraDeNovo.ok, rEncerraDeNovo.message);
+
+  // =========================================================================
+  secao('9. Avaliacoes — so depois de encerrado, so quem participou');
+  // =========================================================================
+
+  // --- ninguem avalia reserva que ainda nao terminou ---
+  // `bookingDeOutraPessoa` pertence a donoId/renterId (ver secao 7) — precisa ser uma das duas pra passar da checagem de autorizacao.
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
+  const rAvaliaAntes = await createReviewAction(undefined, formData({
+    bookingId: bookingDeOutraPessoa, kind: 'renter_to_space', rating: '5',
+  }));
+  assert('nao da pra avaliar reserva que nao terminou (ainda "approved")',
+    !rAvaliaAntes.ok && (rAvaliaAntes.message?.includes('encerrado') ?? false), rAvaliaAntes.message);
+
+  // --- dono nao avalia o proprio espaco (kind errado pra quem ele e) ---
+  entrarComo(donoSemContaId, 'owner', 'Proprietario Sem Conta', `${tag}-dono-sem-conta@exemplo.invalid`);
+  const rDonoAvaliaEspaco = await createReviewAction(undefined, formData({
+    bookingId: bookingSemConta, kind: 'renter_to_space', rating: '5',
+  }));
+  assert('dono nao consegue avaliar o proprio espaco (so o locatario avalia)',
+    !rDonoAvaliaEspaco.ok && (rDonoAvaliaEspaco.message?.includes('locatário') ?? false), rDonoAvaliaEspaco.message);
+
+  // --- locatario avalia o espaco de verdade ---
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
+  const rAvaliaEspaco = await createReviewAction(undefined, formData({
+    bookingId: bookingSemConta, kind: 'renter_to_space', rating: '5', comment: 'Espaço ótimo, super acessível.',
+  }));
+  assert('locatario avalia o espaco', rAvaliaEspaco.ok, rAvaliaEspaco.message);
+
+  const [espacoAvaliado] = await sql<{ rating_avg: string; rating_count: number }[]>`
+    SELECT rating_avg, rating_count FROM spaces WHERE id=${espacoSemContaId}`;
+  expect('nota media do espaco foi recalculada pela trigger', espacoAvaliado?.rating_avg, '5.00');
+  expect('contagem de avaliacoes bate', espacoAvaliado?.rating_count, 1);
+
+  // --- avaliar de novo a MESMA reserva/mesmo tipo e recusado ---
+  const rAvaliaDeNovo = await createReviewAction(undefined, formData({
+    bookingId: bookingSemConta, kind: 'renter_to_space', rating: '3',
+  }));
+  assert('avaliar a mesma reserva duas vezes e recusado', !rAvaliaDeNovo.ok, rAvaliaDeNovo.message);
+  expect('a segunda tentativa NAO mudou a nota gravada', (await sql<{ rating_avg: string }[]>`
+    SELECT rating_avg FROM spaces WHERE id=${espacoSemContaId}`)[0]?.rating_avg, '5.00');
+
+  // --- locatario nao avalia a SI MESMO (kind errado pra quem ele e) ---
+  const rLocatarioAvaliaLocatario = await createReviewAction(undefined, formData({
+    bookingId: bookingSemConta, kind: 'owner_to_renter', rating: '4',
+  }));
+  assert('locatario nao consegue avaliar locatario (so o proprietario faz essa avaliacao)',
+    !rLocatarioAvaliaLocatario.ok && (rLocatarioAvaliaLocatario.message?.includes('proprietário') ?? false),
+    rLocatarioAvaliaLocatario.message);
+
+  // --- proprietario avalia o locatario (kind diferente, mesma reserva — nao colide) ---
+  entrarComo(donoSemContaId, 'owner', 'Proprietario Sem Conta', `${tag}-dono-sem-conta@exemplo.invalid`);
+  const rAvaliaLocatario = await createReviewAction(undefined, formData({
+    bookingId: bookingSemConta, kind: 'owner_to_renter', rating: '4',
+  }));
+  assert('proprietario avalia o locatario, mesma reserva do outro tipo de avaliacao', rAvaliaLocatario.ok, rAvaliaLocatario.message);
+
+  const [{ n: avaliacoesDaReserva }] = await sql<{ n: number }[]>`
+    SELECT count(*)::int AS n FROM reviews WHERE booking_id=${bookingSemConta}`;
+  expect('as duas avaliacoes (tipos diferentes) coexistem na mesma reserva', avaliacoesDaReserva, 2);
+
+  const listaAvaliacoes = await listReviewsForSpace(espacoSemContaId);
+  assert('listReviewsForSpace traz a avaliacao com o comentario e autor certos',
+    listaAvaliacoes.some((r) => r.comment === 'Espaço ótimo, super acessível.' && r.authorName === 'Locatario de Teste'),
+    JSON.stringify(listaAvaliacoes));
+
+  const avaliadasLocatario = await listReviewedBookingIds(renterId, 'renter_to_space');
+  assert('listReviewedBookingIds reflete a avaliacao do locatario', avaliadasLocatario.has(bookingSemConta));
+  const avaliadasDono = await listReviewedBookingIds(donoSemContaId, 'owner_to_renter');
+  assert('listReviewedBookingIds reflete a avaliacao do proprietario', avaliadasDono.has(bookingSemConta));
 
   // ---------------------------------------------------------------------------
 

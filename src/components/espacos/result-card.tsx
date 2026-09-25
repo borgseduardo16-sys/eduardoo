@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import { ImageOff, MapPin } from 'lucide-react';
+import { ImageOff, MapPin, Star } from 'lucide-react';
 import { formatBRL } from '@/lib/money';
 import { formatDistance } from '@/lib/spaces/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
@@ -11,10 +11,12 @@ import type { PublicSpace } from '@/lib/spaces/queries';
 /**
  * Card de resultado da busca.
  *
- * Só mostra o que existe de verdade no banco: nenhuma nota, nenhuma
- * quantidade de vaga inventada. `featureLabels` vem vazio quando o anúncio
- * não marcou característica nenhuma, e nesse caso a linha de características
+ * Só mostra o que existe de verdade no banco: nenhuma quantidade de vaga
+ * inventada. `featureLabels` vem vazio quando o anúncio não marcou
+ * característica nenhuma, e nesse caso a linha de características
  * simplesmente não aparece — em vez de um "—" ou um placeholder genérico.
+ * A nota segue a mesma regra: `ratingCount === 0` não mostra "0,0 ★", some
+ * a linha inteira — sem avaliação ainda não é o mesmo que nota zero.
  */
 export function ResultCard({
   space,
@@ -75,9 +77,18 @@ export function ResultCard({
           <p className="text-[0.75rem] font-medium uppercase tracking-wide text-[var(--accent)]">
             {spaceTypeLabel(space.type as SpaceTypeKey)}
           </p>
-          <h2 className="font-medium leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors">
-            {space.title}
-          </h2>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="font-medium leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors">
+              {space.title}
+            </h2>
+            {space.ratingCount > 0 && (
+              <span className="shrink-0 flex items-center gap-1 text-[0.8125rem] tabular-nums">
+                <Star className="size-3.5 text-[var(--accent)]" aria-hidden fill="currentColor" />
+                {Number(space.ratingAvg).toFixed(1)}
+                <span className="text-[var(--content-subtle)]">({space.ratingCount})</span>
+              </span>
+            )}
+          </div>
           <p className="flex items-center gap-1 text-[0.875rem] text-[var(--content-muted)]">
             <MapPin className="size-3.5 shrink-0" aria-hidden />
             <span className="truncate">{[space.district, space.city].filter(Boolean).join(', ')}</span>

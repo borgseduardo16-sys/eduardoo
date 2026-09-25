@@ -84,6 +84,13 @@ export type PublicSpace = {
   featureLabels: string[];
   /** Null quando o anuncio nao tem promocao ativa no momento. */
   promotionType: 'destaque' | 'turbo' | null;
+  /**
+   * `numeric` sempre chega como string do driver (evita perda de precisao
+   * de float) — mesma convencao de `sizeM2`/`ceilingHeightM`. Null = nenhuma
+   * avaliacao ainda (nunca 0, que seria "avaliado com nota zero").
+   */
+  ratingAvg: string | null;
+  ratingCount: number;
 };
 
 export type SearchSort = 'distance' | 'price_asc' | 'price_desc' | 'recent' | 'compatibility';

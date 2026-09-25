@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { CalendarX, Heart, ImageOff } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { listRenterBookings } from '@/lib/bookings/queries';
+import { listReviewedBookingIds } from '@/lib/reviews/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
 import { bookingStatusLabel, formatBookingDate } from '@/lib/bookings/format';
@@ -12,6 +13,8 @@ import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { CancelBookingButton } from '@/components/bookings/cancel-booking-button';
+import { EndBookingButton } from '@/components/bookings/end-booking-button';
+import { ReviewPrompt } from '@/components/reviews/review-prompt';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 
@@ -25,7 +28,10 @@ function ehAtiva(status: string) {
 export default async function ReservasPage() {
   const user = await requireUser('/reservas');
   const reservas = await listRenterBookings(user.id);
-  const urls = await signImagePaths(reservas.map((r) => r.spaceCoverPath).filter(Boolean) as string[]);
+  const [urls, avaliadas] = await Promise.all([
+    signImagePaths(reservas.map((r) => r.spaceCoverPath).filter(Boolean) as string[]),
+    listReviewedBookingIds(user.id, 'renter_to_space'),
+  ]);
 
   // Uma lista SO, ordenada com as ativas primeiro (sort e estavel, entao a
   // ordem original de cada grupo se mantem) — nao duas arrays/<ul> separadas
@@ -85,7 +91,11 @@ export default async function ReservasPage() {
                       {ativa ? 'Em andamento' : 'Encerradas'}
                     </h2>
                   )}
-                  <ReservaCard r={r} coverUrl={r.spaceCoverPath ? (urls.get(r.spaceCoverPath) ?? null) : null} />
+                  <ReservaCard
+                    r={r}
+                    coverUrl={r.spaceCoverPath ? (urls.get(r.spaceCoverPath) ?? null) : null}
+                    jaAvaliada={avaliadas.has(r.id)}
+                  />
                 </div>
               );
             })}
@@ -100,7 +110,7 @@ export default async function ReservasPage() {
 
 type ReservaRow = Awaited<ReturnType<typeof listRenterBookings>>[number];
 
-function ReservaCard({ r, coverUrl }: { r: ReservaRow; coverUrl: string | null }) {
+function ReservaCard({ r, coverUrl, jaAvaliada }: { r: ReservaRow; coverUrl: string | null; jaAvaliada: boolean }) {
   return (
     <div className="rounded-[var(--radius-card)] border p-4 space-y-3">
       <div className="flex gap-3">
@@ -175,6 +185,14 @@ function ReservaCard({ r, coverUrl }: { r: ReservaRow; coverUrl: string | null }
       )}
 
       <CancelBookingButton bookingId={r.id} status={r.status} label="Cancelar solicitação" />
+      <EndBookingButton bookingId={r.id} status={r.status} />
+      <ReviewPrompt
+        bookingId={r.id}
+        kind="renter_to_space"
+        status={r.status}
+        alreadyReviewed={jaAvaliada}
+        label="Como foi o espaço?"
+      />
     </div>
   );
 }

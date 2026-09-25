@@ -242,6 +242,8 @@ export async function listFeaturedSpaces(limit?: number): Promise<FeaturedSpace[
       city: spaces.city,
       state: spaces.state,
       priceMonthlyCents: spaces.priceMonthlyCents,
+      ratingAvg: spaces.ratingAvg,
+      ratingCount: spaces.ratingCount,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
       distanceMeters: sql<number | null>`NULL`,

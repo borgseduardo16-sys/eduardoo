@@ -152,7 +152,7 @@ export default async function Home() {
 
         <section className="px-4 sm:px-6 py-16 sm:py-20">
           <div className="mx-auto max-w-6xl">
-            <div className="grid gap-10 sm:grid-cols-3">
+            <div className="rounded-[var(--radius-card)] border p-8 sm:p-10 grid gap-10 sm:grid-cols-3">
               {[
                 {
                   icon: MapPin,

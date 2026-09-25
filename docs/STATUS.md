@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 24/09/2026 · **Fases concluídas:** 1 a 6, 9 a 14 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino**
+> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 15 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário**
 
 Estados usados:
 
@@ -771,6 +771,141 @@ resultado.
 
 ---
 
+## Fase 15 — Funcionalidades essenciais que faltavam + organização do layout ✅ *(25/09/2026)*
+
+Pedido aberto, por voz: acrescentar o que um marketplace desse tipo
+costuma ter e o MyPlace ainda não tinha, e organizar o layout — sem mexer
+em paleta de cores, que o usuário disse que ainda vai decidir mais pra
+frente. Não veio uma lista pronta; a lista saiu de auditar o próprio
+projeto, não de supor. Cinco lacunas concretas, cada uma confirmada no
+código antes de virar tarefa:
+
+1. O rodapé linkava para 5 páginas que **não existiam** (404 real):
+   Como funciona, Taxas, Termos, Privacidade, Suporte.
+2. A tabela `reviews` — com trigger de validação, unicidade e recálculo
+   de nota já prontos e já testados desde uma fase anterior — tinha
+   **zero** linha de código de aplicação usando ela: nenhuma tela pra
+   avaliar, nenhuma pra ver avaliação.
+3. A tabela `notifications` é escrita a cada evento importante (nova
+   solicitação, pagamento confirmado, mensagem nova…) mas **nunca
+   exibida** em lugar nenhum — sem sino, sem página, sem contador.
+4. Não existe navegação pensada pro celular: os links principais do
+   header somem abaixo de `sm:` e não sobra nenhum jeito de navegar sem
+   rolar até o rodapé.
+5. `bookings.status = 'ended'` existe no schema, mas **nenhum código
+   jamais levava uma reserva até lá** — e `asaas.cancelSubscription()`
+   também já existia, pronta, sem nenhum lugar que a chamasse.
+
+### 15.1 — Páginas institucionais
+
+| Página | Estado | Observação |
+|--------|--------|------------|
+| `/como-funciona` | ✅ | passo a passo dos dois lados (quem procura / quem anuncia) |
+| `/taxas` | ✅ | os 3%+3% e o mínimo de R$ 35 lidos de `platform_settings` de verdade; o exemplo numérico usa uma constante marcada no código como ilustrativa — não é outro valor real escondido |
+| `/termos` | ✅ | com aviso explícito de que não é contrato revisado por advogado (mesma ressalva da Riscos §8, que continua valendo) |
+| `/privacidade` | ✅ | idem — e sem prometer uma tela de editar/apagar dado que não existe (ver autocorreção abaixo) |
+| `/suporte` | ✅ | FAQ + atalho para Mensagens e para Denunciar; **não inventa** e-mail nem formulário de contato que não existe |
+
+**Autocorreção antes de publicar**: o primeiro rascunho de `/privacidade`
+ia dizer que dava pra editar ou apagar os próprios dados pela tela "Minha
+conta". Conferi o código antes de subir — essa ação não existe — e
+reescrevi pra dizer a verdade: hoje isso é feito manualmente, por pedido
+via Suporte.
+
+### 15.2 — Central de notificações
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Sino no header, com contador | ✅ | desktop e mobile, ao lado do ícone de mensagens que já existia |
+| `/notificacoes` | ✅ | lista as últimas 30; abrir uma marca como lida e leva pro link do evento; também dá pra marcar todas de uma vez |
+| Fonte real, sem dado novo | ✅ | lê a tabela `notifications`, já escrita desde fases anteriores a cada solicitação, aceite, pagamento e mensagem — só faltava a tela |
+
+### 15.3 — Navegação inferior no celular
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Barra fixa, 5 itens | ✅ | Início, Buscar, Meus espaços/Anunciar (conforme o papel de quem está logado), Reservas, Conta — só aparece pra quem está logado e não é admin |
+| Não sobrepõe o rodapé | ✅ | `padding-bottom` condicional via `:has([data-mobile-bottom-nav])`, só nas páginas onde a barra realmente está presente |
+| Fora do assistente de publicação | ✅ | `/anunciar/[id]/*` mantém só a sua própria barra fixa de ações — as duas juntas colidiriam na mesma tela |
+
+### 15.4 — "Encerrar aluguel"
+
+Sem essa ação, uma reserva `active` nunca vira `ended` — e sem `ended`,
+**avaliação não tinha como existir** (é exatamente o que o trigger
+`validate_review` exige). Isso trouxe pra dentro desta etapa uma ação que
+já devia existir por conta própria, não só como pré-requisito de
+Avaliações.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Botão "Encerrar aluguel" | ✅ | em `/reservas`, visível pro locatário e pelo proprietário, confirmação em duas etapas |
+| Cancela a cobrança de verdade | ✅ | `asaas.cancelSubscription()` chamado **antes** de qualquer escrita no banco — se o gateway falhar, nada muda no banco e a cobrança mensal continua, nunca o contrário (nunca marca "encerrado" e deixa a pessoa sendo cobrada por engano) |
+| 404 do gateway (assinatura já cancelada lá) | ✅ | tratado como sucesso silencioso — incerteza documentada no código, não escondida |
+| Auditoria + aviso pro outro lado | ✅ | grava em `audit_logs` e cria notificação |
+
+### 15.5 — Avaliações (reviews)
+
+A infraestrutura — tabela, trigger `validate_review` (só depois de
+`ended`, só quem participou da reserva, `space_id`/`target_user_id`
+batendo com ela), a chave única por reserva+tipo+autor, e o trigger que
+recalcula `rating_avg`/`rating_count` do anúncio — já existia e já estava
+testada em `verify-schema.ts` (seção 5, 6 checagens, sem nenhuma mudança
+nesta etapa). O que faltava era tudo que efetivamente usa isso.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Formulário de avaliação | ✅ | 1–5 estrelas + comentário opcional, em `/reservas` (avalia o espaço) e `/meus-espacos/solicitacoes` (avalia o locatário) — só aparece quando a reserva está `ended` e quem está vendo ainda não avaliou |
+| Nota no card de busca e na página do espaço | ✅ | só quando `rating_count > 0` — nunca mostra "0 estrelas" fingindo ser avaliação real |
+| Lista de avaliações na página do espaço | ✅ | nome de quem avaliou, nota, data, comentário |
+| Selo de confiança "X de 5 em Y avaliações" | ✅ *(ativado agora, não construído agora)* | `computeTrustProfile`/`TrustBadges` já liam `ratingAvg`/`ratingCount` desde uma fase anterior — só nunca tinham dado real pra mostrar. Passa a aparecer sozinho, sem nenhuma mudança nesses componentes |
+| Autorização de quem pode avaliar o quê | ✅ | checada na action (pra dar mensagem amigável) **e** garantida de verdade pelo trigger |
+
+**O que ficou fora desta etapa, por escopo — não por esquecimento:**
+- Moderação de avaliação: o detector de dado de contato (da Segurança
+  interna) não roda em cima do comentário da avaliação, e as colunas
+  `hidden_at`/`hidden_reason` — que já existem no schema — não têm tela
+  de admin nem fluxo de denúncia ligados a elas ainda.
+- A avaliação do proprietário sobre o locatário (`owner_to_renter`) é
+  gravada, contada certinho e coexiste com a do espaço, mas **não existe
+  nenhum perfil público de locatário** nesta plataforma hoje — não há
+  pra onde mostrar essa nota publicamente ainda.
+- A notificação do encerramento reaproveita o tipo `booking_cancelled`
+  em vez de um `booking_ended` dedicado, pra não precisar de mais uma
+  migração só por isso — o texto mostrado já diz "encerrado", não
+  "cancelado", então quem lê não é enganado.
+
+### Ajuste de layout encontrado numa revisão visual de verdade
+
+Rodei o app compilado em modo produção contra o Postgres local, abri um
+Chromium de verdade e tirei capturas das telas novas e de duas telas
+antigas, pra comparar — o objetivo era achar problema estrutural, não só
+"parece bonito". Achei um: na home, a faixa "Perto de verdade / Endereço
+protegido / Pagamento pela plataforma" era só texto solto, sem nenhum
+agrupamento visual — a única seção da página sem cartão nem fundo, entre
+duas outras que têm (os passos numerados, e "Antes de fechar" logo
+abaixo). Corrigido com o mesmo cartão (`rounded-[var(--radius-card)]
+border`) que a própria página já usa três seções adiante — nenhuma cor
+nova, só estrutura repetida.
+
+O resto (sino, barra inferior, páginas institucionais, avaliação,
+notificações) renderizou como esperado nas 8 capturas, celular e desktop.
+
+**O que essa revisão NÃO é**: uma seção nova em `pnpm verify:integracoes`.
+As telas novas desta fase não ganharam teste automatizado de interface —
+foi uma passada manual, única, com um script descartado ao final (nada
+repetível ficou para trás). Ver Riscos §7, atualizada.
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Banco (`scripts/verify-payments.ts`, seções 8 e 9, novas) | ✅ | +25 checagens — **encerrar aluguel** (autorização, recusa fora do status certo, cancela a cobrança de verdade no dublê do Asaas antes de tocar no banco, auditoria, notificação, recusa reserva já encerrada — 12 checagens) e **avaliações** (bloqueia antes de `ended`, bloqueia o tipo errado dos dois lados, nota recalculada pela trigger, bloqueia avaliação duplicada, as duas pontas coexistem na mesma reserva — 13 checagens) — **584 no total em `pnpm verify`, era 559** |
+| Navegador (`pnpm verify:integracoes`) | ➖ | sem seção nova — **224 checagens, inalterado**; rodada de novo depois de toda mudança desta fase (inclusive o ajuste de layout), sem quebrar nada — mas não cobre as telas novas (ver acima) |
+| `scripts/verify-schema.ts` | ✅ | 32 checagens, inalterado — a seção 5 (Avaliações) já testava o trigger antes desta fase existir |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos, incluindo todas as rotas novas no build de produção |
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
@@ -861,7 +996,7 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 205 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 224 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
 aceitar e cancelar aluguel, o de configurar recebimento e pagar, o chat
 com e-mail de aviso e mensagem de sistema, o painel administrativo, e
@@ -941,18 +1076,29 @@ colar o DSN ([SETUP.md §7](./SETUP.md#7-sentry-erros-antes-de-produção)).
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 725 checagens reais (`pnpm verify:tudo`). As telas de foto, mapa, CEP,
-busca (com GPS real), filtros, favoritos, galeria, compartilhar, o fluxo de
-solicitar/aceitar/cancelar aluguel, o chat, os paineis financeiros (com
-webhook de pagamento disparado pela rota HTTP real), o painel administrativo
-(fila de moderação, resolver denúncia, suspensão manual, o 404 pra quem não
-é admin) e o sistema de Destaque/Turbo/Premium (ativar e cancelar pela tela,
-selo na home/busca/Meus espaços, consumo real em `/premium`, admin
-concedendo e revogando Premium) rodam em Chromium de verdade
-(`pnpm verify:integracoes`). O que ainda não tem teste automatizado de
-interface: cadastro, login, e as ações de pausar/editar/excluir dentro de
-"Meus espaços" (só o fluxo de Destacar, dentro dessa mesma tela, foi
-testado).
+São 808 checagens reais (`pnpm verify:tudo` = 584 de banco + 224 de
+navegador). As telas de foto, mapa, CEP, busca (com GPS real), filtros,
+favoritos, galeria, compartilhar, o fluxo de solicitar/aceitar/cancelar
+aluguel, o chat, os paineis financeiros (com webhook de pagamento disparado
+pela rota HTTP real), o painel administrativo (fila de moderação, resolver
+denúncia, suspensão manual, o 404 pra quem não é admin) e o sistema de
+Destaque/Turbo/Premium (ativar e cancelar pela tela, selo na home/busca/Meus
+espaços, consumo real em `/premium`, admin concedendo e revogando Premium)
+rodam em Chromium de verdade (`pnpm verify:integracoes`). O que ainda não
+tem teste automatizado de interface: cadastro, login, e as ações de
+pausar/editar/excluir dentro de "Meus espaços" (só o fluxo de Destacar,
+dentro dessa mesma tela, foi testado).
+
+**Fase 15 (25/09/2026)** soma-se a essa lista: avaliação, encerrar
+aluguel, central de notificações, navegação no celular e as páginas
+institucionais não ganharam nenhuma seção nova em
+`pnpm verify:integracoes` (continua em 224, sem quebrar). A parte de banco
+dessa fase — autorização de quem avalia o quê, trigger recalculando nota,
+cancelamento real no dublê do gateway antes de mexer no banco — tem 25
+checagens novas em `verify-payments.ts`. A parte de tela foi conferida uma
+única vez, manualmente, com capturas de um Chromium real (achou e corrigiu
+um problema de layout na home) — não é repetível e não roda de novo
+sozinha.
 
 ### ⚠️ 8. Sem documentos jurídicos
 
@@ -971,8 +1117,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 520 checagens contra o Postgres real
-pnpm verify:integracoes              # 205 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium)
+pnpm verify                          # 584 checagens contra o Postgres real
+pnpm verify:integracoes              # 224 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real
 pnpm dev                             # http://localhost:3000

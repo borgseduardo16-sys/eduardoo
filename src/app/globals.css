@@ -328,6 +328,19 @@
   .myplace-ref-point::after { animation: none; opacity: 0.35; }
 }
 
+/*
+ * Reserva espaco pro MobileBottomNav (fixo, so no celular) nao cobrir o fim
+ * do conteudo. `:has()` em vez de uma classe fixa no body: o nav so existe
+ * (e so entao precisa do respiro) quando SiteHeader de fato o renderiza —
+ * deslogado, admin e a etapa de anunciar (barra propria) ficam sem ele, sem
+ * precisar de logica repetida em cada pagina.
+ */
+@media (max-width: 639px) {
+  body:has([data-mobile-bottom-nav]) {
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+}
+
 /* O MapLibre traz o proprio CSS; estes ajustes so encaixam na identidade. */
 .maplibregl-ctrl-attrib { font-size: 10px; }
 .maplibregl-ctrl-group { border-radius: var(--radius-field) !important; }

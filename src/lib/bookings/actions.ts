@@ -6,10 +6,11 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import postgres from 'postgres';
 import { db } from '@/db/client';
-import { bookings, spaces, auditLogs, notifications, profiles } from '@/db/schema';
+import { bookings, spaces, auditLogs, notifications, profiles, subscriptions } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { computeBookingAmounts } from '@/lib/money';
 import { settingInt } from '@/lib/settings';
+import * as asaas from '@/lib/payments/asaas';
 import { findPendingRequestBySameRenter, listOtherPendingRequestsForSpace } from './queries';
 import { requestBookingSchema, respondBookingSchema, cancelBookingSchema } from './schemas';
 import { buildBookingReference } from './reference';
@@ -481,6 +482,122 @@ export async function cancelBookingAction(
     actorId: user.id,
     recipientId: outraParte,
     body: `Reserva cancelada por ${autor?.fullName ?? 'a outra parte'}.`,
+    createIfMissing: false,
+  });
+
+  return { ok: true, bookingId };
+}
+
+/**
+ * Encerra um aluguel EM ANDAMENTO ('active' ou 'past_due') — o ponto que
+ * faltava no ciclo de vida: sem isto, uma reserva ativa nunca chegava a
+ * `ended` (status que já existia no schema, mas nenhum código alcançava),
+ * e a assinatura no Asaas continuaria cobrando pra sempre.
+ *
+ * A assinatura é cancelada no gateway ANTES de qualquer escrita no banco —
+ * se o Asaas recusar, nada muda por aqui, e a pessoa não sai da tela achando
+ * que parou de pagar quando na verdade não parou. Um 404 (assinatura já
+ * cancelada de outro jeito) é tratado como sucesso, não como erro.
+ */
+export async function endBookingAction(
+  _prev: BookingActionState | undefined,
+  formData: FormData,
+): Promise<BookingActionState> {
+  const user = await requireUserOrThrow();
+
+  const parsed = cancelBookingSchema.safeParse({
+    bookingId: formData.get('bookingId'),
+    reason: formData.get('reason') || undefined,
+  });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Dados inválidos.' };
+  }
+  const { bookingId, reason } = parsed.data;
+
+  const [booking] = await db
+    .select({
+      id: bookings.id,
+      ownerId: bookings.ownerId,
+      renterId: bookings.renterId,
+      status: bookings.status,
+      spaceId: bookings.spaceId,
+      spaceTitle: spaces.title,
+    })
+    .from(bookings)
+    .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+
+  if (!booking || (booking.ownerId !== user.id && booking.renterId !== user.id)) {
+    return { ok: false, message: 'Reserva não encontrada.' };
+  }
+
+  if (booking.status !== 'active' && booking.status !== 'past_due') {
+    return { ok: false, message: 'Só é possível encerrar um aluguel em andamento.' };
+  }
+
+  const souLocatario = booking.renterId === user.id;
+
+  const [assinatura] = await db
+    .select({ id: subscriptions.id, providerSubscriptionId: subscriptions.providerSubscriptionId })
+    .from(subscriptions)
+    .where(eq(subscriptions.bookingId, bookingId))
+    .limit(1);
+
+  if (assinatura?.providerSubscriptionId) {
+    try {
+      await asaas.cancelSubscription(assinatura.providerSubscriptionId);
+    } catch (err) {
+      if (err instanceof asaas.AsaasError && err.status === 404) {
+        // Já não existe mais no gateway — segue como se tivesse cancelado agora.
+      } else if (err instanceof asaas.AsaasError) {
+        console.error('[bookings] Asaas recusou o cancelamento da assinatura:', err.status, err.body);
+        return { ok: false, message: `Não foi possível cancelar a cobrança no gateway: ${err.message}` };
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(bookings)
+      .set({ status: 'ended', endedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(bookings.id, bookingId), inArray(bookings.status, ['active', 'past_due'])));
+
+    if (assinatura) {
+      await tx
+        .update(subscriptions)
+        .set({ status: 'cancelled', cancelledAt: new Date(), updatedAt: new Date() })
+        .where(eq(subscriptions.id, assinatura.id));
+    }
+
+    await tx.insert(auditLogs).values({
+      actorId: user.id, actorRole: user.role, action: 'booking.ended',
+      entityType: 'booking', entityId: bookingId, metadata: { reason: reason ?? null },
+    });
+  });
+
+  const outraParte = souLocatario ? booking.ownerId : booking.renterId;
+  const [autor] = await db.select({ fullName: profiles.fullName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  await db.insert(notifications).values({
+    userId: outraParte, type: 'booking_cancelled', title: 'Aluguel encerrado',
+    body: `${autor?.fullName ?? 'A outra parte'} encerrou o aluguel de "${booking.spaceTitle}".`,
+    linkPath: '/reservas', data: { bookingId },
+  });
+
+  revalidatePath('/meus-espacos/solicitacoes');
+  revalidatePath('/meus-espacos/financeiro');
+  revalidatePath('/reservas');
+
+  await postBookingSystemMessage({
+    spaceId: booking.spaceId,
+    renterId: booking.renterId,
+    ownerId: booking.ownerId,
+    spaceTitle: booking.spaceTitle,
+    actorId: user.id,
+    recipientId: outraParte,
+    body: `Aluguel encerrado por ${autor?.fullName ?? 'a outra parte'}.`,
     createIfMissing: false,
   });
 

@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { ImageOff, Inbox } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { listOwnerBookingRequests, type BookingStatus } from '@/lib/bookings/queries';
+import { listReviewedBookingIds } from '@/lib/reviews/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
 import { bookingStatusLabel, formatBookingDate } from '@/lib/bookings/format';
@@ -12,6 +13,8 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { OwnerSubnav } from '@/components/layout/owner-subnav';
 import { RespondRequestActions } from '@/components/bookings/respond-request-actions';
+import { EndBookingButton } from '@/components/bookings/end-booking-button';
+import { ReviewPrompt } from '@/components/reviews/review-prompt';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -40,7 +43,10 @@ export default async function SolicitacoesPage({
   );
   const pendentesTotal = await listOwnerBookingRequests(user.id, ['requested']);
 
-  const urls = await signImagePaths(solicitacoes.map((s) => s.spaceCoverPath).filter(Boolean) as string[]);
+  const [urls, avaliadas] = await Promise.all([
+    signImagePaths(solicitacoes.map((s) => s.spaceCoverPath).filter(Boolean) as string[]),
+    listReviewedBookingIds(user.id, 'owner_to_renter'),
+  ]);
 
   return (
     <>
@@ -147,6 +153,14 @@ export default async function SolicitacoesPage({
                   )}
 
                   <RespondRequestActions bookingId={s.id} status={s.status} />
+                  <EndBookingButton bookingId={s.id} status={s.status} />
+                  <ReviewPrompt
+                    bookingId={s.id}
+                    kind="owner_to_renter"
+                    status={s.status}
+                    alreadyReviewed={avaliadas.has(s.id)}
+                    label="Como foi o locatário?"
+                  />
                 </li>
               );
             })}

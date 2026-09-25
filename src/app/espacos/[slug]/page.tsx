@@ -8,6 +8,7 @@ import { getCurrentUser } from '@/lib/auth/dal';
 import { isFavorited } from '@/lib/favorites/queries';
 import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { bookingStatusLabel } from '@/lib/bookings/format';
+import { listReviewsForSpace } from '@/lib/reviews/queries';
 import { computeTrustProfile } from '@/lib/safety/trust';
 import { serverEnv } from '@/lib/env';
 import type { SpaceTypeKey } from '@/lib/spaces/types';
@@ -21,6 +22,7 @@ import { ProtectionNotice } from '@/components/safety/protection-notice';
 import { VisitChecklist } from '@/components/safety/visit-checklist';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { ShareButton } from '@/components/espacos/share-button';
+import { ReviewsList } from '@/components/reviews/reviews-list';
 import { StartConversationButton } from '@/components/messaging/start-conversation-button';
 import { PremiumBadge } from '@/components/promotions/premium-badge';
 import { buttonVariants } from '@/components/ui/button';
@@ -72,10 +74,11 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
 
   const isOwner = viewer?.id === space.ownerId;
 
-  const [urls, favorited, existingBooking] = await Promise.all([
+  const [urls, favorited, existingBooking, reviews] = await Promise.all([
     signImagePaths(space.images.flatMap((i) => [i.storagePath, i.thumbPath].filter(Boolean) as string[])),
     viewer ? isFavorited(viewer.id, space.id) : Promise.resolve(false),
     viewer && !isOwner ? getViewerActiveBookingForSpace(space.id, viewer.id) : Promise.resolve(null),
+    listReviewsForSpace(space.id),
   ]);
   const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
 
@@ -251,6 +254,8 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
             />
           </section>
         )}
+
+        <ReviewsList reviews={reviews} />
 
         <ProtectionNotice variant="card" />
 
