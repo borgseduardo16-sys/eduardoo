@@ -83,6 +83,18 @@ export const paymentStatus = pgEnum('payment_status', [
   'cancelled',
 ]);
 
+/**
+ * O que aconteceu com uma caução DEPOIS de cobrada (Fase 20) — separado do
+ * `paymentStatus` da cobrança em si (que só diz se o dinheiro entrou).
+ * held -> released (sem dano) | forfeited/partially_forfeited (dano procedente).
+ */
+export const depositReleaseStatus = pgEnum('deposit_release_status', [
+  'held',
+  'released',
+  'forfeited',
+  'partially_forfeited',
+]);
+
 /** Estado da assinatura (recorrencia mensal). */
 export const subscriptionStatus = pgEnum('subscription_status', [
   'pending_authorization',
@@ -115,6 +127,13 @@ export const ledgerEntryType = pgEnum('ledger_entry_type', [
   'refund',
   'chargeback',
   'adjustment',
+  // --- Fase 20: caução (proteção contra dano) ---
+  /** Caução cobrada e confirmada — dinheiro em custódia, ainda de ninguém. */
+  'deposit_charged',
+  /** Caução (ou parte dela) devolvida ao locatário. */
+  'deposit_released',
+  /** Parte retida da caução, atribuída ao proprietário — repasse ainda manual (ver docs/STATUS.md). */
+  'deposit_forfeited_to_owner',
 ]);
 
 /** Situacao do onboarding de recebimento do proprietario (KYC no gateway). */

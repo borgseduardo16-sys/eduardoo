@@ -18,9 +18,11 @@ import {
   payoutStatus,
   ledgerEntryType,
   webhookStatus,
+  depositReleaseStatus,
 } from './enums';
 import { profiles } from './users';
 import { bookings } from './bookings';
+import { reports } from './trust';
 
 /**
  * Assinatura mensal no gateway (a recorrencia de uma locacao).
@@ -125,6 +127,87 @@ export const payments = pgTable(
     index('payments_due_date_idx').on(t.dueDate),
     check('payments_amount_positive', sql`${t.amountCents} > 0`),
     check('payments_refund_within_amount', sql`${t.refundedCents} BETWEEN 0 AND ${t.amountCents}`),
+  ],
+);
+
+/**
+ * Caução (proteção contra dano — Fase 20).
+ *
+ * Cobrança AVULSA no gateway, igual à compra de Destaque/Turbo — nunca
+ * somada ao aluguel recorrente (ver `subscriptions`), porque não é receita:
+ * é dinheiro do locatário em custódia da plataforma, e some para nós assim
+ * que devolvido. `status` acompanha a COBRANÇA em si (o gateway confirmou o
+ * pagamento?); `releaseStatus` acompanha o que aconteceu com o dinheiro
+ * DEPOIS de cobrado — as duas coisas mudam em momentos diferentes.
+ *
+ * O valor retido numa disputa (`forfeitedCents`) fica marcado como devido
+ * ao proprietário, mas o REPASSE de verdade ainda não é automático — ver
+ * `ledgerEntryType.deposit_forfeited_to_owner` e a Fase 20 em docs/STATUS.md.
+ */
+export const bookingDeposits = pgTable(
+  'booking_deposits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    bookingId: uuid('booking_id')
+      .notNull()
+      .references(() => bookings.id, { onDelete: 'restrict' }),
+
+    amountCents: integer('amount_cents').notNull(),
+
+    provider: text('provider').notNull().default('asaas'),
+    providerPaymentId: text('provider_payment_id').notNull(),
+    status: paymentStatus('status').notNull().default('pending'),
+    invoiceUrl: text('invoice_url'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    failureReason: text('failure_reason'),
+    providerPayload: jsonb('provider_payload').$type<Record<string, unknown>>(),
+
+    releaseStatus: depositReleaseStatus('release_status').notNull().default('held'),
+    /** Preenchidos juntos, só quando releaseStatus sai de 'held'. */
+    releasedCents: integer('released_cents'),
+    forfeitedCents: integer('forfeited_cents'),
+    /** A denúncia (com dano procedente) que decidiu a retenção, se houve uma. */
+    resolvedReportId: uuid('resolved_report_id').references(() => reports.id, { onDelete: 'set null' }),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('booking_deposits_booking_key').on(t.bookingId),
+    uniqueIndex('booking_deposits_provider_id_key').on(t.provider, t.providerPaymentId),
+    index('booking_deposits_status_idx').on(t.status),
+    index('booking_deposits_release_status_idx').on(t.releaseStatus),
+    check('booking_deposits_amount_positive', sql`${t.amountCents} > 0`),
+    check(
+      'booking_deposits_released_non_negative',
+      sql`${t.releasedCents} IS NULL OR ${t.releasedCents} >= 0`,
+    ),
+    check(
+      'booking_deposits_forfeited_non_negative',
+      sql`${t.forfeitedCents} IS NULL OR ${t.forfeitedCents} >= 0`,
+    ),
+    /**
+     * Ou ainda está tudo em aberto (nenhum valor decidido), ou já foi
+     * decidido por inteiro — os dois números somam exatamente o total. Não
+     * existe meio-termo gravável: nunca um `released` sem saber o forfeited,
+     * nem os dois somando um valor diferente da caução cobrada.
+     */
+    check(
+      'booking_deposits_release_amounts_consistent',
+      sql`(${t.releaseStatus} = 'held' AND ${t.releasedCents} IS NULL AND ${t.forfeitedCents} IS NULL)
+          OR (${t.releaseStatus} <> 'held' AND ${t.releasedCents} IS NOT NULL AND ${t.forfeitedCents} IS NOT NULL
+              AND ${t.releasedCents} + ${t.forfeitedCents} = ${t.amountCents})`,
+    ),
+    check(
+      'booking_deposits_release_status_matches_split',
+      sql`${t.releaseStatus} NOT IN ('released','forfeited','partially_forfeited')
+          OR (
+            (${t.releaseStatus} = 'released' AND ${t.forfeitedCents} = 0)
+            OR (${t.releaseStatus} = 'forfeited' AND ${t.releasedCents} = 0)
+            OR (${t.releaseStatus} = 'partially_forfeited' AND ${t.releasedCents} > 0 AND ${t.forfeitedCents} > 0)
+          )`,
+    ),
   ],
 );
 
@@ -245,4 +328,9 @@ export const paymentsRelations = relations(payments, ({ one, many }) => ({
 export const payoutsRelations = relations(payouts, ({ one }) => ({
   payment: one(payments, { fields: [payouts.paymentId], references: [payments.id] }),
   owner: one(profiles, { fields: [payouts.ownerId], references: [profiles.id] }),
+}));
+
+export const bookingDepositsRelations = relations(bookingDeposits, ({ one }) => ({
+  booking: one(bookings, { fields: [bookingDeposits.bookingId], references: [bookings.id] }),
+  resolvedReport: one(reports, { fields: [bookingDeposits.resolvedReportId], references: [reports.id] }),
 }));

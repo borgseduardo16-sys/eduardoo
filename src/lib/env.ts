@@ -40,6 +40,10 @@ const baseSchema = z.object({
   NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
   CRON_SECRET: z.string().optional(),
+  /** Publica de proposito — e a metade nao secreta do par VAPID, o navegador precisa dela. */
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
 });
 
 function parseEnv() {
@@ -95,6 +99,11 @@ const INTEGRATIONS = {
     label: 'Job agendado (Vercel Cron) — notificações de vencimento e resumo do proprietário',
     vars: ['CRON_SECRET'],
     doc: 'docs/SETUP.md#11-cron-secret-notificacoes-agendadas',
+  },
+  push: {
+    label: 'Notificação push no navegador (Web Push/VAPID)',
+    vars: ['NEXT_PUBLIC_VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'],
+    doc: 'docs/SETUP.md#12-vapid-notificacao-push-no-navegador',
   },
 } as const;
 

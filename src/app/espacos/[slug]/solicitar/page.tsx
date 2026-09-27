@@ -82,6 +82,13 @@ export default async function SolicitarAluguelPage({
           </div>
         </div>
 
+        {space.depositEnabled && (
+          <Alert tone="info" title={`Este anúncio exige caução de ${formatBRL(space.priceMonthlyCents)}`}>
+            Equivale a 1 mês de aluguel, cobrada junto do primeiro pagamento se a solicitação for
+            aceita. Devolvida integralmente ao fim do aluguel, sem dano registrado.
+          </Alert>
+        )}
+
         {isOwner ? (
           <Alert tone="info" title="Este anúncio é seu">
             Você não pode solicitar aluguel do seu próprio espaço.

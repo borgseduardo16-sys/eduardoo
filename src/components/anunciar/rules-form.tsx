@@ -5,12 +5,14 @@ import { saveStepAction, type SpaceActionState } from '@/lib/spaces/actions';
 import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
+import { formatBRL } from '@/lib/money';
 import { StepActions } from './step-actions';
 import { useAdvanceOnSave } from './use-advance';
 
 type Initial = {
   allowedItems: string | null; forbiddenItems: string | null;
   accessHours: string | null; rulesText: string | null;
+  depositEnabled: boolean;
 };
 
 /**
@@ -20,7 +22,15 @@ type Initial = {
  * jurídica — o que está escrito aqui é o que o proprietário escreveu, e é
  * assim que fica registrado se houver divergência depois.
  */
-export function RulesForm({ spaceId, initial }: { spaceId: string; initial: Initial }) {
+export function RulesForm({
+  spaceId,
+  initial,
+  priceMonthlyCents,
+}: {
+  spaceId: string;
+  initial: Initial;
+  priceMonthlyCents: number;
+}) {
   const [state, action] = useActionState<SpaceActionState | undefined, FormData>(
     saveStepAction, undefined,
   );
@@ -69,6 +79,23 @@ export function RulesForm({ spaceId, initial }: { spaceId: string; initial: Init
         >
           <Textarea name="rulesText" defaultValue={initial.rulesText ?? ''} maxLength={2000} rows={4} />
         </Field>
+
+        <div className="rounded-[var(--radius-card)] border p-4 space-y-2">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              name="depositEnabled"
+              defaultChecked={initial.depositEnabled}
+              className="mt-0.5 size-4 shrink-0 rounded accent-[var(--accent)]"
+            />
+            <span className="text-[0.9375rem] font-medium">Exigir caução (proteção contra dano)</span>
+          </label>
+          <p className="text-[0.8125rem] text-[var(--content-muted)] leading-relaxed pl-7">
+            Sempre 1 mês de aluguel — hoje seria {formatBRL(priceMonthlyCents)}. Cobrada junto do
+            primeiro pagamento, devolvida ao locatário quando o aluguel encerrar sem dano
+            registrado, ou parcialmente retida se uma denúncia de dano for confirmada.
+          </p>
+        </div>
 
         <p className="text-[0.8125rem] text-[var(--content-muted)] leading-relaxed">
           Escreva como você falaria. Não montamos contrato nem cláusula jurídica por você — o que

@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { reports, profiles, spaces, messages, premiumMemberships } from '@/db/schema';
+import { reports, profiles, spaces, messages, premiumMemberships, bookings, bookingDeposits } from '@/db/schema';
 
 /** Ordem de gravidade na fila — mais grave primeiro, sem depender da ordem alfabética do enum. */
 const severityRank = sql<number>`CASE ${reports.severity}
@@ -46,10 +46,19 @@ export async function listModerationQueue() {
       messageBody: messages.body,
       messageSenderId: messages.senderId,
       messageSenderName: sql<string | null>`(SELECT full_name FROM profiles WHERE id = ${messages.senderId})`,
+
+      /** Contexto pra denúncia de dano (Fase 20): a locação e a caução em jogo, se houver. */
+      bookingId: reports.bookingId,
+      bookingReference: bookings.reference,
+      depositId: bookingDeposits.id,
+      depositAmountCents: bookingDeposits.amountCents,
+      depositReleaseStatus: sql<string | null>`${bookingDeposits.releaseStatus}::text`,
     })
     .from(reports)
     .leftJoin(spaces, eq(reports.spaceId, spaces.id))
     .leftJoin(messages, eq(reports.messageId, messages.id))
+    .leftJoin(bookings, eq(reports.bookingId, bookings.id))
+    .leftJoin(bookingDeposits, eq(bookingDeposits.bookingId, reports.bookingId))
     .where(inArray(reports.status, ['open', 'reviewing']))
     .orderBy(desc(severityRank), reports.createdAt);
 }

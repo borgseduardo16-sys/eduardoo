@@ -3,8 +3,15 @@ import Link from 'next/link';
 import { Wallet, CircleCheck } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { listOwnerActiveBookings, listOwnerPayments } from '@/lib/bookings/queries';
-import { getOwnerPayoutAccount, listOwnerPayouts, getOwnerPayoutSummary } from '@/lib/payments/queries';
-import { payoutStatusLabel, PAYOUT_STATUS_INFO } from '@/lib/payments/format';
+import { getOwnerPayoutAccount, listOwnerPayouts, getOwnerPayoutSummary, listOwnerDeposits } from '@/lib/payments/queries';
+import {
+  payoutStatusLabel,
+  PAYOUT_STATUS_INFO,
+  paymentStatusLabel,
+  PAYMENT_STATUS_INFO,
+  depositReleaseStatusLabel,
+  DEPOSIT_RELEASE_STATUS_INFO,
+} from '@/lib/payments/format';
 import { formatBRL } from '@/lib/money';
 import { formatBookingDate } from '@/lib/bookings/format';
 import { SiteHeader } from '@/components/layout/site-header';
@@ -19,12 +26,13 @@ export const dynamic = 'force-dynamic';
 
 export default async function FinanceiroPage() {
   const user = await requireUser('/meus-espacos/financeiro');
-  const [alugueis, pagamentos, contaDeRecebimento, repasses, resumoRepasses] = await Promise.all([
+  const [alugueis, pagamentos, contaDeRecebimento, repasses, resumoRepasses, caucoes] = await Promise.all([
     listOwnerActiveBookings(user.id),
     listOwnerPayments(user.id),
     getOwnerPayoutAccount(user.id),
     listOwnerPayouts(user.id),
     getOwnerPayoutSummary(user.id),
+    listOwnerDeposits(user.id),
   ]);
 
   const receitaMensalEsperada = alugueis.reduce((soma, a) => soma + a.ownerPayoutCents, 0);
@@ -176,6 +184,49 @@ export default async function FinanceiroPage() {
                   </div>
                 </li>
               ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-[0.8125rem] font-medium uppercase tracking-wide text-[var(--content-subtle)]">
+            Cauções (proteção contra dano)
+          </h2>
+          {caucoes.length === 0 ? (
+            <Alert tone="info" title="Nenhuma caução ainda">
+              Caução só existe em aluguéis de anúncios com essa proteção ativada. Ative em
+              “Editar anúncio → Regras” se algum dos seus espaços não tiver.
+            </Alert>
+          ) : (
+            <ul className="space-y-2">
+              {caucoes.map((c) => {
+                const cobrada = c.status === 'confirmed' || c.status === 'received';
+                return (
+                  <li key={c.id} className="rounded-[var(--radius-field)] border p-3.5 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{c.spaceTitle}</p>
+                      <p className="text-[0.8125rem] text-[var(--content-muted)]">{c.bookingReference}</p>
+                      {(c.releaseStatus === 'forfeited' || c.releaseStatus === 'partially_forfeited') && (
+                        <p className="text-[0.75rem] text-[var(--content-subtle)]">
+                          {formatBRL(c.forfeitedCents ?? 0)} retidos a seu favor — repasse manual, ainda não automático.
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0 space-y-1">
+                      <p className="font-semibold tabular-nums">{formatBRL(c.amountCents)}</p>
+                      {cobrada ? (
+                        <Badge tone={DEPOSIT_RELEASE_STATUS_INFO[c.releaseStatus]?.tone ?? 'neutral'}>
+                          {depositReleaseStatusLabel(c.releaseStatus)}
+                        </Badge>
+                      ) : (
+                        <Badge tone={PAYMENT_STATUS_INFO[c.status]?.tone ?? 'neutral'}>
+                          {paymentStatusLabel(c.status)}
+                        </Badge>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>

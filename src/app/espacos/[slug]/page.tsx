@@ -10,6 +10,7 @@ import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { bookingStatusLabel } from '@/lib/bookings/format';
 import { listReviewsForSpace } from '@/lib/reviews/queries';
 import { computeTrustProfile } from '@/lib/safety/trust';
+import { formatBRL } from '@/lib/money';
 import { serverEnv } from '@/lib/env';
 import type { SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
@@ -193,6 +194,12 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
                   Envie uma solicitação de aluguel com o período que você precisa. O
                   proprietário recebe, avalia e decide se aceita antes de qualquer cobrança.
                 </p>
+                {space.depositEnabled && (
+                  <p className="text-[0.8125rem] text-[var(--content-subtle)]">
+                    Este anúncio exige caução de {formatBRL(space.priceMonthlyCents)} (1 mês de
+                    aluguel), devolvida ao final sem dano.
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   <Link href={`/espacos/${space.slug}/solicitar`} className={buttonVariants({ size: 'lg' })}>
                     Solicitar aluguel

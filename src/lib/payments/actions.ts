@@ -11,10 +11,12 @@ import {
   renterBillingProfiles,
   subscriptions,
   payments,
+  bookingDeposits,
   auditLogs,
 } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import * as asaas from './asaas';
+import { chargeDeposit } from './deposits';
 import { payoutAccountSchema, checkoutSchema } from './schemas';
 import { getOwnerPayoutAccount, getRenterBillingProfile } from './queries';
 
@@ -198,6 +200,26 @@ export async function startCheckoutAction(
     return { ok: false, message: 'O gateway criou a assinatura mas não gerou a primeira cobrança. Tente novamente.' };
   }
 
+  /*
+   * Caução (Fase 20): cobrança AVULSA, separada da assinatura — nunca soma no
+   * aluguel recorrente. Criada aqui, fora da transação, igual à assinatura
+   * acima: se falhar depois disso, a assinatura já existe no Asaas sem
+   * registro nosso ainda — mesmo risco já aceito pelo fluxo existente (ver
+   * o `listSubscriptionPayments` logo acima), não um risco novo desta fase.
+   */
+  let cobrancaCaucao: asaas.AsaasPayment | null = null;
+  if (booking.depositCents > 0) {
+    try {
+      cobrancaCaucao = await chargeDeposit(billing.providerCustomerId, booking, nextDueDate);
+    } catch (err) {
+      if (err instanceof asaas.AsaasError) {
+        console.error('[checkout] Asaas recusou a cobrança da caução:', err.status, err.body);
+        return { ok: false, message: `Não foi possível cobrar a caução: ${err.message}` };
+      }
+      throw err;
+    }
+  }
+
   const diaVencimento = Math.min(Number(nextDueDate.slice(8, 10)), 28);
 
   let faturaUrl: string;
@@ -230,6 +252,17 @@ export async function startCheckoutAction(
       });
 
       await tx.update(bookings).set({ status: 'awaiting_payment', updatedAt: new Date() }).where(eq(bookings.id, booking.id));
+
+      if (cobrancaCaucao) {
+        await tx.insert(bookingDeposits).values({
+          bookingId: booking.id,
+          amountCents: booking.depositCents,
+          provider: 'asaas',
+          providerPaymentId: cobrancaCaucao.id,
+          status: 'pending',
+          invoiceUrl: cobrancaCaucao.invoiceUrl,
+        });
+      }
 
       await tx.insert(auditLogs).values({
         actorId: user.id,

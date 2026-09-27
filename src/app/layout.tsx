@@ -18,6 +18,13 @@ export const metadata: Metadata = {
     'Encontre garagens, depósitos, galpões e salas perto de você. Ou anuncie o espaço que você não usa e comece a receber todo mês.',
   applicationName: 'MyPlace',
   formatDetection: { telephone: false },
+  /*
+   * Habilita "Adicionar à tela de início" — no iOS Safari, é EXIGÊNCIA da
+   * própria Apple pra notificação push funcionar num site (sem isso, o
+   * toque no celular simplesmente não existe no iPhone, regra do sistema,
+   * não deste código). No Android/desktop o push já funciona sem isso.
+   */
+  manifest: '/manifest.json',
   openGraph: {
     type: 'website',
     locale: 'pt_BR',

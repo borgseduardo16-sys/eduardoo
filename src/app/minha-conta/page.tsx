@@ -3,9 +3,11 @@ import Link from 'next/link';
 import { ChevronRight, CircleCheck, ShieldCheck, Sparkle } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { isPremium } from '@/lib/promotions/queries';
+import { isIntegrationConfigured } from '@/lib/env';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { Alert } from '@/components/ui/alert';
+import { PushNotificationToggle } from '@/components/notifications/push-toggle';
 
 export const metadata: Metadata = { title: 'Minha conta' };
 
@@ -27,6 +29,7 @@ export default async function MinhaContaPage({
   const user = await requireUser('/minha-conta');
   const params = await searchParams;
   const premium = await isPremium(user.id);
+  const pushConfigurado = isIntegrationConfigured('push');
 
   return (
     <>
@@ -82,6 +85,15 @@ export default async function MinhaContaPage({
               </dd>
             </div>
           </dl>
+        </section>
+
+        <section className="rounded-[var(--radius-card)] border p-5 sm:p-6 space-y-3">
+          <h2 className="font-semibold">Notificações no celular</h2>
+          <p className="text-[0.875rem] text-[var(--content-muted)]">
+            Além do sininho aqui no site, você pode receber um aviso de verdade no seu
+            celular — reserva aceita, mensagem nova, pagamento — mesmo com o app fechado.
+          </p>
+          <PushNotificationToggle pushConfigurado={pushConfigurado} />
         </section>
 
         <section className="space-y-3">

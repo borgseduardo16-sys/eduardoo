@@ -593,6 +593,38 @@ máximo 1x/dia, por isso o agendamento é diário (não a cada hora).
 
 ---
 
+## 12. VAPID — notificação push no celular (Fase 19)
+
+**Opcional, mas sem isto a notificação só aparece dentro do app** (o sininho
+existente desde a Fase 15). Com VAPID configurado, ela também aparece como
+notificação de verdade no celular/computador da pessoa — inclusive com o app
+fechado — do mesmo jeito que WhatsApp Web, Gmail etc. fazem no navegador.
+
+1. Gere o par de chaves (não precisa de conta em lugar nenhum, é só
+   criptografia local):
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+2. Copie os dois valores:
+   - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` — pública de propósito, o navegador
+     precisa dela para pedir permissão de notificação
+   - `VAPID_PRIVATE_KEY` — nunca leva `NEXT_PUBLIC_`, fica só no servidor
+3. Defina `VAPID_SUBJECT` como `mailto:` + um e-mail de contato real (ex.:
+   `mailto:contato@myplace.com.br`) — é o que os navegadores mostram como
+   remetente se abusarem do canal de push
+
+Sem as 3 variáveis, `/minha-conta` mostra honestamente que a notificação
+push não está disponível neste ambiente (nunca finge que ativou) e o resto
+do app continua funcionando normalmente — o sino dentro do app não depende
+disto.
+
+**Limitação de plataforma, não deste código:** no iPhone/iPad, o Safari só
+entrega push para um site depois que a pessoa adiciona-o à tela de início
+("Adicionar à Tela de Início") — restrição da Apple, sem contorno possível a
+partir do navegador comum.
+
+---
+
 ## Regras que valem sempre
 
 1. **`.env.local` nunca vai para o Git.** Já está no `.gitignore`.

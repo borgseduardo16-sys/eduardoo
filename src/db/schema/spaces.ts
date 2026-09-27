@@ -98,6 +98,15 @@ export const spaces = pgTable(
     forbiddenItems: text('forbidden_items'),
     accessHours: text('access_hours'),
 
+    /**
+     * Caução opcional (Fase 20) — o proprietário decide, por anúncio, se
+     * exige proteção contra dano. Quando ativa, o valor é sempre 1x o
+     * aluguel mensal vigente no aceite (`bookings.depositCents`) — nunca um
+     * valor livre digitado por ninguém, pra não abrir espaço pra cobrança
+     * abusiva disfarçada de "caução".
+     */
+    depositEnabled: boolean('deposit_enabled').notNull().default(false),
+
     /** Etapa concluida do formulario de publicacao (1..8), para retomar de onde parou. */
     draftStep: integer('draft_step').notNull().default(1),
 

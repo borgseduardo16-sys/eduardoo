@@ -5,6 +5,7 @@ import { features as featuresTable } from '@/db/schema';
 import { loadDraftStep } from '@/lib/spaces/load-step';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { MIN_PHOTOS_TO_PUBLISH } from '@/lib/spaces/schemas';
+import { formatBRL } from '@/lib/money';
 import { WizardShell } from '@/components/anunciar/wizard-shell';
 import { SpacePreview } from '@/components/anunciar/space-preview';
 import { PublishActions } from '@/components/anunciar/publish-actions';
@@ -55,6 +56,13 @@ export default async function RevisaoPage({ params }: { params: Promise<{ id: st
         <Alert tone="warning" title="Ainda falta um pouco" className="mb-6">
           Para publicar, você precisa {pendencias.join(', ')}. Use a barra de etapas acima para
           voltar.
+        </Alert>
+      )}
+
+      {space.depositEnabled && (
+        <Alert tone="info" title="Este anúncio vai exigir caução" className="mb-6">
+          {formatBRL(space.priceMonthlyCents)} (1 mês de aluguel), cobrados junto do primeiro
+          pagamento e devolvidos ao locatário se não houver dano. Definido na etapa “Regras”.
         </Alert>
       )}
 

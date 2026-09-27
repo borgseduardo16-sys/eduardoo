@@ -179,6 +179,8 @@ export const rulesStepSchema = z.object({
   forbiddenItems: z.string().trim().max(1000).optional().or(z.literal('')),
   accessHours: z.string().trim().max(200).optional().or(z.literal('')),
   rulesText: z.string().trim().max(2000).optional().or(z.literal('')),
+  /** Caução opcional (Fase 20) — sempre 1x o aluguel, nunca um valor livre. */
+  depositEnabled: z.boolean().default(false),
 });
 
 // ---------------------------------------------------------------------------

@@ -134,6 +134,20 @@
       "when": 1790375730709,
       "tag": "0018_misty_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790464243877,
+      "tag": "0019_silky_talkback",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790465210756,
+      "tag": "0020_luxuriant_prima",
+      "breakpoints": true
     }
   ]
 }

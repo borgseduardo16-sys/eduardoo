@@ -17,9 +17,11 @@ export default async function RegrasPage({ params }: { params: Promise<{ id: str
     >
       <RulesForm
         spaceId={id}
+        priceMonthlyCents={space.priceMonthlyCents}
         initial={{
           allowedItems: space.allowedItems, forbiddenItems: space.forbiddenItems,
           accessHours: space.accessHours, rulesText: space.rulesText,
+          depositEnabled: space.depositEnabled,
         }}
       />
     </WizardShell>

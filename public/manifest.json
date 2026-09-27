@@ -1,0 +1,13 @@
+{
+  "name": "MyPlace",
+  "short_name": "MyPlace",
+  "description": "Encontre garagens, depósitos, galpões e salas perto de você — ou anuncie o espaço que você não usa.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "48x48", "type": "image/x-icon" }
+  ]
+}

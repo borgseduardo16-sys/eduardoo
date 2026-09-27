@@ -60,6 +60,7 @@ export async function getSpaceForBookingRequest(spaceId: string) {
       city: spaces.city,
       state: spaces.state,
       priceMonthlyCents: spaces.priceMonthlyCents,
+      depositEnabled: spaces.depositEnabled,
       availableFrom: spaces.availableFrom,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
@@ -126,6 +127,22 @@ const listSelection = {
   ownerFeeCents: bookings.ownerFeeCents,
   totalChargedCents: bookings.totalChargedCents,
   ownerPayoutCents: bookings.ownerPayoutCents,
+  depositCents: bookings.depositCents,
+  depositChargeStatus: sql<string | null>`(
+    SELECT status::text FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
+  )`,
+  depositReleaseStatus: sql<string | null>`(
+    SELECT release_status::text FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
+  )`,
+  depositInvoiceUrl: sql<string | null>`(
+    SELECT invoice_url FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
+  )`,
+  depositReleasedCents: sql<number | null>`(
+    SELECT released_cents FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
+  )`,
+  depositForfeitedCents: sql<number | null>`(
+    SELECT forfeited_cents FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
+  )`,
   renterMessage: bookings.renterMessage,
   ownerResponse: bookings.ownerResponse,
   requestedAt: bookings.requestedAt,

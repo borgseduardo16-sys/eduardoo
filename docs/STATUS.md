@@ -1183,6 +1183,104 @@ chamáveis manualmente para teste, como o `verify-notifications.ts` faz.
 
 ---
 
+## Fase 19 — Notificação push de verdade no celular ✅ *(26/09/2026)*
+
+Pedido explícito depois de eu confirmar que o "sino" da Fase 15.2/18 era só
+uma central **dentro** do app: a pessoa queria a notificação de verdade do
+sistema operacional — aparece na tela de bloqueio, chega com o app fechado,
+igual WhatsApp/Gmail no navegador. Implementado com Web Push (protocolo
+aberto, padrão W3C) + VAPID, não com um serviço de terceiro tipo Firebase —
+mesma filosofia de "sem intermediário que a gente não controla" já usada no
+resto do projeto.
+
+### O que foi construído
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Schema (`push_subscriptions`) | ✅ | uma linha por dispositivo inscrito (`endpoint` único — o mesmo navegador reinscrevendo apenas atualiza, nunca duplica), com `p256dh`/`auth` (chaves de criptografia do próprio protocolo Web Push) e `user_agent` só para diagnóstico |
+| Envio real (`src/lib/notifications/push.ts`) | ✅ | usa a biblioteca `web-push` (VAPID de verdade, criptografia real do payload) — **autolimpeza**: uma inscrição que o navegador já revogou (confirmado pelo próprio protocolo via HTTP 404/410) é apagada na hora, mesmo espírito de `expireStaleBookingRequests` |
+| Despacho centralizado (`src/lib/notifications/dispatch.ts`) | ✅ | ponto único que substitui os ~10 `db.insert(notifications)` espalhados pelo código. Duas formas, para nunca mandar push ANTES do commit de uma transação: `notifyUser(s)` (fora de transação, insere e manda na hora) e `insertNotification(s)` + `flushPushJobs` (dentro de uma transação — insere com o `tx`, só manda depois que ela comitar). O webhook do Asaas e o envio de mensagem passam pela segunda forma; os outros ~7 pontos (reservas, avaliações, cron) pela primeira |
+| Service worker (`public/sw.js`) + manifest (`public/manifest.json`) | ✅ | só cuida do evento `push`/clique na notificação — nenhum cache de página (offline-first não foi pedido, e um SW mal feito é a causa clássica de "site preso na versão antiga") |
+| UI para ativar (`/minha-conta`) | ✅ | pede permissão do navegador, mostra honestamente o estado (`verificando` → `disponível`/`ativado`/`negado pelo navegador`/`não suportado neste navegador`/`não configurado neste ambiente`) — nunca finge que ativou |
+
+### Limitações reais, não escondidas
+
+- **iPhone/iPad**: o Safari só entrega push depois que a pessoa faz
+  "Adicionar à Tela de Início" — restrição da própria Apple, sem contorno
+  possível a partir do navegador comum. Documentado em
+  [SETUP.md §12](./SETUP.md#12-vapid--notificação-push-no-celular-fase-19).
+- **Ícone genérico**: `manifest.json` e a notificação em si (`sw.js`) usam
+  o `favicon.ico` existente, não um ícone de app dedicado (192×192/512×512).
+  Funciona, mas fica menos nítido no ícone da tela de início e na própria
+  notificação — troca de arquivo simples quando houver uma marca definida,
+  não um problema estrutural.
+- **Sem credencial VAPID configurada** (ambiente local, ou antes do deploy
+  em produção), a inscrição fica indisponível e o app continua funcionando
+  normalmente — o sino dentro do app (Fase 15.2) não depende disto.
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `scripts/verify-notifications.ts` (seção 11, nova) | ✅ | 33 checagens novas (84 no total) contra Postgres real e um servidor **HTTPS** local de verdade com certificado autoassinado (`scripts/testbed/push-server.ts` — `web-push` exige HTTPS mesmo em teste, diferente do testbed HTTP já existente): sem VAPID configurado é no-op silencioso: com VAPID real (par gerado na hora, nunca fixo no código) e chaves de inscrição EC reais (não string qualquer), a entrega sai por HTTPS de verdade com corpo cifrado, header `Authorization` com JWT VAPID e `Content-Encoding` — confirma a inscrição revogada (404/410) autolimpa sozinha, um erro 500 (transitório) NÃO apaga a inscrição, `insertNotification` nunca manda push antes de `flushPushJobs`, `notifyUser`/`insertNotifications` (singular/plural) e as duas Server Actions (`subscribeToPushAction`/`unsubscribeFromPushAction`) de ponta a ponta, inclusive sem sessão |
+| `scripts/verify-schema.ts` (seção 12, nova) | ✅ | endpoint duplicado é bloqueado pelo índice único — 2 checagens novas (51, contando também a seção 13 da Fase 20 logo abaixo — 61 no total, era 49) |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos |
+
+---
+
+## Fase 20 — Proteção contra dano (caução) ✅ *(26/09/2026)*
+
+Sugestão minha (ao ser perguntado se o app já estava completo), aceita pelo
+usuário com duas decisões de negócio dele, coletadas explicitamente antes de
+escrever qualquer código: **valor sempre automático — 1 mês de aluguel**
+(não editável pelo proprietário) e **opcional por anúncio** — o dono liga ou
+desliga na etapa "Regras". Cobrança separada da mensalidade (nunca soma no
+aluguel recorrente), dinheiro em custódia da plataforma até o aluguel
+encerrar sem disputa (libera integral) ou uma denúncia de dano ser
+confirmada por um humano (retém uma parte — nunca uma regra automática
+decide quanto).
+
+### O que foi construído
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Schema | ✅ | `spaces.deposit_enabled` (opt-in do anúncio), `bookings.deposit_cents` (congelado no aceite, igual ao aluguel já congela `monthly_rent_cents`), tabela `booking_deposits` (cobrança + o que aconteceu com o dinheiro depois, em colunas separadas — `status` nunca é sobrescrito pra guardar "liberado"/"retido"), `reports.booking_id` (nullable — liga uma denúncia de dano a uma locação específica, reaproveitando a fila de moderação já existente em vez de um fluxo de disputa paralelo) |
+| Cobrança no checkout (`chargeDeposit`) | ✅ | cobrança AVULSA no Asaas (mesma primitiva já usada em Destaque/Turbo), **sem split** — o dinheiro não é receita de ninguém ainda. Vem junto do checkout do aluguel, mas com fatura PRÓPRIA (o locatário paga as duas, cada uma no seu link — não dá pra pagar as duas numa fatura só do jeito que o Asaas expõe hoje) |
+| Confirmação via webhook | ✅ | 3º ramo de `processAsaasWebhook` (depois de cobrança normal e compra de promoção) — confirmar a caução NÃO ativa a reserva sozinha, só o pagamento do aluguel em si faz isso; lançamento `deposit_charged` no razão |
+| Liberação/retenção (`releaseDeposit`) | ✅ | estorno **síncrono** no Asaas (a resposta já confirma, não depende de esperar webhook) — só grava no banco depois do gateway aceitar. Liberação integral, retenção total ou parcial, todas pela mesma função |
+| Liberação automática (cron) | ✅ | 7 dias depois do aluguel encerrar, **sem** denúncia de dano aberta (nem já confirmada procedente) contra aquela reserva — dá tempo do proprietário notar e denunciar antes do dinheiro sair da custódia sozinho. Reaproveita o cron diário da Fase 18 (`/api/cron/notificacoes`) — plano Hobby da Vercel limita jobs de cron, e é a mesma categoria "por tempo, não por ação de alguém" dos outros dois |
+| Retenção por dano (admin) | ✅ | `resolveDepositAction`, separada de propósito de `resolveReportAction` (a denúncia em si) — mexe com dinheiro real (chama o Asaas), pode falhar independente da denúncia já ter sido julgada. Fila de moderação (`/admin/denuncias`) mostra o contexto da caução (valor, estado) quando a denúncia tem `bookingId` |
+| Ledger com soma zero | ✅ | `deposit_charged` (+) menos `deposit_released`/`deposit_forfeited_to_owner` (−) somam **exatamente zero** quando a caução está totalmente resolvida — mesmo invariante auditável que `refund`/`owner_payout` já usam |
+| UI de divulgação | ✅ | aparece em 6 lugares: etapa "Regras" do anúncio (liga/desliga + valor projetado), revisão antes de publicar, página pública do espaço, página de solicitar aluguel, `/reservas` (status da caução: pendente/em garantia/devolvida/retida, com link de pagamento próprio) e `/meus-espacos/financeiro` (mesma informação do lado do proprietário) |
+
+### O que foi deliberadamente deixado de fora, e por quê
+
+- **Repasse automático do valor retido ao proprietário**: não existe uma
+  transferência conta-a-conta confirmada na apuração do Asaas (mesma lacuna
+  já documentada para repasse de aluguel — ver Fases 7/8 abaixo). O valor
+  retido fica **corretamente registrado** no modelo de dados e no razão como
+  devido ao proprietário (`deposit_forfeited_to_owner`, notificação
+  avisando o valor) — só o movimento bancário literal continua manual, o
+  mesmo padrão já usado para o ramo de conflito de compra de promoção em
+  `payments/webhook.ts`. Nunca fingimos que o dinheiro já pousou na conta
+  de ninguém.
+- **Valor de caução editável pelo proprietário**: decisão explícita do
+  usuário — sempre 1 mês de aluguel, sem exceção, para não virar mais um
+  campo de preço que precisa de confiança/validação extra.
+- **Contrato/termo de caução gerado automaticamente**: mesma linha do resto
+  do app (regras do anúncio) — o que está escrito na etapa "Regras" é o que
+  vale, a plataforma não redige cláusula jurídica.
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `scripts/verify-payments.ts` (seções 10-13, novas) | ✅ | 51 checagens novas (148 no total) contra Postgres real + testbed Asaas: checkout cobra as DUAS faturas (aluguel e caução, ids de cobrança diferentes), confirmação via webhook não ativa a reserva sozinha, idempotência na reentrega, liberação integral (estorno cheio, ledger soma zero, liberar de novo é recusado), retenção parcial via `resolveDepositAction` (quem não é admin é recusado, estorno só da parte devolvida, ledger credita o proprietário, auditoria gravada, fila de moderação mostra e depois reflete o novo estado), denúncia resolvida separadamente da caução (uma ação não bloqueia a outra), liberação automática por tempo (libera a elegível, não libera a "muito recente" nem a com denúncia aberta, idempotente numa 2ª rodada) |
+| `scripts/verify-schema.ts` (seção 13, nova) | ✅ | 10 checagens novas (61 no total): valor não-positivo, os dois nulos exigidos em "held", soma released+forfeited tem que bater com o total, cada `release_status` exige a combinação certa dos dois valores, uma caução por reserva, `provider_payment_id` único entre reservas diferentes. `released_non_negative`/`forfeited_non_negative` (as 2 CHECKs restantes da tabela) não têm teste próprio — são defesa-em-profundidade redundante: qualquer entrada que as violasse já teria violado uma das CHECKs de cima primeiro, então não são alcançáveis isoladamente |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos |
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
@@ -1314,24 +1412,36 @@ ao bucket.
 Se algo falhar, o app mostra o erro em vez de fingir que deu certo: bucket
 inexistente, por exemplo, devolve *"Crie o bucket space-images no painel"*.
 
-### ⚠️ 4. Não existe mediação de conflito
+### ⚠️ 4. Mediação de conflito — dano tem processo agora (Fase 20); o resto, não
 
-O produto **incentiva** fechar pela plataforma, e com razão: dentro dela há
-registro, denúncia e bloqueio. Mas quando duas pessoas discordarem sobre um
-dano, um atraso ou uma devolução, **hoje não há processo para resolver**.
+**Atualizado na Fase 20 (26/09/2026):** dano ao espaço deixou de estar
+totalmente descoberto. Quando o anúncio tem caução ativada, existe hoje um
+processo de verdade: o proprietário denuncia (`dano_ao_espaco`, com a
+reserva ligada), a denúncia entra na mesma fila de moderação de sempre, e um
+admin decide quanto reter (`resolveDepositAction`) — com o dinheiro em
+custódia da própria plataforma o tempo todo, nunca solto na mão de ninguém
+até a decisão.
 
-Não existe prazo de contestação, critério de decisão, quem decide, nem regra
-sobre o que acontece com o dinheiro durante a disputa.
+**O que ainda falta, mesmo para dano:** não há **prazo de contestação**
+formal — o locatário não tem uma janela estruturada pra responder à
+denúncia antes do admin decidir (pode reagir por fora, via mensagem/suporte,
+mas não é um passo do fluxo). A decisão também é sempre de um admin humano,
+nunca automática — o que é intencional (evita reter dinheiro por engano),
+mas significa que a velocidade da resolução depende de alguém do time olhar.
 
-Por isso a palavra "mediação" **não aparece em lugar nenhum da interface** — o
-filtro é estrutural, em `src/lib/safety/protection.ts`, e está testado.
+**O que continua sem NENHUM processo:** desacordo sobre atraso, sobre a
+devolução das chaves/do espaço em si, ou qualquer disputa que não seja
+"dano físico ao espaço com caução ativada" (anúncio sem caução, ou
+divergência de outro tipo) — aí vale o mesmo de antes: sem prazo de
+contestação, sem critério de decisão, sem regra sobre o dinheiro durante a
+disputa. Por isso a palavra "mediação" **não aparece em lugar nenhum da
+interface** — o filtro é estrutural, em `src/lib/safety/protection.ts`, e
+está testado.
 
-**O que falta:** uma decisão sua sobre a política de disputa (prazos, quem
-decide, o que a plataforma banca), depois revisão jurídica, e só então o texto
-pode prometer isso. Antes disso, prometer seria publicidade enganosa.
-
-**O mesmo vale para cobertura de danos**, que exigiria seguro ou fundo de
-garantia — decisão de negócio, não de engenharia.
+**O que falta pra fechar de vez:** uma decisão sua sobre política de
+contestação (prazo, como o locatário se defende antes da decisão), e
+extensão do mesmo modelo pra outros tipos de disputa — hoje o processo
+resolve especificamente "dano com caução", não desacordo em geral.
 
 ### ⚠️ 5. Split + Pix Automático — indício forte, não confirmação direta
 

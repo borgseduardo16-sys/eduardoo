@@ -5,8 +5,10 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { reports, profiles, auditLogs, premiumMemberships } from '@/db/schema';
+import { reports, profiles, auditLogs, premiumMemberships, bookingDeposits } from '@/db/schema';
 import { requireAdminOrThrow } from '@/lib/auth/dal';
+import { releaseDeposit } from '@/lib/payments/deposits';
+import { parseBRLToCents } from '@/lib/money';
 
 export type AdminActionState = {
   ok: boolean;
@@ -94,6 +96,80 @@ export async function resolveReportAction(
   return {
     ok: true,
     message: decision === 'upheld' ? 'Denúncia marcada como procedente.' : 'Denúncia marcada como improcedente.',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Caução — reter por dano (Fase 20)
+// ---------------------------------------------------------------------------
+
+const resolveDepositSchema = z.object({
+  bookingId: z.uuid('Reserva inválida.'),
+  /** BRL digitado pelo admin ("0,00" pra liberar tudo) — vira centavos aqui, nunca aceito pronto do cliente. */
+  forfeitValue: z.string().min(1, 'Informe um valor.'),
+  reportId: z.uuid().optional(),
+});
+
+/**
+ * Decide o destino da caução de uma reserva: libera tudo (forfeitCents = 0)
+ * ou retém uma parte a favor do proprietário. Ação SEPARADA de
+ * `resolveReportAction` de propósito — mexe com dinheiro de verdade (chama
+ * o Asaas de verdade pra estornar), então pode falhar independentemente da
+ * denúncia já ter sido resolvida, e precisa poder ser tentada de novo sem
+ * reabrir a denúncia.
+ */
+export async function resolveDepositAction(
+  _prev: AdminActionState | undefined,
+  formData: FormData,
+): Promise<AdminActionState> {
+  const admin = await requireAdminOrThrow();
+
+  const parsed = resolveDepositSchema.safeParse({
+    bookingId: formData.get('bookingId'),
+    forfeitValue: formData.get('forfeitValue'),
+    reportId: formData.get('reportId') || undefined,
+  });
+  if (!parsed.success) {
+    return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors };
+  }
+  const { bookingId, forfeitValue, reportId } = parsed.data;
+
+  let forfeitCents: number;
+  try {
+    forfeitCents = parseBRLToCents(forfeitValue);
+  } catch {
+    return { ok: false, fieldErrors: { forfeitValue: ['Valor inválido. Exemplo: 50,00 ou 0,00 para liberar tudo.'] } };
+  }
+
+  const [deposito] = await db
+    .select({ id: bookingDeposits.id })
+    .from(bookingDeposits)
+    .where(eq(bookingDeposits.bookingId, bookingId))
+    .limit(1);
+  if (!deposito) {
+    return { ok: false, message: 'Esta reserva não tem caução cobrada.' };
+  }
+
+  const resultado = await releaseDeposit(deposito.id, forfeitCents, reportId ?? null);
+  if (!resultado.ok) {
+    return { ok: false, message: resultado.message };
+  }
+
+  await db.insert(auditLogs).values({
+    actorId: admin.id,
+    actorRole: admin.role,
+    action: 'deposit.resolved',
+    entityType: 'booking_deposit',
+    entityId: deposito.id,
+    metadata: { bookingId, forfeitCents, reportId: reportId ?? null },
+    ip: await clientIp(),
+  });
+
+  revalidatePath('/admin/denuncias');
+
+  return {
+    ok: true,
+    message: forfeitCents > 0 ? 'Caução resolvida — parte retida a favor do proprietário.' : 'Caução liberada integralmente.',
   };
 }
 

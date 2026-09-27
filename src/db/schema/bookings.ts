@@ -68,6 +68,15 @@ export const bookings = pgTable(
     ownerPayoutCents: integer('owner_payout_cents').notNull(),
     currency: text('currency').notNull().default('BRL'),
 
+    /**
+     * Caução (Fase 20), congelada no aceite como tudo aqui — 0 quando o
+     * anúncio não exige (a maioria). Cobrada à parte, nunca somada no
+     * aluguel recorrente: é dinheiro que volta, não receita. Ver
+     * `booking_deposits` (src/db/schema/payments.ts) pro ciclo de vida da
+     * cobrança e da devolução em si.
+     */
+    depositCents: integer('deposit_cents').notNull().default(0),
+
     /** Copia das regras do anuncio no aceite — prova do que foi combinado. */
     termsSnapshot: jsonb('terms_snapshot').$type<Record<string, unknown>>(),
 
@@ -110,6 +119,7 @@ export const bookings = pgTable(
       sql`${t.ownerPayoutCents} = ${t.monthlyRentCents} - ${t.ownerFeeCents}`,
     ),
     check('bookings_payout_positive', sql`${t.ownerPayoutCents} > 0`),
+    check('bookings_deposit_non_negative', sql`${t.depositCents} >= 0`),
 
     /**
      * Um mesmo espaco nao pode ter duas locacoes vigentes ao mesmo tempo.

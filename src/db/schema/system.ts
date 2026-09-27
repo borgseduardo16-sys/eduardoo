@@ -7,6 +7,7 @@ import {
   jsonb,
   boolean,
   inet,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import { notificationType } from './enums';
@@ -95,4 +96,42 @@ export const platformSettings = pgTable(
 
 export const notificationsRelations = relations(notifications, ({ one }) => ({
   user: one(profiles, { fields: [notifications.userId], references: [profiles.id] }),
+}));
+
+/**
+ * Inscrição de notificação push do navegador (Fase 19).
+ *
+ * Uma pessoa pode ter várias — celular, computador — por isso não é uma
+ * coluna em `profiles`. `endpoint` é o identificador único que o próprio
+ * navegador gera por inscrição (URL do serviço de push do
+ * Google/Mozilla/Apple); `p256dh`/`auth` são as chaves de criptografia
+ * exigidas pelo protocolo Web Push pra cifrar o conteúdo — não são segredo
+ * nosso, pertencem ao navegador da pessoa, mas identificam o dispositivo.
+ */
+export const pushSubscriptions = pgTable(
+  'push_subscriptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+
+    endpoint: text('endpoint').notNull(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+
+    /** Só pra diagnóstico ("suas notificações estão ativas no Chrome, Windows"). */
+    userAgent: text('user_agent'),
+
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('push_subscriptions_endpoint_key').on(t.endpoint),
+    index('push_subscriptions_user_idx').on(t.userId),
+  ],
+);
+
+export const pushSubscriptionsRelations = relations(pushSubscriptions, ({ one }) => ({
+  user: one(profiles, { fields: [pushSubscriptions.userId], references: [profiles.id] }),
 }));

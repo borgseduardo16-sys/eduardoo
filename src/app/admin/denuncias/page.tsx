@@ -7,6 +7,7 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { AdminSubnav } from '@/components/layout/admin-subnav';
 import { ResolveReportForm } from '@/components/admin/resolve-report-form';
+import { ResolveDepositForm } from '@/components/admin/resolve-deposit-form';
 import { Badge } from '@/components/ui/badge';
 import type { BadgeProps } from '@/components/ui/badge';
 
@@ -114,7 +115,17 @@ export default async function AdminDenunciasPage() {
                     </p>
                   )}
 
+                  {d.bookingId && d.depositId && d.depositReleaseStatus === 'held' && (
+                    <p className="text-[0.8125rem] text-[var(--content-subtle)]">
+                      Denúncia ligada à locação {d.bookingReference} — tem caução retida em garantia.
+                    </p>
+                  )}
+
                   <ResolveReportForm reportId={d.id} />
+
+                  {d.bookingId && d.depositId && d.depositReleaseStatus === 'held' && d.depositAmountCents != null && (
+                    <ResolveDepositForm bookingId={d.bookingId} reportId={d.id} depositAmountCents={d.depositAmountCents} />
+                  )}
                 </li>
               );
             })}

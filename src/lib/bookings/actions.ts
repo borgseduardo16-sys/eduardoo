@@ -6,8 +6,9 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray } from 'drizzle-orm';
 import postgres from 'postgres';
 import { db } from '@/db/client';
-import { bookings, spaces, auditLogs, notifications, profiles, subscriptions } from '@/db/schema';
+import { bookings, spaces, auditLogs, profiles, subscriptions } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
+import { notifyUser, notifyUsers } from '@/lib/notifications/dispatch';
 import { computeBookingAmounts } from '@/lib/money';
 import { settingInt } from '@/lib/settings';
 import * as asaas from '@/lib/payments/asaas';
@@ -185,7 +186,7 @@ export async function requestBookingAction(
     metadata: { spaceId: space.id, startDate },
   });
 
-  await db.insert(notifications).values({
+  await notifyUser(db, {
     userId: space.ownerId,
     type: 'booking_requested',
     title: 'Nova solicitação de aluguel',
@@ -260,7 +261,7 @@ export async function respondToBookingRequestAction(
       actorId: user.id, actorRole: user.role, action: 'booking.rejected',
       entityType: 'booking', entityId: bookingId,
     });
-    await db.insert(notifications).values({
+    await notifyUser(db, {
       userId: booking.renterId, type: 'booking_rejected', title: 'Solicitação recusada',
       body: 'O proprietário não aceitou sua solicitação desta vez.', linkPath: '/reservas',
       data: { bookingId },
@@ -273,7 +274,10 @@ export async function respondToBookingRequestAction(
 
   // --- aceitar ---
   const [space] = await db
-    .select({ id: spaces.id, status: spaces.status, priceMonthlyCents: spaces.priceMonthlyCents, title: spaces.title, deletedAt: spaces.deletedAt })
+    .select({
+      id: spaces.id, status: spaces.status, priceMonthlyCents: spaces.priceMonthlyCents,
+      title: spaces.title, deletedAt: spaces.deletedAt, depositEnabled: spaces.depositEnabled,
+    })
     .from(spaces)
     .where(eq(spaces.id, booking.spaceId))
     .limit(1);
@@ -288,6 +292,8 @@ export async function respondToBookingRequestAction(
   } catch {
     return { ok: false, message: 'Não foi possível calcular os valores deste anúncio agora.' };
   }
+  // Congelado no aceite, como todo o resto — 1x o aluguel vigente agora, nunca um valor digitado por alguém.
+  const depositCents = space.depositEnabled ? space.priceMonthlyCents : 0;
 
   let preteridos: { id: string; renterId: string }[] = [];
   try {
@@ -303,6 +309,7 @@ export async function respondToBookingRequestAction(
           ownerFeeCents: amounts.ownerFeeCents,
           totalChargedCents: amounts.totalChargedCents,
           ownerPayoutCents: amounts.ownerPayoutCents,
+          depositCents,
           termsSnapshot: { renterFeeBps: amounts.renterFeeBps, ownerFeeBps: amounts.ownerFeeBps, priceMonthlyCentsAtAccept: space.priceMonthlyCents },
           ownerResponse: ownerResponse || null,
           respondedAt: new Date(),
@@ -349,14 +356,15 @@ export async function respondToBookingRequestAction(
     entityType: 'booking', entityId: bookingId,
     metadata: { totalChargedCents: amounts.totalChargedCents, ownerPayoutCents: amounts.ownerPayoutCents },
   });
-  await db.insert(notifications).values({
+  await notifyUser(db, {
     userId: booking.renterId, type: 'booking_approved', title: 'Solicitação aceita!',
     body: `O proprietário aceitou sua solicitação para "${space.title}".`, linkPath: '/reservas',
     data: { bookingId },
   });
 
   if (preteridos.length > 0) {
-    await db.insert(notifications).values(
+    await notifyUsers(
+      db,
       preteridos.map((p) => ({
         userId: p.renterId,
         type: 'booking_rejected' as const,
@@ -461,7 +469,7 @@ export async function cancelBookingAction(
 
   const outraParte = souLocatario ? booking.ownerId : booking.renterId;
   const [autor] = await db.select({ fullName: profiles.fullName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
-  await db.insert(notifications).values({
+  await notifyUser(db, {
     userId: outraParte, type: 'booking_cancelled', title: 'Reserva cancelada',
     body: `${autor?.fullName ?? 'A outra parte'} cancelou esta reserva.`, linkPath: '/reservas',
     data: { bookingId },
@@ -580,7 +588,7 @@ export async function endBookingAction(
 
   const outraParte = souLocatario ? booking.ownerId : booking.renterId;
   const [autor] = await db.select({ fullName: profiles.fullName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
-  await db.insert(notifications).values({
+  await notifyUser(db, {
     userId: outraParte, type: 'booking_cancelled', title: 'Aluguel encerrado',
     body: `${autor?.fullName ?? 'A outra parte'} encerrou o aluguel de "${booking.spaceTitle}".`,
     linkPath: '/reservas', data: { bookingId },

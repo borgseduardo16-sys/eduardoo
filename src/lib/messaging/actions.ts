@@ -4,10 +4,11 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { and, eq, isNull, ne } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { conversations, messages, spaces, notifications } from '@/db/schema';
+import { conversations, messages, spaces } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { isBlockedBetween } from '@/lib/safety/queries';
 import { detectContactInfo, buildFlagReason } from '@/lib/safety/contact-detection';
+import { insertNotification, flushPushJobs } from '@/lib/notifications/dispatch';
 import { startConversationSchema, sendMessageSchema } from './schemas';
 import { getOrCreateConversation, getConversationForUser } from './queries';
 import { notifyNewMessage } from './notify';
@@ -85,7 +86,7 @@ export async function sendMessageAction(
   const flagReason = buildFlagReason(deteccao);
   const destinatarioId = conversa.renterId === user.id ? conversa.ownerId : conversa.renterId;
 
-  await db.transaction(async (tx) => {
+  const pushJob = await db.transaction(async (tx) => {
     await tx.insert(messages).values({
       conversationId,
       senderId: user.id,
@@ -94,7 +95,7 @@ export async function sendMessageAction(
       flagReason,
     });
     await tx.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversationId));
-    await tx.insert(notifications).values({
+    return insertNotification(tx, {
       userId: destinatarioId,
       type: 'new_message',
       title: 'Nova mensagem',
@@ -103,6 +104,8 @@ export async function sendMessageAction(
       data: { conversationId },
     });
   });
+  // Mandado so APOS o commit acima — nunca de dentro da transacao (ver dispatch.ts).
+  if (pushJob) await flushPushJobs([pushJob]);
 
   revalidatePath(`/mensagens/${conversationId}`);
   revalidatePath('/mensagens');

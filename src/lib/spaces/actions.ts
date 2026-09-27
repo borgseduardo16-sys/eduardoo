@@ -363,6 +363,8 @@ export async function saveStepAction(
         forbiddenItems: formData.get('forbiddenItems') ?? '',
         accessHours: formData.get('accessHours') ?? '',
         rulesText: formData.get('rulesText') ?? '',
+        // Checkbox desmarcado nem aparece no FormData — ausência = false.
+        depositEnabled: formData.get('depositEnabled') === 'on',
       });
       if (!parsed.success) return { ok: false, fieldErrors: fieldErrors(parsed.error) };
 
@@ -371,6 +373,7 @@ export async function saveStepAction(
         forbiddenItems: parsed.data.forbiddenItems || null,
         accessHours: parsed.data.accessHours || null,
         rulesText: parsed.data.rulesText || null,
+        depositEnabled: parsed.data.depositEnabled,
       });
       nextStep = Math.max(nextStep, 8);
       break;

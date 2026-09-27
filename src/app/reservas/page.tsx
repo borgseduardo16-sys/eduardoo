@@ -8,7 +8,13 @@ import { listReviewedBookingIds } from '@/lib/reviews/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
 import { bookingStatusLabel, formatBookingDate } from '@/lib/bookings/format';
-import { subscriptionStatusLabel, paymentStatusLabel, PAYMENT_STATUS_INFO } from '@/lib/payments/format';
+import {
+  subscriptionStatusLabel,
+  paymentStatusLabel,
+  PAYMENT_STATUS_INFO,
+  depositReleaseStatusLabel,
+  DEPOSIT_RELEASE_STATUS_INFO,
+} from '@/lib/payments/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -169,6 +175,48 @@ function ReservaCard({ r, coverUrl, jaAvaliada }: { r: ReservaRow; coverUrl: str
               <Badge tone={PAYMENT_STATUS_INFO[r.lastPaymentStatus]?.tone ?? 'neutral'}>
                 {paymentStatusLabel(r.lastPaymentStatus)}
               </Badge>
+            </p>
+          )}
+        </div>
+      )}
+
+      {r.depositCents != null && r.depositCents > 0 && (
+        <div className="text-[0.8125rem] text-[var(--content-muted)] space-y-1 pt-1 border-t">
+          {!r.depositChargeStatus && r.status === 'approved' && (
+            <p>Este aluguel inclui caução de {formatBRL(r.depositCents)}, cobrada junto do primeiro pagamento.</p>
+          )}
+          {r.depositChargeStatus && !['confirmed', 'received'].includes(r.depositChargeStatus) && (
+            <p className="flex flex-wrap items-center gap-1.5">
+              Caução {formatBRL(r.depositCents)}
+              <Badge tone={PAYMENT_STATUS_INFO[r.depositChargeStatus]?.tone ?? 'neutral'}>
+                {paymentStatusLabel(r.depositChargeStatus)}
+              </Badge>
+              {r.depositInvoiceUrl && (
+                <a
+                  href={r.depositInvoiceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--accent)] underline underline-offset-4"
+                >
+                  Pagar caução
+                </a>
+              )}
+            </p>
+          )}
+          {r.depositChargeStatus && ['confirmed', 'received'].includes(r.depositChargeStatus) && r.depositReleaseStatus && (
+            <p className="flex flex-wrap items-center gap-1.5">
+              Caução {formatBRL(r.depositCents)}
+              <Badge tone={DEPOSIT_RELEASE_STATUS_INFO[r.depositReleaseStatus]?.tone ?? 'neutral'}>
+                {depositReleaseStatusLabel(r.depositReleaseStatus)}
+              </Badge>
+              {r.depositReleaseStatus === 'partially_forfeited' && r.depositReleasedCents != null && r.depositForfeitedCents != null && (
+                <span>
+                  ({formatBRL(r.depositReleasedCents)} devolvida, {formatBRL(r.depositForfeitedCents)} retida)
+                </span>
+              )}
+              {r.depositReleaseStatus === 'forfeited' && r.depositForfeitedCents != null && (
+                <span>({formatBRL(r.depositForfeitedCents)})</span>
+              )}
             </p>
           )}
         </div>

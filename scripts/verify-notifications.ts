@@ -22,9 +22,11 @@ req.cache[req.resolve('server-only')] = {
   id: 'server-only', filename: 'server-only', loaded: true, exports: {},
 } as never;
 
+import { createECDH, randomBytes } from 'node:crypto';
 import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
+import { startPushTestbed } from './testbed/push-server';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -100,6 +102,11 @@ const digestFav2Id = uuid();
 const digestFav3Id = uuid();
 const digestRenterId = uuid();
 
+// Secao 11 (Web Push, Fase 19)
+const pushUserId = uuid();
+const pushUser2Id = uuid();
+const pushUser3Id = uuid();
+
 const todosUsuarios = [
   governorTestId,
   dono1Id, fav1Id, fav2Id, naoFavoritouId,
@@ -107,6 +114,7 @@ const todosUsuarios = [
   dono3Id, fav5Id, dono6PrecoId, fav6Id, dono7StatusId, fav7Id,
   dono5Id, renter7dId, renter1dId, renter3dId, renterPastDueId,
   dono9Id, digestFav1Id, digestFav2Id, digestFav3Id, digestRenterId,
+  pushUserId, pushUser2Id, pushUser3Id,
 ];
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string };
@@ -190,6 +198,14 @@ async function main() {
   req.cache[cachePath] = {
     id: cachePath, filename: cachePath, loaded: true,
     exports: { revalidatePath: () => {}, revalidateTag: () => {} },
+  } as never;
+
+  /** Só a Seção 11 (`subscribeToPushAction`) chama `headers()` — as demais nem importam o módulo. */
+  const userAgentAtual: string | null = 'TestUA/1.0';
+  const headersPath = req.resolve('next/headers');
+  req.cache[headersPath] = {
+    id: headersPath, filename: headersPath, loaded: true,
+    exports: { headers: async () => new Headers(userAgentAtual ? { 'user-agent': userAgentAtual } : {}) },
   } as never;
 
   const { alertFavoritersOfPriceDrop, alertFavoritersOfAvailabilityChange, alertCompatibleFavoritersOfNewSpace } =
@@ -493,6 +509,173 @@ async function main() {
   assert('depois da janela mínima, com atividade nova, envia o 2º resumo', resumoAtrasado.sent >= 1, `sent=${resumoAtrasado.sent}`);
   expect('agora são 2 resumos ao todo pro mesmo proprietário',
     await contarNotificacoes(dono9Id, 'owner_activity_digest'), 2);
+
+  // =========================================================================
+  secao('11. Web Push de verdade (Fase 19) — VAPID, inscrição, envio e autolimpeza');
+  // =========================================================================
+
+  const {
+    saveSubscription, removeSubscriptionByEndpoint, countUserPushSubscriptions, sendPushToUser,
+  } = await import('../src/lib/notifications/push');
+  const { insertNotification, insertNotifications, flushPushJobs, notifyUser } = await import('../src/lib/notifications/dispatch');
+  const { isIntegrationConfigured } = await import('../src/lib/env');
+  const { subscribeToPushAction, unsubscribeFromPushAction } = await import('../src/lib/notifications/push-actions');
+  const { db } = await import('../src/db/client');
+  const webpush = (await import('web-push')).default;
+
+  function gerarChavesDeInscricao(): { p256dh: string; auth: string } {
+    const ecdh = createECDH('prime256v1');
+    ecdh.generateKeys();
+    return { p256dh: ecdh.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') };
+  }
+
+  // --- sem VAPID configurado: nunca finge que enviou, nunca derruba quem chamou ---
+  assert('sem as 3 variáveis VAPID, a integração não aparece como configurada', !isIntegrationConfigured('push'));
+  await sendPushToUser(pushUserId, { title: 'X', body: 'Y', url: '/z' });
+  ok('sendPushToUser sem VAPID configurado resolve sem lançar (no-op silencioso)');
+
+  // --- VAPID real (par de chaves de verdade, gerado agora — nunca fixo no código) ---
+  const vapid = webpush.generateVAPIDKeys();
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = vapid.publicKey;
+  process.env.VAPID_PRIVATE_KEY = vapid.privateKey;
+  process.env.VAPID_SUBJECT = 'mailto:teste@exemplo.invalid';
+  assert('com as 3 variáveis definidas, a integração aparece configurada', isIntegrationConfigured('push'));
+
+  // --- servidor HTTPS fake do endpoint de push (ver scripts/testbed/push-server.ts) ---
+  const pushTestbed = await startPushTestbed();
+  ok('testbed de push (HTTPS, certificado autoassinado) no ar', pushTestbed.url);
+  const rejeitarNaoAutorizadoOriginal = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // so o teste confia no certificado autoassinado local — nunca em producao.
+
+  // --- inscrição de verdade (chave EC real, não string qualquer) ---
+  const chaves1 = gerarChavesDeInscricao();
+  const endpointOk = `${pushTestbed.url}/ok/1`;
+  await saveSubscription(pushUserId, { endpoint: endpointOk, keys: chaves1 }, 'TestUA/1.0');
+  expect('inscrição gravada (contagem)', await countUserPushSubscriptions(pushUserId), 1);
+  const [linhaGravada] = await sql<{ p256dh: string; auth: string; user_agent: string | null }[]>`
+    SELECT p256dh, auth, user_agent FROM push_subscriptions WHERE endpoint=${endpointOk}`;
+  expect('p256dh gravado é a chave gerada (não truncada/alterada)', linhaGravada?.p256dh, chaves1.p256dh);
+  expect('user_agent gravado pra diagnóstico', linhaGravada?.user_agent, 'TestUA/1.0');
+
+  // --- mesmo endpoint de novo: e o proprio navegador renovando, nao duplica ---
+  await saveSubscription(pushUserId, { endpoint: endpointOk, keys: chaves1 }, 'TestUA/2.0');
+  expect('reinscrever o MESMO endpoint atualiza, não duplica', await countUserPushSubscriptions(pushUserId), 1);
+
+  // --- segunda inscrição do mesmo usuário, já "revogada" no fake navegador (vai responder 410) ---
+  const chaves2 = gerarChavesDeInscricao();
+  const endpointGone = `${pushTestbed.url}/gone/2`;
+  await saveSubscription(pushUserId, { endpoint: endpointGone, keys: chaves2 }, 'TestUA/1.0');
+  expect('agora 2 inscrições para o mesmo usuário', await countUserPushSubscriptions(pushUserId), 2);
+
+  // --- envio de verdade: HTTPS de verdade sai para AS DUAS, em paralelo ---
+  await sendPushToUser(pushUserId, { title: 'Nova mensagem', body: 'Você recebeu uma mensagem.', url: '/mensagens' });
+  expect('as duas inscrições receberam a requisição HTTPS', pushTestbed.requests.length, 2);
+  const reqOk = pushTestbed.requests.find((r) => r.path === '/ok/1');
+  assert('requisição pro endpoint válido tem corpo criptografado não vazio', (reqOk?.bodyLength ?? 0) > 0, `bodyLength=${reqOk?.bodyLength}`);
+  const auth = reqOk?.headers.authorization;
+  assert('requisição carrega credencial VAPID (header Authorization)',
+    typeof auth === 'string' && auth.toLowerCase().includes('vapid'), String(auth));
+  assert('requisição declara Content-Encoding (payload cifrado, protocolo Web Push)',
+    Boolean(reqOk?.headers['content-encoding']), JSON.stringify(reqOk?.headers));
+
+  // --- autolimpeza: 410 apaga a inscrição revogada; a válida sobrevive ---
+  expect('inscrição que respondeu 410 foi apagada sozinha', await countUserPushSubscriptions(pushUserId), 1);
+  const [sobrevivente] = await sql<{ endpoint: string }[]>`SELECT endpoint FROM push_subscriptions WHERE user_id=${pushUserId}`;
+  expect('a inscrição que sobrou é a que respondeu sucesso', sobrevivente?.endpoint, endpointOk);
+
+  // --- 404 tem o mesmo tratamento que 410 (ambos confirmados pelo protocolo Web Push) ---
+  const chaves3 = gerarChavesDeInscricao();
+  const endpointNotFound = `${pushTestbed.url}/notfound/3`;
+  await saveSubscription(pushUserId, { endpoint: endpointNotFound, keys: chaves3 }, null);
+  await sendPushToUser(pushUserId, { title: 'X', body: 'Y', url: '/z' });
+  expect('404 também é tratado como inscrição revogada (apagada)', await countUserPushSubscriptions(pushUserId), 1);
+
+  // --- erro que NAO e 404/410 (ex.: 500) nao apaga a inscricao — pode ser falha passageira do lado de la ---
+  const chaves4 = gerarChavesDeInscricao();
+  const endpointErro = `${pushTestbed.url}/erro/4`;
+  await saveSubscription(pushUser2Id, { endpoint: endpointErro, keys: chaves4 }, null);
+  await sendPushToUser(pushUser2Id, { title: 'X', body: 'Y', url: '/z' });
+  expect('erro 500 do lado do navegador NÃO apaga a inscrição (só 404/410 confirmam revogação)',
+    await countUserPushSubscriptions(pushUser2Id), 1);
+  await removeSubscriptionByEndpoint(endpointErro); // limpa pra não sobrar disparando 500 nos testes seguintes deste mesmo usuário.
+
+  // --- remoção explícita (usuário desativa pelo navegador) ---
+  await removeSubscriptionByEndpoint(endpointOk);
+  expect('removeSubscriptionByEndpoint remove de verdade', await countUserPushSubscriptions(pushUserId), 0);
+
+  // --- insertNotification NUNCA manda push sozinho — só flushPushJobs manda, e só depois de chamado ---
+  const chaves5 = gerarChavesDeInscricao();
+  const endpointDispatch = `${pushTestbed.url}/ok/5`;
+  await saveSubscription(pushUserId, { endpoint: endpointDispatch, keys: chaves5 }, null);
+  const requestsAntesDoInsert = pushTestbed.requests.length;
+  const job = await insertNotification(db, {
+    userId: pushUserId, type: 'account_notice', title: 'Aviso da plataforma',
+    body: 'Corpo do aviso.', linkPath: '/notificacoes', data: {},
+  });
+  expect('insertNotification NÃO manda push antes de flushPushJobs ser chamado', pushTestbed.requests.length, requestsAntesDoInsert);
+  const [notifGravada] = await sql<{ id: string }[]>`
+    SELECT id FROM notifications WHERE user_id=${pushUserId} AND type='account_notice'`;
+  assert('mas a notificação já foi inserida no banco (só o push é adiado)', Boolean(notifGravada));
+  assert('insertNotification devolveu o job (linkPath preenchido -> vira PushJob)', Boolean(job));
+  await flushPushJobs(job ? [job] : []);
+  expect('flushPushJobs manda o push adiado', pushTestbed.requests.length, requestsAntesDoInsert + 1);
+
+  // --- notifyUser: caso comum (fora de transação) — insere E manda na mesma chamada ---
+  const requestsAntesDeNotify = pushTestbed.requests.length;
+  await notifyUser(db, {
+    userId: pushUserId, type: 'account_notice', title: 'Segundo aviso',
+    body: 'Corpo.', linkPath: '/notificacoes', data: {},
+  });
+  expect('notifyUser manda o push imediatamente', pushTestbed.requests.length, requestsAntesDeNotify + 1);
+
+  // --- insertNotifications/flushPushJobs (plural) — mesmo contrato, para vários usuários de uma vez ---
+  const chaves6 = gerarChavesDeInscricao();
+  const endpointUser2 = `${pushTestbed.url}/ok/6`;
+  await saveSubscription(pushUser2Id, { endpoint: endpointUser2, keys: chaves6 }, null);
+  const requestsAntesDoPlural = pushTestbed.requests.length;
+  const jobs = await insertNotifications(db, [
+    { userId: pushUserId, type: 'account_notice', title: 'A', body: 'a', linkPath: '/notificacoes', data: {} },
+    { userId: pushUser2Id, type: 'account_notice', title: 'B', body: 'b', linkPath: '/notificacoes', data: {} },
+  ]);
+  expect('insertNotifications (plural) também adia os dois pushes', pushTestbed.requests.length, requestsAntesDoPlural);
+  expect('devolveu os 2 jobs', jobs.length, 2);
+  await flushPushJobs(jobs);
+  expect('flushPushJobs manda os 2 de uma vez', pushTestbed.requests.length, requestsAntesDoPlural + 2);
+
+  // --- Server Actions de verdade (chamadas direto, como o componente cliente chama) ---
+  const originalPub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  entrarComo(pushUser3Id, 'user', 'Usuário de Teste');
+  const semConfig = await subscribeToPushAction({ endpoint: `${pushTestbed.url}/ok/7`, keys: gerarChavesDeInscricao() });
+  assert('subscribeToPushAction recusa quando o ambiente não tem VAPID configurado',
+    !semConfig.ok && (semConfig.message?.includes('não está configurada') ?? false), semConfig.message);
+  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = originalPub;
+
+  const chaves7 = gerarChavesDeInscricao();
+  const endpoint7 = `${pushTestbed.url}/ok/7`;
+  const inscricaoOk = await subscribeToPushAction({ endpoint: endpoint7, keys: chaves7 });
+  assert('subscribeToPushAction funciona de verdade (com VAPID configurado)', inscricaoOk.ok, inscricaoOk.message);
+  const [linhaViaAction] = await sql<{ user_id: string; user_agent: string | null }[]>`
+    SELECT user_id, user_agent FROM push_subscriptions WHERE endpoint=${endpoint7}`;
+  expect('gravou com o id de quem está logado (nunca um id vindo do corpo da requisição)', linhaViaAction?.user_id, pushUser3Id);
+  expect('user-agent veio do header de verdade (mock de next/headers)', linhaViaAction?.user_agent, 'TestUA/1.0');
+
+  const desinscricaoOk = await unsubscribeFromPushAction(endpoint7);
+  assert('unsubscribeFromPushAction funciona', desinscricaoOk.ok);
+  expect('inscrição removida de verdade', await countUserPushSubscriptions(pushUser3Id), 0);
+
+  entrarComo('', 'user', '');
+  let semSessaoLancou = false;
+  try {
+    await subscribeToPushAction({ endpoint: 'x', keys: { p256dh: 'x', auth: 'x' } });
+  } catch {
+    semSessaoLancou = true;
+  }
+  assert('sem sessão, subscribeToPushAction lança (nunca aceita silenciosamente)', semSessaoLancou);
+
+  if (rejeitarNaoAutorizadoOriginal === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  else process.env.NODE_TLS_REJECT_UNAUTHORIZED = rejeitarNaoAutorizadoOriginal;
+  await pushTestbed.close();
 }
 
 async function limpar() {

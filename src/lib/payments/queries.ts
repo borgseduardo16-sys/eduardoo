@@ -1,7 +1,7 @@
 import 'server-only';
 import { desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { ownerPayoutAccounts, renterBillingProfiles, payouts, payments, bookings, spaces } from '@/db/schema';
+import { ownerPayoutAccounts, renterBillingProfiles, payouts, payments, bookingDeposits, bookings, spaces } from '@/db/schema';
 
 export async function getOwnerPayoutAccount(ownerId: string) {
   const [row] = await db
@@ -62,4 +62,34 @@ export async function getOwnerPayoutSummary(ownerId: string) {
   const settledCents = porStatus.get('settled') ?? 0;
   const pendingCents = (porStatus.get('pending') ?? 0) + (porStatus.get('scheduled') ?? 0);
   return { settledCents, pendingCents };
+}
+
+/**
+ * Cauções (proteção contra dano) dos aluguéis do proprietário (Fase 20).
+ *
+ * O repasse do valor retido em disputa ainda não é automático (mesmo motivo
+ * de `listOwnerPayouts`: nenhuma transferência conta-a-conta confirmada no
+ * Asaas) — por isso a tela mostra "retido, repasse pendente" em vez de somar
+ * esse valor ao `getOwnerPayoutSummary`, que é só o que já pousou de fato.
+ */
+export async function listOwnerDeposits(ownerId: string) {
+  return db
+    .select({
+      id: bookingDeposits.id,
+      status: sql<string>`${bookingDeposits.status}::text`,
+      releaseStatus: sql<string>`${bookingDeposits.releaseStatus}::text`,
+      amountCents: bookingDeposits.amountCents,
+      releasedCents: bookingDeposits.releasedCents,
+      forfeitedCents: bookingDeposits.forfeitedCents,
+      paidAt: bookingDeposits.paidAt,
+      releasedAt: bookingDeposits.releasedAt,
+      createdAt: bookingDeposits.createdAt,
+      spaceTitle: spaces.title,
+      bookingReference: bookings.reference,
+    })
+    .from(bookingDeposits)
+    .innerJoin(bookings, eq(bookings.id, bookingDeposits.bookingId))
+    .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
+    .where(eq(bookings.ownerId, ownerId))
+    .orderBy(desc(bookingDeposits.createdAt));
 }

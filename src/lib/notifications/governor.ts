@@ -2,6 +2,7 @@ import 'server-only';
 import { and, eq, gt, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { notifications } from '@/db/schema';
+import { notifyUser } from './dispatch';
 
 /**
  * Governanca anti-spam (Fase 18).
@@ -72,7 +73,7 @@ export async function sendGovernedNotification(input: GovernedNotificationInput)
 
   if (recent) return false;
 
-  await db.insert(notifications).values({
+  await notifyUser(db, {
     userId: input.userId,
     type: input.type,
     title: input.title,

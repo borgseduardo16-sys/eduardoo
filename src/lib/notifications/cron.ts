@@ -2,6 +2,7 @@ import 'server-only';
 import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { subscriptions, bookings, spaces, notifications, favorites, conversations } from '@/db/schema';
+import { notifyUser, notifyUsers } from './dispatch';
 
 /**
  * Jobs agendados (Vercel Cron — ver src/app/api/cron/notificacoes/route.ts).
@@ -81,7 +82,8 @@ export async function runRentDueReminders(): Promise<{ sent: number }> {
   );
   if (pendentes.length === 0) return { sent: 0 };
 
-  await db.insert(notifications).values(
+  await notifyUsers(
+    db,
     pendentes.map((c) => ({
       userId: c.renterId,
       type: 'payment_upcoming' as const,
@@ -160,7 +162,7 @@ export async function runOwnerActivityDigests(): Promise<{ sent: number }> {
       partes.push(`${novasConversas} ${novasConversas === 1 ? 'nova conversa' : 'novas conversas'}`);
     }
 
-    await db.insert(notifications).values({
+    await notifyUser(db, {
       userId: ownerId,
       type: 'owner_activity_digest',
       title: 'Atividade recente nos seus anúncios',

@@ -691,6 +691,142 @@ async function main() {
            172500, 155250, 189750,
            'acima_da_media')`,
     );
+
+    console.log('\n\x1b[1m12. Notificação push (Fase 19)\x1b[0m');
+    // Sem CHECK nesta tabela — a unica regra de dado que o banco protege
+    // sozinho e o endpoint nao se repetir (o resto e NOT NULL simples).
+    {
+      const endpointPush = `https://fcm.googleapis.com/fcm/send/verify-${tag}`;
+      await mustAccept(
+        'inscrição de push válida é aceita',
+        () => sql`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+          VALUES (${ownerId}, ${endpointPush}, 'chave-p256dh-de-teste', 'chave-auth-de-teste')`,
+      );
+      await mustReject(
+        'o mesmo endpoint duas vezes é bloqueado (uma inscrição por endpoint, quem repete é o navegador renovando)',
+        () => sql`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth)
+          VALUES (${renterId}, ${endpointPush}, 'outra-chave', 'outro-auth')`,
+        'push_subscriptions_endpoint_key',
+      );
+    }
+
+    console.log('\n\x1b[1m13. Proteção contra dano / caução (Fase 20)\x1b[0m');
+    {
+      await mustReject(
+        'deposit_cents negativo na reserva é bloqueado',
+        () => sql`UPDATE bookings SET deposit_cents = -100 WHERE id=${bookingId}`,
+        'bookings_deposit_non_negative',
+      );
+      await mustAccept(
+        'deposit_cents = 1 mês de aluguel na reserva é aceito',
+        () => sql`UPDATE bookings SET deposit_cents = 18000 WHERE id=${bookingId}`,
+      );
+
+      // Espaço/reserva PRÓPRIOS desta seção (não os de cima): booking_deposits
+      // exige uma caução por reserva, então cada INSERT de teste abaixo
+      // precisa da sua própria reserva livre, nunca a $bookingId já ocupada.
+      const [espacoCaucao] = await sql<{ id: string }[]>`
+        INSERT INTO spaces (owner_id, slug, type, status, title, description,
+                            district, city, state, available_from, price_monthly_cents, location)
+        VALUES (${ownerId}, ${`caucao-${tag}`}, 'garagem', 'draft',
+                'Garagem para teste de caução',
+                'Descricao com mais de vinte caracteres para passar na regra do banco.',
+                'Centro', 'Colatina', 'ES', CURRENT_DATE, 20000,
+                ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
+        RETURNING id`;
+      const [bookingCaucao] = await sql<{ id: string }[]>`
+        INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+          monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+          owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
+        VALUES (${`MP-${tag.slice(-6).toUpperCase()}D`}, ${espacoCaucao.id}, ${renterId}, ${ownerId},
+          'approved', CURRENT_DATE, 20000, 300, 300, 600, 600, 20600, 19400, 20000)
+        RETURNING id`;
+      const bookingCaucaoId = bookingCaucao.id;
+
+      await mustReject(
+        'amount_cents zero ou negativo é bloqueado',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id)
+          VALUES (${bookingCaucaoId}, 0, 'asaas', ${`pay_verify_${tag}_1`})`,
+        'booking_deposits_amount_positive',
+      );
+
+      await mustReject(
+        'released_cents preenchido com release_status "held" é bloqueado (held exige os dois nulos)',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id, release_status, released_cents)
+          VALUES (${bookingCaucaoId}, 20000, 'asaas', ${`pay_verify_${tag}_2`}, 'held', 0)`,
+        'booking_deposits_release_amounts_consistent',
+      );
+
+      await mustReject(
+        'release_status "released" com soma released+forfeited diferente do total é bloqueado',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id, release_status, released_cents, forfeited_cents)
+          VALUES (${bookingCaucaoId}, 20000, 'asaas', ${`pay_verify_${tag}_3`}, 'released', 15000, 0)`,
+        'booking_deposits_release_amounts_consistent',
+      );
+
+      await mustReject(
+        'release_status "released" com forfeited_cents > 0 é bloqueado (released não retém nada, por definição)',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id, release_status, released_cents, forfeited_cents)
+          VALUES (${bookingCaucaoId}, 20000, 'asaas', ${`pay_verify_${tag}_4`}, 'released', 15000, 5000)`,
+        'booking_deposits_release_status_matches_split',
+      );
+
+      await mustReject(
+        'release_status "partially_forfeited" com released_cents = 0 é bloqueado (parcial exige as DUAS partes > 0)',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id, release_status, released_cents, forfeited_cents)
+          VALUES (${bookingCaucaoId}, 20000, 'asaas', ${`pay_verify_${tag}_5`}, 'partially_forfeited', 0, 20000)`,
+        'booking_deposits_release_status_matches_split',
+      );
+
+      /*
+       * released_non_negative/forfeited_non_negative (as outras 2 CHECKs da
+       * tabela) não têm como disparar isoladas: qualquer combinação que
+       * deixe released ou forfeited negativo enquanto ainda soma o total
+       * (release_amounts_consistent) força o outro lado a violar
+       * release_status_matches_split primeiro (released<=0 nunca é válido
+       * em "released"/"partially_forfeited", nem forfeited<0 em nenhum
+       * status alcançável). São defesa-em-profundidade redundante das duas
+       * CHECKs acima, não uma regra alcançável por si — por isso não têm
+       * teste próprio aqui.
+       */
+
+      await mustAccept(
+        'caução válida em custódia ("held", 1 mês de aluguel) é aceita',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id)
+          VALUES (${bookingCaucaoId}, 20000, 'asaas', ${`pay_verify_${tag}_ok`})`,
+      );
+
+      await mustReject(
+        'uma segunda caução para a MESMA reserva é bloqueada (uma por reserva)',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id)
+          VALUES (${bookingCaucaoId}, 20000, 'asaas', ${`pay_verify_${tag}_dup`})`,
+        'booking_deposits_booking_key',
+      );
+
+      const [espacoCaucao2] = await sql<{ id: string }[]>`
+        INSERT INTO spaces (owner_id, slug, type, status, title, description,
+                            district, city, state, available_from, price_monthly_cents, location)
+        VALUES (${ownerId}, ${`caucao2-${tag}`}, 'garagem', 'draft',
+                'Segunda garagem para teste de caução',
+                'Descricao com mais de vinte caracteres para passar na regra do banco.',
+                'Centro', 'Colatina', 'ES', CURRENT_DATE, 20000,
+                ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
+        RETURNING id`;
+      const [bookingCaucao2] = await sql<{ id: string }[]>`
+        INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+          monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+          owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
+        VALUES (${`MP-${tag.slice(-6).toUpperCase()}E`}, ${espacoCaucao2.id}, ${renterId}, ${ownerId},
+          'approved', CURRENT_DATE, 20000, 300, 300, 600, 600, 20600, 19400, 20000)
+        RETURNING id`;
+
+      await mustReject(
+        'o mesmo provider_payment_id em OUTRA reserva é bloqueado (id da cobrança é único por gateway)',
+        () => sql`INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id)
+          VALUES (${bookingCaucao2.id}, 20000, 'asaas', ${`pay_verify_${tag}_ok`})`,
+        'booking_deposits_provider_id_key',
+      );
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.
@@ -699,6 +835,9 @@ async function main() {
                 SELECT id FROM bookings WHERE owner_id = ${ownerId})`;
     await sql`ALTER TABLE ledger_entries ENABLE TRIGGER ledger_entries_append_only`;
     await sql`DELETE FROM reviews WHERE author_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    // booking_deposits.booking_id e RESTRICT — precisa sair antes de bookings (Fase 20).
+    await sql`DELETE FROM booking_deposits WHERE booking_id IN (
+                SELECT id FROM bookings WHERE owner_id = ${ownerId})`;
     await sql`DELETE FROM bookings WHERE owner_id = ${ownerId}`;
     await sql`DELETE FROM spaces WHERE owner_id = ${ownerId}`;
     await sql`DELETE FROM webhook_events WHERE provider_event_id LIKE ${`evt_verify-%`}`;

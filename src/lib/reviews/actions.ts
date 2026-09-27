@@ -5,8 +5,9 @@ import { revalidatePath } from 'next/cache';
 import { eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { db } from '@/db/client';
-import { bookings, spaces, reviews, notifications } from '@/db/schema';
+import { bookings, spaces, reviews } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
+import { notifyUser } from '@/lib/notifications/dispatch';
 import { createReviewSchema } from './schemas';
 
 /** Mesmo desembrulho de PostgresError usado em bookings/actions.ts — ver o comentário lá. */
@@ -92,7 +93,7 @@ export async function createReviewAction(
   }
 
   const alvoId = kind === 'renter_to_space' ? booking.ownerId : booking.renterId;
-  await db.insert(notifications).values({
+  await notifyUser(db, {
     userId: alvoId,
     type: 'review_received',
     title: kind === 'renter_to_space' ? 'Seu espaço recebeu uma avaliação' : 'Você recebeu uma avaliação',

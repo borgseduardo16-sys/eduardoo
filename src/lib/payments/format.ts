@@ -45,3 +45,16 @@ export function subscriptionStatusLabel(status: string | null): string {
   if (!status) return '—';
   return SUBSCRIPTION_STATUS_INFO[status]?.label ?? status;
 }
+
+/** Rotulo por extenso + tom do Badge para o desfecho de uma caução (`booking_deposits.release_status`). */
+export const DEPOSIT_RELEASE_STATUS_INFO: Record<string, { label: string; tone: NonNullable<BadgeProps['tone']> }> = {
+  held: { label: 'Em garantia', tone: 'caution' },
+  released: { label: 'Devolvida', tone: 'positive' },
+  forfeited: { label: 'Retida', tone: 'critical' },
+  partially_forfeited: { label: 'Retida parcialmente', tone: 'caution' },
+};
+
+export function depositReleaseStatusLabel(status: string | null): string {
+  if (!status) return '—';
+  return DEPOSIT_RELEASE_STATUS_INFO[status]?.label ?? status;
+}

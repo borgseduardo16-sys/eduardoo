@@ -89,6 +89,7 @@ const cpfProprietarioSemConta = gerarCpfValido();
 const donoId = crypto.randomUUID();
 const donoSemContaId = crypto.randomUUID();
 const renterId = crypto.randomUUID();
+const adminId = crypto.randomUUID();
 let testbed: Testbed;
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string; email: string };
@@ -101,8 +102,10 @@ async function seedPerfis() {
   await sql`INSERT INTO auth.users (id, email) VALUES
     (${donoId}, ${`${tag}-dono@exemplo.invalid`}),
     (${donoSemContaId}, ${`${tag}-dono-sem-conta@exemplo.invalid`}),
-    (${renterId}, ${`${tag}-renter@exemplo.invalid`})`;
+    (${renterId}, ${`${tag}-renter@exemplo.invalid`}),
+    (${adminId}, ${`${tag}-admin@exemplo.invalid`})`;
   await sql`UPDATE profiles SET role='owner' WHERE id IN (${donoId}, ${donoSemContaId})`;
+  await sql`UPDATE profiles SET role='admin', full_name='Moderador de Teste' WHERE id=${adminId}`;
   // Nome real gravado so pro locatario: e o unico checado (autor de avaliacao, secao 9).
   await sql`UPDATE profiles SET full_name='Locatario de Teste' WHERE id=${renterId}`;
 }
@@ -143,20 +146,20 @@ async function seedEspacoDeTeste(precoCents: number, ownerId: string = donoId): 
 async function seedBookingAprovada(
   espacoId: string,
   precoCents: number,
-  opts: { status?: string; ownerId?: string; sufixo?: string } = {},
+  opts: { status?: string; ownerId?: string; sufixo?: string; depositCents?: number } = {},
 ) {
   const amounts = computeBookingAmounts(precoCents, { renterFeeBps: 300, ownerFeeBps: 300 });
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO bookings
       (reference, space_id, renter_id, owner_id, status, start_date,
        monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-       owner_fee_cents, total_charged_cents, owner_payout_cents)
+       owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
     VALUES
       (${`MP-${tag}${opts.sufixo ?? ''}`}, ${espacoId}, ${renterId}, ${opts.ownerId ?? donoId},
        ${opts.status ?? 'awaiting_payment'}, CURRENT_DATE,
        ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps},
        ${amounts.renterFeeCents}, ${amounts.ownerFeeCents}, ${amounts.totalChargedCents},
-       ${amounts.ownerPayoutCents})
+       ${amounts.ownerPayoutCents}, ${opts.depositCents ?? 0})
     RETURNING id`;
   return { bookingId: row!.id, amounts };
 }
@@ -239,6 +242,15 @@ async function main() {
           statusReason: null, acceptedTermsAt: new Date(),
         };
       },
+      /** Só a Seção 12 (resolveDepositAction/resolveReportAction) exige admin. */
+      requireAdminOrThrow: async () => {
+        if (identidadeAtual.role !== 'admin') throw new Error('Acesso restrito ao administrador.');
+        return {
+          id: identidadeAtual.id, role: identidadeAtual.role, email: identidadeAtual.email,
+          fullName: identidadeAtual.fullName, avatarPath: null, status: 'active',
+          statusReason: null, acceptedTermsAt: new Date(),
+        };
+      },
       getCurrentUser: async () => null,
     },
   } as never;
@@ -247,6 +259,13 @@ async function main() {
   req.cache[cachePath] = {
     id: cachePath, filename: cachePath, loaded: true,
     exports: { revalidatePath: () => {}, revalidateTag: () => {} },
+  } as never;
+
+  /** Só a Seção 12 (`clientIp` em admin/actions.ts) chama `headers()`. */
+  const headersPath = req.resolve('next/headers');
+  req.cache[headersPath] = {
+    id: headersPath, filename: headersPath, loaded: true,
+    exports: { headers: async () => new Headers() },
   } as never;
 
   const asaas = await import('../src/lib/payments/asaas');
@@ -739,6 +758,296 @@ async function main() {
   assert('listReviewedBookingIds reflete a avaliacao do locatario', avaliadasLocatario.has(bookingSemConta));
   const avaliadasDono = await listReviewedBookingIds(donoSemContaId, 'owner_to_renter');
   assert('listReviewedBookingIds reflete a avaliacao do proprietario', avaliadasDono.has(bookingSemConta));
+
+  // =========================================================================
+  secao('10. Caução (Fase 20) — cobrança avulsa junto do checkout + confirmação via webhook');
+  // =========================================================================
+
+  const { releaseDeposit, runDepositAutoRelease } = await import('../src/lib/payments/deposits');
+  const { resolveDepositAction, resolveReportAction } = await import('../src/lib/admin/actions');
+  const { listModerationQueue } = await import('../src/lib/admin/queries');
+
+  const depositoPrecoCents = 20_000;
+  const espacoCaucaoId = await seedEspacoDeTeste(depositoPrecoCents, donoSemContaId);
+  const { bookingId: bookingCaucao1 } = await seedBookingAprovada(espacoCaucaoId, depositoPrecoCents, {
+    status: 'approved', ownerId: donoSemContaId, sufixo: '-caucao1', depositCents: depositoPrecoCents,
+  });
+
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
+  const checkoutComCaucao = await chamarComRedirect(() => startCheckoutAction(undefined, formData({
+    bookingId: bookingCaucao1, cpfCnpj: cpfLocatario,
+  })));
+  assert('checkout com caução redireciona normalmente (pra fatura do ALUGUEL, não da caução)', checkoutComCaucao.redirecionou);
+
+  const [depositoPendente] = await sql<{
+    id: string; amount_cents: number; status: string; release_status: string;
+    provider_payment_id: string; invoice_url: string | null;
+  }[]>`SELECT id, amount_cents, status, release_status, provider_payment_id, invoice_url
+       FROM booking_deposits WHERE booking_id=${bookingCaucao1}`;
+  assert('cobrança da caução foi criada junto do checkout', Boolean(depositoPendente));
+  expect('valor da caução gravado certo', depositoPendente?.amount_cents, depositoPrecoCents);
+  expect('caução começa "pending" (ninguém pagou ainda)', depositoPendente?.status, 'pending');
+  expect('custódia começa "held"', depositoPendente?.release_status, 'held');
+  assert('caução tem link de fatura PRÓPRIO (separado do aluguel)',
+    depositoPendente?.invoice_url?.includes('fake-invoice') ?? false, depositoPendente?.invoice_url ?? 'nenhum');
+
+  const [pagamentoDoAluguel1] = await sql<{ provider_payment_id: string }[]>`
+    SELECT provider_payment_id FROM payments WHERE booking_id=${bookingCaucao1}`;
+  assert('a cobrança da caução é SEPARADA da cobrança do aluguel (ids diferentes)',
+    depositoPendente!.provider_payment_id !== pagamentoDoAluguel1!.provider_payment_id);
+
+  const rCaucaoConfirmada = await processAsaasWebhook({
+    event: 'PAYMENT_CONFIRMED', payment: { id: depositoPendente!.provider_payment_id, value: depositoPrecoCents / 100 },
+  });
+  expect('webhook aceitou a confirmação da caução', rCaucaoConfirmada.ok, true);
+
+  const [depositoConfirmado] = await sql<{ status: string; paid_at: Date | null }[]>`
+    SELECT status, paid_at FROM booking_deposits WHERE id=${depositoPendente!.id}`;
+  expect('caução virou "confirmed"', depositoConfirmado!.status, 'confirmed');
+  assert('paid_at foi preenchido', depositoConfirmado!.paid_at !== null);
+
+  const [bookingAindaAguardando] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingCaucao1}`;
+  expect('confirmar A CAUÇÃO sozinha NÃO ativa a reserva (só o aluguel confirmado faz isso)',
+    bookingAindaAguardando!.status, 'awaiting_payment');
+
+  const [{ n: ledgerCaucaoCobrada }] = await sql<{ n: string }[]>`
+    SELECT count(*)::text AS n FROM ledger_entries WHERE booking_id=${bookingCaucao1} AND type='deposit_charged'`;
+  expect('lançamento deposit_charged criado', ledgerCaucaoCobrada, '1');
+
+  const [notifCaucaoConfirmada] = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM notifications WHERE data->>'bookingId'=${bookingCaucao1} AND title='Caução confirmada'`;
+  expect('locatário foi notificado da confirmação da caução', notifCaucaoConfirmada?.user_id, renterId);
+
+  // --- reentrega do mesmo evento: idempotente também na caução ---
+  await processAsaasWebhook({
+    event: 'PAYMENT_CONFIRMED', payment: { id: depositoPendente!.provider_payment_id, value: depositoPrecoCents / 100 },
+  });
+  const [{ n: ledgerCaucaoCobradaDepois }] = await sql<{ n: string }[]>`
+    SELECT count(*)::text AS n FROM ledger_entries WHERE booking_id=${bookingCaucao1} AND type='deposit_charged'`;
+  expect('reentrega NÃO duplicou o lançamento', ledgerCaucaoCobradaDepois, '1');
+
+  // =========================================================================
+  secao('11. Caução — liberação integral sem dano (releaseDeposit)');
+  // =========================================================================
+
+  const liberacao = await releaseDeposit(depositoPendente!.id, 0, null);
+  assert('liberação integral aceita', liberacao.ok, liberacao.ok ? '' : liberacao.message);
+
+  const [depositoLiberado] = await sql<{
+    release_status: string; released_cents: number | null; forfeited_cents: number | null; released_at: Date | null;
+  }[]>`SELECT release_status, released_cents, forfeited_cents, released_at FROM booking_deposits WHERE id=${depositoPendente!.id}`;
+  expect('release_status virou "released"', depositoLiberado!.release_status, 'released');
+  expect('released_cents = valor cheio', depositoLiberado!.released_cents, depositoPrecoCents);
+  expect('forfeited_cents = 0', depositoLiberado!.forfeited_cents, 0);
+  assert('released_at preenchido', depositoLiberado!.released_at !== null);
+
+  const pagamentoEstornadoNoTestbed = testbed.asaasPayments.get(depositoPendente!.provider_payment_id);
+  expect('Asaas (testbed) recebeu o estorno do valor cheio', pagamentoEstornadoNoTestbed?.refundedCents, depositoPrecoCents);
+
+  const [{ soma: somaLedgerCaucao1 }] = await sql<{ soma: string }[]>`
+    SELECT sum(amount_cents)::text AS soma FROM ledger_entries WHERE booking_id=${bookingCaucao1} AND type::text LIKE 'deposit_%'`;
+  expect('lançamentos da caução somam ZERO (cobrado + devolvido se cancelam)', Number(somaLedgerCaucao1), 0);
+
+  const [notifCaucaoDevolvida] = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM notifications WHERE data->>'bookingId'=${bookingCaucao1} AND title='Caução devolvida'`;
+  expect('locatário foi notificado da devolução', notifCaucaoDevolvida?.user_id, renterId);
+
+  const liberacaoDeNovo = await releaseDeposit(depositoPendente!.id, 0, null);
+  assert('liberar uma caução já resolvida é recusado', !liberacaoDeNovo.ok, liberacaoDeNovo.ok ? '' : liberacaoDeNovo.message);
+
+  // =========================================================================
+  secao('12. Caução — retenção parcial por dano (admin + fila de moderação)');
+  // =========================================================================
+
+  /*
+   * Espaço PRÓPRIO pra esta reserva: `bookings_one_active_per_space` (índice
+   * único parcial, ver src/db/schema/bookings.ts) proíbe duas reservas
+   * 'approved'/'awaiting_payment'/'active'/'past_due' no MESMO espaço ao
+   * mesmo tempo — e a 1ª reserva (bookingCaucao1) segue 'awaiting_payment'
+   * (só a caução dela foi confirmada, nunca o aluguel), ocupando o slot de
+   * espacoCaucaoId.
+   */
+  const espacoCaucao2Id = await seedEspacoDeTeste(depositoPrecoCents, donoSemContaId);
+  const { bookingId: bookingCaucao2 } = await seedBookingAprovada(espacoCaucao2Id, depositoPrecoCents, {
+    status: 'approved', ownerId: donoSemContaId, sufixo: '-caucao2', depositCents: depositoPrecoCents,
+  });
+  const checkoutCaucao2 = await chamarComRedirect(() => startCheckoutAction(undefined, formData({
+    bookingId: bookingCaucao2, cpfCnpj: cpfLocatario,
+  })));
+  assert('segundo checkout (2ª reserva, mesmo locatário) também redireciona', checkoutCaucao2.redirecionou);
+
+  const [depositoPendente2] = await sql<{ id: string; provider_payment_id: string }[]>`
+    SELECT id, provider_payment_id FROM booking_deposits WHERE booking_id=${bookingCaucao2}`;
+  await processAsaasWebhook({
+    event: 'PAYMENT_CONFIRMED', payment: { id: depositoPendente2!.provider_payment_id, value: depositoPrecoCents / 100 },
+  });
+
+  const [{ reference: referenciaCaucao2 }] = await sql<{ reference: string }[]>`
+    SELECT reference FROM bookings WHERE id=${bookingCaucao2}`;
+  const [reportDano] = await sql<{ id: string }[]>`
+    INSERT INTO reports (target_type, space_id, reporter_id, booking_id, reason, status, details)
+    VALUES ('space', ${espacoCaucao2Id}, ${donoSemContaId}, ${bookingCaucao2}, 'dano_ao_espaco', 'reviewing', 'Piso da garagem manchado de óleo.')
+    RETURNING id`;
+
+  const filaAntes = await listModerationQueue();
+  const itemFila = filaAntes.find((r) => r.id === reportDano!.id);
+  assert('denúncia de dano aparece na fila de moderação', Boolean(itemFila));
+  expect('fila mostra a caução ainda "held"', itemFila?.depositReleaseStatus, 'held');
+  expect('fila mostra o valor certo da caução', itemFila?.depositAmountCents, depositoPrecoCents);
+  expect('fila liga a denúncia à reserva certa', itemFila?.bookingId, bookingCaucao2);
+  expect('fila mostra a referência da reserva', itemFila?.bookingReference, referenciaCaucao2);
+
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
+  let semSerAdminLancou = false;
+  try {
+    await resolveDepositAction(undefined, formData({ bookingId: bookingCaucao2, forfeitValue: '80,00' }));
+  } catch {
+    semSerAdminLancou = true;
+  }
+  assert('quem não é admin não consegue resolver caução (lança, não silencia)', semSerAdminLancou);
+
+  entrarComo(adminId, 'admin', 'Moderador de Teste', `${tag}-admin@exemplo.invalid`);
+  const resolucao = await resolveDepositAction(undefined, formData({
+    bookingId: bookingCaucao2, forfeitValue: '80,00', reportId: reportDano!.id,
+  }));
+  assert('admin resolve a caução (retenção parcial)', resolucao.ok, resolucao.message);
+
+  const [depositoParcial] = await sql<{
+    release_status: string; released_cents: number | null; forfeited_cents: number | null; resolved_report_id: string | null;
+  }[]>`SELECT release_status, released_cents, forfeited_cents, resolved_report_id FROM booking_deposits WHERE id=${depositoPendente2!.id}`;
+  expect('release_status "partially_forfeited"', depositoParcial!.release_status, 'partially_forfeited');
+  expect('released_cents = 120,00 (200 - 80)', depositoParcial!.released_cents, depositoPrecoCents - 8000);
+  expect('forfeited_cents = 80,00', depositoParcial!.forfeited_cents, 8000);
+  expect('amarrado à denúncia que decidiu', depositoParcial!.resolved_report_id, reportDano!.id);
+
+  const pagamentoParcialNoTestbed = testbed.asaasPayments.get(depositoPendente2!.provider_payment_id);
+  expect('Asaas (testbed) recebeu o estorno só da PARTE devolvida', pagamentoParcialNoTestbed?.refundedCents, depositoPrecoCents - 8000);
+
+  const [{ soma: somaLedgerCaucao2 }] = await sql<{ soma: string }[]>`
+    SELECT sum(amount_cents)::text AS soma FROM ledger_entries WHERE booking_id=${bookingCaucao2} AND type::text LIKE 'deposit_%'`;
+  expect('lançamentos da 2ª caução também somam ZERO (cobrado = devolvido + retido)', Number(somaLedgerCaucao2), 0);
+
+  const [ledgerForfeit] = await sql<{ user_id: string | null; amount_cents: number }[]>`
+    SELECT user_id, amount_cents FROM ledger_entries WHERE booking_id=${bookingCaucao2} AND type='deposit_forfeited_to_owner'`;
+  expect('lançamento de retenção credita o PROPRIETÁRIO', ledgerForfeit?.user_id, donoSemContaId);
+  expect('valor retido é negativo (saiu da custódia)', ledgerForfeit?.amount_cents, -8000);
+
+  const [notifLocatarioRetido] = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM notifications WHERE data->>'bookingId'=${bookingCaucao2} AND title='Parte da caução foi retida'`;
+  expect('locatário foi avisado da retenção parcial', notifLocatarioRetido?.user_id, renterId);
+  const [notifDonoRetido] = await sql<{ user_id: string }[]>`
+    SELECT user_id FROM notifications WHERE data->>'bookingId'=${bookingCaucao2} AND title='Caução retida a seu favor'`;
+  expect('proprietário foi avisado do valor retido a seu favor', notifDonoRetido?.user_id, donoSemContaId);
+
+  const [logResolucao] = await sql<{ action: string; actor_id: string }[]>`
+    SELECT action, actor_id FROM audit_logs WHERE entity_id=${depositoPendente2!.id} AND action='deposit.resolved'`;
+  assert('resolução da caução foi auditada', Boolean(logResolucao));
+  expect('auditoria aponta o admin certo como autor', logResolucao?.actor_id, adminId);
+
+  // --- resolver o REPORT em si é uma ação separada — a caução já resolvida não impede isso ---
+  const resolucaoDenuncia = await resolveReportAction(undefined, formData({
+    reportId: reportDano!.id, decision: 'upheld', resolutionNote: 'Confirmado com fotos do antes/depois.',
+  }));
+  assert('denúncia pode ser marcada procedente separadamente', resolucaoDenuncia.ok, resolucaoDenuncia.message);
+
+  const filaDepois = await listModerationQueue();
+  assert('denúncia já resolvida some da fila (só mostra open/reviewing)',
+    !filaDepois.some((r) => r.id === reportDano!.id));
+
+  const resolucaoDeNovo = await resolveDepositAction(undefined, formData({
+    bookingId: bookingCaucao2, forfeitValue: '0,00',
+  }));
+  assert('resolver a mesma caução de novo é recusado (já foi resolvida)', !resolucaoDeNovo.ok, resolucaoDeNovo.message);
+
+  // =========================================================================
+  secao('13. Caução — liberação automática por tempo (cron), com exclusão por denúncia em aberto');
+  // =========================================================================
+
+  async function seedDepositoConfirmadoDireto(bookingId: string, amountCents: number, sufixo: string) {
+    const providerPaymentId = `pay_${tag}_${sufixo}`;
+    testbed.asaasPayments.set(providerPaymentId, {
+      id: providerPaymentId, status: 'CONFIRMED', value: amountCents / 100, netValue: null,
+      invoiceUrl: null, dueDate: new Date().toISOString().slice(0, 10), refundedCents: 0, subscription: null,
+    });
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO booking_deposits (booking_id, amount_cents, provider, provider_payment_id, status, paid_at)
+      VALUES (${bookingId}, ${amountCents}, 'asaas', ${providerPaymentId}, 'confirmed', now())
+      RETURNING id`;
+    return { depositId: row!.id, providerPaymentId };
+  }
+
+  const { bookingId: bookingElegivel } = await seedBookingAprovada(espacoCaucaoId, depositoPrecoCents, {
+    status: 'ended', ownerId: donoSemContaId, sufixo: '-auto-elegivel',
+  });
+  await sql`UPDATE bookings SET ended_at = now() - interval '10 days' WHERE id=${bookingElegivel}`;
+  const depositoElegivel = await seedDepositoConfirmadoDireto(bookingElegivel, depositoPrecoCents, 'auto1');
+
+  const { bookingId: bookingMuitoRecente } = await seedBookingAprovada(espacoCaucaoId, depositoPrecoCents, {
+    status: 'ended', ownerId: donoSemContaId, sufixo: '-auto-recente',
+  });
+  await sql`UPDATE bookings SET ended_at = now() - interval '2 days' WHERE id=${bookingMuitoRecente}`;
+  const depositoRecente = await seedDepositoConfirmadoDireto(bookingMuitoRecente, depositoPrecoCents, 'auto2');
+
+  const { bookingId: bookingComDenuncia } = await seedBookingAprovada(espacoCaucaoId, depositoPrecoCents, {
+    status: 'ended', ownerId: donoSemContaId, sufixo: '-auto-denuncia',
+  });
+  await sql`UPDATE bookings SET ended_at = now() - interval '10 days' WHERE id=${bookingComDenuncia}`;
+  const depositoComDenuncia = await seedDepositoConfirmadoDireto(bookingComDenuncia, depositoPrecoCents, 'auto3');
+  await sql`INSERT INTO reports (target_type, space_id, reporter_id, booking_id, reason, status, details)
+    VALUES ('space', ${espacoCaucaoId}, ${donoSemContaId}, ${bookingComDenuncia}, 'dano_ao_espaco', 'open', 'Em análise.')`;
+
+  const resultadoAuto = await runDepositAutoRelease();
+  assert('rodada do cron libera pelo menos a elegível', resultadoAuto.released >= 1, `released=${resultadoAuto.released}`);
+
+  const [statusElegivel] = await sql<{ release_status: string }[]>`
+    SELECT release_status FROM booking_deposits WHERE id=${depositoElegivel.depositId}`;
+  expect('caução de reserva encerrada há mais de 7 dias, sem denúncia, foi liberada sozinha',
+    statusElegivel!.release_status, 'released');
+
+  const [statusRecente] = await sql<{ release_status: string }[]>`
+    SELECT release_status FROM booking_deposits WHERE id=${depositoRecente.depositId}`;
+  expect('caução de reserva encerrada há só 2 dias NÃO foi liberada ainda (janela de 7 dias)',
+    statusRecente!.release_status, 'held');
+
+  const [statusComDenuncia] = await sql<{ release_status: string }[]>`
+    SELECT release_status FROM booking_deposits WHERE id=${depositoComDenuncia.depositId}`;
+  expect('caução com denúncia de dano EM ABERTO não é liberada automaticamente',
+    statusComDenuncia!.release_status, 'held');
+
+  const resultadoAutoDeNovo = await runDepositAutoRelease();
+  expect('rodando de novo, não tenta liberar o que já foi liberado (idempotente)', resultadoAutoDeNovo.released, 0);
+
+  /*
+   * SÓ AGORA, depois do 2º runDepositAutoRelease() acima — apagar antes
+   * removeria o próprio bloqueio que a rodada de cima precisa ver, liberando
+   * a caução de bookingComDenuncia "de graça" e quebrando esse assert de cima.
+   * Apaga porque, diferente de bookings/payments/ledger_entries (ancorados
+   * pra sempre por FK RESTRICT, ver limpar() no fim do arquivo), uma
+   * `reports` 'open' sem isto ficaria de pé PARA SEMPRE — e
+   * `listModerationQueue()` é uma contagem GLOBAL, sem filtro de `tag` desta
+   * execução: uma denúncia órfã aqui infla a fila de moderação de toda
+   * execução futura de verify-admin.ts (achado rodando a suíte completa:
+   * "esperava 3, veio 5"). Nada a referencia por FK RESTRICT, então apagar é seguro.
+   */
+  await sql`DELETE FROM reports WHERE booking_id=${bookingComDenuncia} AND reason='dano_ao_espaco'`;
+
+  /*
+   * Some com `bookingMuitoRecente` e `bookingComDenuncia` por completo — os
+   * dois ÚNICOS das 3 reservas desta seção que continuam 'held' até aqui
+   * (nunca chegam a `releaseDeposit`, então não têm ledger_entries: seguro
+   * apagar, sem FK RESTRICT no caminho). Sem isto ficariam 'held' PARA
+   * SEMPRE (o primeiro nunca completa os 7 dias sozinho; o segundo, sem o
+   * report que acabou de sumir, passa a ser "elegível" pra qualquer execução
+   * FUTURA deste script — só que o `provider_payment_id` dele só existe no
+   * testbed EM MEMÓRIA desta execução, então a tentativa de estornar numa
+   * execução futura falharia com 404 o resto da vida, poluindo o console à
+   * toa). `bookingElegivel` fica de fora de propósito: o `runDepositAutoRelease`
+   * de cima já a liberou de verdade, o que gravou um `deposit_released` de
+   * verdade no razão — essa, sim, fica ancorada pra sempre, mesma regra de
+   * `limpar()` no fim do arquivo pra qualquer reserva com movimentação real.
+   */
+  await sql`DELETE FROM booking_deposits WHERE booking_id IN (${bookingMuitoRecente}, ${bookingComDenuncia})`;
+  await sql`DELETE FROM bookings WHERE id IN (${bookingMuitoRecente}, ${bookingComDenuncia})`;
 
   // ---------------------------------------------------------------------------
 

@@ -9,13 +9,15 @@ import {
   payouts,
   ledgerEntries,
   webhookEvents,
-  notifications,
   auditLogs,
   ownerPayoutAccounts,
   promotionPurchases,
   promotions,
+  bookingDeposits,
 } from '@/db/schema';
 import { platformNetCents } from '@/lib/money';
+import { insertNotification, insertNotifications, flushPushJobs, type PushJob } from '@/lib/notifications/dispatch';
+import { handleDepositEvent } from './deposits';
 
 const { PostgresError } = postgres;
 
@@ -30,6 +32,12 @@ const { PostgresError } = postgres;
  * MESMA transacao: se qualquer parte falhar, nada e gravado (nem o proprio
  * registro do evento), entao uma reentrega apos falha reprocessa do zero em
  * vez de ficar "meio processada".
+ *
+ * As notificacoes (Fase 19) sao inseridas com o `tx` da transacao — mas o
+ * PUSH de verdade so e disparado DEPOIS que a transacao comitou (ver o fim
+ * desta funcao). Mandar o push de dentro do handler correria na frente do
+ * commit: se um passo POSTERIOR da mesma transacao falhasse, o push já
+ * teria avisado de algo que acabou de ser desfeito.
  *
  * Nomes de evento tratados abaixo — o que e CONFIRMADO por busca (nao leitura
  * direta da documentacao — ver src/lib/payments/asaas.ts) esta listado la.
@@ -78,8 +86,11 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
    */
   const providerEventId = `${event}:${providerPaymentId}`;
 
+  let pushJobs: PushJob[] = [];
+  let resultado: WebhookResult;
+
   try {
-    return await db.transaction(async (tx) => {
+    resultado = await db.transaction(async (tx) => {
       const [claimed] = await tx
         .insert(webhookEvents)
         .values({ provider: 'asaas', providerEventId, eventType: event, payload, status: 'received' })
@@ -111,7 +122,7 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
           throw new Error(`reserva ${pagamento.bookingId} da cobranca ${pagamento.id} nao encontrada`);
         }
 
-        await handleEvent(tx, event, pagamento, booking, payload);
+        pushJobs = await handleEvent(tx, event, pagamento, booking, payload);
 
         await tx
           .update(webhookEvents)
@@ -128,7 +139,24 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
         .limit(1);
 
       if (compra) {
-        await handlePromotionPurchaseEvent(tx, event, compra, payload);
+        pushJobs = await handlePromotionPurchaseEvent(tx, event, compra, payload);
+
+        await tx
+          .update(webhookEvents)
+          .set({ status: 'processed', processedAt: new Date() })
+          .where(eq(webhookEvents.id, claimed.id));
+
+        return { ok: true };
+      }
+
+      const [deposito] = await tx
+        .select()
+        .from(bookingDeposits)
+        .where(and(eq(bookingDeposits.provider, 'asaas'), eq(bookingDeposits.providerPaymentId, providerPaymentId)))
+        .limit(1);
+
+      if (deposito) {
+        pushJobs = await handleDepositEvent(tx, event, deposito, payload);
 
         await tx
           .update(webhookEvents)
@@ -148,6 +176,15 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
     console.error('[asaas webhook] falha processando evento:', event, providerPaymentId, err);
     return { ok: false, reason: 'erro interno processando o evento' };
   }
+
+  try {
+    await flushPushJobs(pushJobs);
+  } catch (err) {
+    // O webhook em si ja comitou com sucesso — uma falha so no push nunca vira "erro" pro Asaas.
+    console.error('[asaas webhook] falha ao enviar push (nao afeta o processamento):', err);
+  }
+
+  return resultado;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,7 +199,7 @@ async function handleEvent(
   pagamento: PaymentRow,
   booking: BookingRow,
   payload: AsaasWebhookPayload,
-) {
+): Promise<PushJob[]> {
   switch (event) {
     case 'PAYMENT_CONFIRMED':
       return handleConfirmed(tx, pagamento, booking, payload);
@@ -177,6 +214,7 @@ async function handleEvent(
     case 'PAYMENT_DELETED':
       return handleDeleted(tx, pagamento);
   }
+  return [];
 }
 
 /**
@@ -189,7 +227,7 @@ async function handleEvent(
  * (handleReceived), porque so ali ha dinheiro disponivel de verdade para
  * repassar.
  */
-async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload) {
+async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
   await tx
     .update(payments)
     .set({ status: 'confirmed', paidAt: new Date(), providerPayload: payload as Record<string, unknown>, updatedAt: new Date() })
@@ -210,7 +248,7 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
     }
   }
 
-  await tx.insert(notifications).values([
+  const jobs = await insertNotifications(tx, [
     {
       userId: booking.renterId, type: 'payment_confirmed', title: 'Pagamento confirmado',
       body: 'Seu pagamento foi confirmado. O aluguel segue ativo.',
@@ -228,6 +266,8 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
     entityType: 'payment', entityId: pagamento.id,
     metadata: { bookingId: booking.id, primeiraAtivacao },
   });
+
+  return jobs;
 }
 
 /**
@@ -236,7 +276,7 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
  * cobrado ja era sabido desde a criacao da cobranca, mas a tarifa do gateway
  * so o proprio gateway informa, e so depois de liquidar).
  */
-async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload) {
+async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
   const valorBrutoCents = typeof payload?.payment?.value === 'number'
     ? Math.round(payload.payment.value * 100)
     : pagamento.amountCents;
@@ -322,9 +362,11 @@ async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow
     entityType: 'payment', entityId: pagamento.id,
     metadata: { bookingId: booking.id, gatewayFeeCents: tarifaGatewayCents, payoutId },
   });
+
+  return [];
 }
 
-async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow) {
+async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
   await tx.update(payments).set({ status: 'overdue', updatedAt: new Date() }).where(eq(payments.id, pagamento.id));
 
   if (booking.status === 'active') {
@@ -337,7 +379,7 @@ async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow)
       .where(eq(subscriptions.id, pagamento.subscriptionId));
   }
 
-  await tx.insert(notifications).values({
+  const job = await insertNotification(tx, {
     userId: booking.renterId, type: 'payment_failed', title: 'Pagamento em atraso',
     body: 'O pagamento deste mês está atrasado. Regularize para manter o aluguel ativo.',
     linkPath: '/reservas', data: { bookingId: booking.id, paymentId: pagamento.id },
@@ -346,15 +388,17 @@ async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow)
     actorId: null, actorRole: 'system', action: 'payment.overdue',
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
   });
+
+  return job ? [job] : [];
 }
 
-async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow) {
+async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
   await tx
     .update(payments)
     .set({ status: 'failed', failureReason: 'Recusado na analise de risco do gateway.', updatedAt: new Date() })
     .where(eq(payments.id, pagamento.id));
 
-  await tx.insert(notifications).values({
+  const job = await insertNotification(tx, {
     userId: booking.renterId, type: 'payment_failed', title: 'Pagamento recusado',
     body: 'Seu pagamento não foi aprovado. Tente novamente com outro cartão ou meio de pagamento.',
     linkPath: '/reservas', data: { bookingId: booking.id, paymentId: pagamento.id },
@@ -363,9 +407,11 @@ async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow) 
     actorId: null, actorRole: 'system', action: 'payment.failed',
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
   });
+
+  return job ? [job] : [];
 }
 
-async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow) {
+async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
   await tx
     .update(payments)
     .set({ status: 'refunded', refundedCents: pagamento.amountCents, updatedAt: new Date() })
@@ -376,7 +422,7 @@ async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow
     userId: null, amountCents: -pagamento.amountCents, description: 'Estorno',
   });
 
-  await tx.insert(notifications).values({
+  const job = await insertNotification(tx, {
     userId: booking.renterId, type: 'payment_failed', title: 'Pagamento estornado',
     body: 'O pagamento deste aluguel foi estornado.',
     linkPath: '/reservas', data: { bookingId: booking.id, paymentId: pagamento.id },
@@ -385,14 +431,17 @@ async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow
     actorId: null, actorRole: 'system', action: 'payment.refunded',
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
   });
+
+  return job ? [job] : [];
 }
 
-async function handleDeleted(tx: Tx, pagamento: PaymentRow) {
+async function handleDeleted(tx: Tx, pagamento: PaymentRow): Promise<PushJob[]> {
   await tx.update(payments).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(payments.id, pagamento.id));
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.deleted',
     entityType: 'payment', entityId: pagamento.id, metadata: {},
   });
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -420,7 +469,7 @@ async function handlePromotionPurchaseEvent(
   event: string,
   compra: PromotionPurchaseRow,
   payload: AsaasWebhookPayload,
-) {
+): Promise<PushJob[]> {
   switch (event) {
     case 'PAYMENT_CONFIRMED':
       return handlePurchaseConfirmed(tx, compra, payload);
@@ -428,19 +477,20 @@ async function handlePromotionPurchaseEvent(
       return handlePurchaseReceived(tx, compra);
     case 'PAYMENT_OVERDUE':
       await tx.update(promotionPurchases).set({ status: 'overdue', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
-      return;
+      return [];
     case 'PAYMENT_REPROVED_BY_RISK_ANALYSIS':
       await tx
         .update(promotionPurchases)
         .set({ status: 'failed', failureReason: 'Recusado na analise de risco do gateway.', updatedAt: new Date() })
         .where(eq(promotionPurchases.id, compra.id));
-      return;
+      return [];
     case 'PAYMENT_REFUNDED':
       return handlePurchaseRefunded(tx, compra);
     case 'PAYMENT_DELETED':
       await tx.update(promotionPurchases).set({ status: 'cancelled', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
-      return;
+      return [];
   }
+  return [];
 }
 
 /**
@@ -455,8 +505,8 @@ async function handlePromotionPurchaseEvent(
  * manual), em vez de perder o dinheiro silenciosamente ou quebrar o webhook
  * inteiro.
  */
-async function handlePurchaseConfirmed(tx: Tx, compra: PromotionPurchaseRow, payload: AsaasWebhookPayload) {
-  if (compra.promotionId) return; // ja processado (reentrega do mesmo evento nao deveria chegar aqui, mas por garantia)
+async function handlePurchaseConfirmed(tx: Tx, compra: PromotionPurchaseRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
+  if (compra.promotionId) return []; // ja processado (reentrega do mesmo evento nao deveria chegar aqui, mas por garantia)
 
   const startedAt = new Date();
   const expiresAt = new Date(startedAt.getTime() + compra.durationHours * 60 * 60 * 1000);
@@ -503,7 +553,7 @@ async function handlePurchaseConfirmed(tx: Tx, compra: PromotionPurchaseRow, pay
       })
       .where(eq(promotionPurchases.id, compra.id));
 
-    await tx.insert(notifications).values({
+    const job = await insertNotification(tx, {
       userId: compra.ownerId, type: 'payment_confirmed', title: 'Promoção ativada',
       body: `Pagamento confirmado — seu anúncio está com ${compra.type === 'turbo' ? 'Turbo' : 'Destaque'} ativo.`,
       linkPath: '/meus-espacos', data: { spaceId: compra.spaceId, promotionId },
@@ -513,34 +563,39 @@ async function handlePurchaseConfirmed(tx: Tx, compra: PromotionPurchaseRow, pay
       entityType: 'promotion_purchase', entityId: compra.id,
       metadata: { spaceId: compra.spaceId, type: compra.type, promotionId },
     });
-  } else {
-    await tx
-      .update(promotionPurchases)
-      .set({
-        status: 'confirmed', paidAt: startedAt,
-        failureReason: 'Pagamento confirmado, mas o anúncio já tinha outra promoção vigente — precisa de reembolso manual.',
-        providerPayload: payload as Record<string, unknown>, updatedAt: new Date(),
-      })
-      .where(eq(promotionPurchases.id, compra.id));
 
-    await tx.insert(auditLogs).values({
-      actorId: null, actorRole: 'system', action: 'promotion_purchase.confirmed_without_activation',
-      entityType: 'promotion_purchase', entityId: compra.id,
-      metadata: { spaceId: compra.spaceId, type: compra.type, reason: 'overlapping_promotion' },
-    });
+    return job ? [job] : [];
   }
+
+  await tx
+    .update(promotionPurchases)
+    .set({
+      status: 'confirmed', paidAt: startedAt,
+      failureReason: 'Pagamento confirmado, mas o anúncio já tinha outra promoção vigente — precisa de reembolso manual.',
+      providerPayload: payload as Record<string, unknown>, updatedAt: new Date(),
+    })
+    .where(eq(promotionPurchases.id, compra.id));
+
+  await tx.insert(auditLogs).values({
+    actorId: null, actorRole: 'system', action: 'promotion_purchase.confirmed_without_activation',
+    entityType: 'promotion_purchase', entityId: compra.id,
+    metadata: { spaceId: compra.spaceId, type: compra.type, reason: 'overlapping_promotion' },
+  });
+
+  return [];
 }
 
-async function handlePurchaseReceived(tx: Tx, compra: PromotionPurchaseRow) {
+async function handlePurchaseReceived(tx: Tx, compra: PromotionPurchaseRow): Promise<PushJob[]> {
   await tx.update(promotionPurchases).set({ status: 'received', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'promotion_purchase.received',
     entityType: 'promotion_purchase', entityId: compra.id, metadata: { spaceId: compra.spaceId },
   });
+  return [];
 }
 
 /** Estorno depois de confirmado: cancela a promocao tambem — sem cobranca, sem boost. */
-async function handlePurchaseRefunded(tx: Tx, compra: PromotionPurchaseRow) {
+async function handlePurchaseRefunded(tx: Tx, compra: PromotionPurchaseRow): Promise<PushJob[]> {
   await tx.update(promotionPurchases).set({ status: 'refunded', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
 
   if (compra.promotionId) {
@@ -554,4 +609,6 @@ async function handlePurchaseRefunded(tx: Tx, compra: PromotionPurchaseRow) {
     actorId: null, actorRole: 'system', action: 'promotion_purchase.refunded',
     entityType: 'promotion_purchase', entityId: compra.id, metadata: { spaceId: compra.spaceId, promotionId: compra.promotionId },
   });
+
+  return [];
 }

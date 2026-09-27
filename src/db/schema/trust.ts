@@ -97,6 +97,15 @@ export const reports = pgTable(
     /** NULL = denuncia de visitante sem conta. */
     reporterId: uuid('reporter_id').references(() => profiles.id, { onDelete: 'set null' }),
 
+    /**
+     * Opcional — amarra a denúncia a UMA locação específica (Fase 20:
+     * denúncia de dano que decide reter caução). A maioria das denúncias
+     * (perfil falso, mensagem imprópria, anúncio enganoso) não tem uma
+     * reserva por trás, por isso é nullable — não é o alvo da denúncia
+     * (isso continua sendo `targetType`/`spaceId`/etc.), é contexto extra.
+     */
+    bookingId: uuid('booking_id').references(() => bookings.id, { onDelete: 'set null' }),
+
     reason: reportReason('reason').notNull(),
     severity: reportSeverity('severity').notNull().default('normal'),
     details: text('details'),
@@ -122,6 +131,7 @@ export const reports = pgTable(
     index('reports_target_user_idx').on(t.targetUserId),
     index('reports_message_idx').on(t.messageId),
     index('reports_reporter_idx').on(t.reporterId),
+    index('reports_booking_idx').on(t.bookingId),
     /** A fila do moderador: abertas primeiro, mais graves no topo. */
     index('reports_queue_idx')
       .on(t.status, t.severity, t.createdAt)
@@ -165,4 +175,5 @@ export const reportsRelations = relations(reports, ({ one }) => ({
   targetUser: one(profiles, { fields: [reports.targetUserId], references: [profiles.id] }),
   message: one(messages, { fields: [reports.messageId], references: [messages.id] }),
   reporter: one(profiles, { fields: [reports.reporterId], references: [profiles.id] }),
+  booking: one(bookings, { fields: [reports.bookingId], references: [bookings.id] }),
 }));

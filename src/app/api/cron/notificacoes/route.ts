@@ -2,9 +2,17 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { requireIntegration, IntegrationNotConfiguredError } from '@/lib/env';
 import { timingSafeEqualStrings } from '@/lib/security/tokens';
 import { runRentDueReminders, runOwnerActivityDigests } from '@/lib/notifications/cron';
+import { runDepositAutoRelease } from '@/lib/payments/deposits';
 
 /**
  * GET /api/cron/notificacoes
+ *
+ * O job diário agendado do projeto — não só notificação: também libera
+ * sozinha a caução de aluguéis encerrados sem disputa (Fase 20). Os três
+ * dividem a mesma rota de propósito: são o mesmo tipo de trabalho ("por
+ * tempo, não por ação de alguém") e o plano Hobby da Vercel limita quantos
+ * crons um projeto pode ter — não faz sentido gastar um segundo slot só
+ * pra separar por nome.
  *
  * Chamada pelo Vercel Cron (ver vercel.json) uma vez por dia. Autenticação:
  * header `Authorization: Bearer <CRON_SECRET>` — a Vercel manda esse header
@@ -37,7 +45,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'token invalido' }, { status: 401 });
   }
 
-  const [vencimentos, resumos] = await Promise.all([runRentDueReminders(), runOwnerActivityDigests()]);
+  const [vencimentos, resumos, caucoes] = await Promise.all([
+    runRentDueReminders(),
+    runOwnerActivityDigests(),
+    runDepositAutoRelease(),
+  ]);
 
-  return NextResponse.json({ ok: true, vencimentos, resumos });
+  return NextResponse.json({ ok: true, vencimentos, resumos, caucoes });
 }
