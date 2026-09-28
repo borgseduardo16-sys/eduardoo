@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireIntegration, IntegrationNotConfiguredError } from '@/lib/env';
 import { timingSafeEqualStrings } from '@/lib/security/tokens';
-import { runRentDueReminders, runOwnerActivityDigests } from '@/lib/notifications/cron';
+import { runRentDueReminders, runOwnerActivityDigests, runPromotionExpiringReminders } from '@/lib/notifications/cron';
 import { runDepositAutoRelease } from '@/lib/payments/deposits';
 
 /**
@@ -45,11 +45,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'token invalido' }, { status: 401 });
   }
 
-  const [vencimentos, resumos, caucoes] = await Promise.all([
+  const [vencimentos, resumos, caucoes, promocoes] = await Promise.all([
     runRentDueReminders(),
     runOwnerActivityDigests(),
     runDepositAutoRelease(),
+    runPromotionExpiringReminders(),
   ]);
 
-  return NextResponse.json({ ok: true, vencimentos, resumos, caucoes });
+  return NextResponse.json({ ok: true, vencimentos, resumos, caucoes, promocoes });
 }

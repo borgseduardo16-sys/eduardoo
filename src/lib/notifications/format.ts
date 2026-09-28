@@ -1,6 +1,7 @@
+import { createElement, type ReactElement } from 'react';
 import {
   CircleCheck, CircleX, Ban, Wallet, Clock, MessageCircle, Star, ShieldCheck, Info, Bell,
-  TrendingDown, Sparkles, Users,
+  TrendingDown, Sparkles, Users, Sparkle, Hourglass, MessageSquareHeart,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -26,10 +27,23 @@ export const NOTIFICATION_TYPE_INFO: Record<string, { icon: LucideIcon; tone: 'p
   favorite_available_again: { icon: CircleCheck, tone: 'positive' },
   new_compatible_space: { icon: Sparkles, tone: 'neutral' },
   owner_activity_digest: { icon: Users, tone: 'neutral' },
+  // --- Fase 21 ---
+  review_available: { icon: MessageSquareHeart, tone: 'neutral' },
+  promotion_expiring: { icon: Hourglass, tone: 'caution' },
+  premium_changed: { icon: Sparkle, tone: 'neutral' },
 };
 
 export function notificationIcon(type: string): LucideIcon {
   return NOTIFICATION_TYPE_INFO[type]?.icon ?? Bell;
+}
+
+/**
+ * O ícone do tipo já como elemento. Existe para quem renderiza uma lista:
+ * resolver o componente dentro de outro componente ("const Icone = ...;
+ * <Icone/>") faz o React tratá-lo como um tipo novo a cada render.
+ */
+export function notificationIconElement(type: string, className: string): ReactElement {
+  return createElement(notificationIcon(type), { className, 'aria-hidden': true });
 }
 
 /** "há 3 minutos" / "há 2 dias" — sem depender de nenhuma lib nova. */

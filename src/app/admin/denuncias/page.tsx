@@ -25,6 +25,7 @@ const TARGET_LABEL: Record<string, string> = {
   space: 'Anúncio',
   user: 'Usuário',
   message: 'Mensagem',
+  review: 'Avaliação',
 };
 
 function formatDateTime(value: Date): string {
@@ -70,7 +71,14 @@ export default async function AdminDenunciasPage() {
                   ? d.spaceTitle
                   : d.targetType === 'user'
                     ? d.targetUserName
-                    : (d.messageSenderName ?? 'Mensagem');
+                    : d.targetType === 'review'
+                      ? 'Avaliação denunciada'
+                      : (d.messageSenderName ?? 'Mensagem');
+              // Fase 21: a fila já existente só precisa saber mostrar o alvo novo.
+              const avaliacao =
+                d.targetType === 'review' && d.evidenceSnapshot
+                  ? (d.evidenceSnapshot as { rating?: number; comment?: string | null })
+                  : null;
 
               return (
                 <li key={d.id} className="rounded-[var(--radius-card)] border p-4 space-y-3">
@@ -97,6 +105,13 @@ export default async function AdminDenunciasPage() {
                   {d.details && (
                     <p className="text-[0.875rem] text-[var(--content-muted)] bg-[var(--surface-sunken)] rounded-[var(--radius-field)] p-3">
                       “{d.details}”
+                    </p>
+                  )}
+
+                  {avaliacao && (
+                    <p className="text-[0.8125rem] text-[var(--content)] bg-[var(--surface-sunken)] rounded-[var(--radius-field)] p-3">
+                      <span className="text-[var(--content-subtle)]">Avaliação denunciada ({avaliacao.rating ?? '?'} de 5): </span>
+                      {avaliacao.comment || '(sem comentário)'}
                     </p>
                   )}
 

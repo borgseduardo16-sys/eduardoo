@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { subscriptions, bookings, spaces, notifications, favorites, conversations } from '@/db/schema';
+import { subscriptions, bookings, spaces, notifications, favorites, conversations, promotions } from '@/db/schema';
 import { notifyUser, notifyUsers } from './dispatch';
 
 /**
@@ -92,7 +92,8 @@ export async function runRentDueReminders(): Promise<{ sent: number }> {
         c.milestone === '7d'
           ? `O aluguel de "${c.spaceTitle}" vence em 7 dias.`
           : `O aluguel de "${c.spaceTitle}" vence amanhã.`,
-      linkPath: '/reservas',
+      linkPath: `/reservas/${c.bookingId}`,
+      dedupeKey: `payment_upcoming:${c.subscriptionId}:${c.milestone}:${c.nextDueDate}`,
       data: {
         subscriptionId: c.subscriptionId,
         bookingId: c.bookingId,
@@ -179,3 +180,44 @@ export async function runOwnerActivityDigests(): Promise<{ sent: number }> {
 
   return { sent };
 }
+
+/**
+ * Destaque/Turbo terminando nas próximas 24h (Fase 21): um aviso por
+ * promoção, para o proprietário decidir se renova — nunca repetido, mesmo
+ * com o cron rodando de novo (dedupeKey por promoção).
+ */
+export async function runPromotionExpiringReminders(): Promise<{ sent: number }> {
+  const acabando = await db
+    .select({
+      promotionId: promotions.id,
+      ownerId: promotions.ownerId,
+      type: sql<'destaque' | 'turbo'>`${promotions.type}::text`,
+      expiresAt: promotions.expiresAt,
+      spaceTitle: spaces.title,
+    })
+    .from(promotions)
+    .innerJoin(spaces, eq(spaces.id, promotions.spaceId))
+    .where(
+      and(
+        eq(promotions.status, 'active'),
+        gt(promotions.expiresAt, sql`now()`),
+        sql`${promotions.expiresAt} <= now() + interval '24 hours'`,
+      ),
+    );
+  if (acabando.length === 0) return { sent: 0 };
+
+  await notifyUsers(
+    db,
+    acabando.map((p) => ({
+      userId: p.ownerId,
+      type: 'promotion_expiring' as const,
+      title: `Seu ${p.type === 'turbo' ? 'Turbo' : 'Destaque'} termina em breve`,
+      body: `O ${p.type === 'turbo' ? 'Turbo' : 'Destaque'} de "${p.spaceTitle}" termina nas próximas 24 horas.`,
+      linkPath: '/meus-espacos/promocoes',
+      data: { promotionId: p.promotionId, expiresAt: p.expiresAt.toISOString() },
+      dedupeKey: `promotion_expiring:${p.promotionId}`,
+    })),
+  );
+  return { sent: acabando.length };
+}
+

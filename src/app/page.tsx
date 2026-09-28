@@ -162,7 +162,7 @@ export default async function Home() {
                 {
                   icon: ShieldCheck,
                   t: 'Endereço protegido',
-                  d: 'O endereço exato só aparece depois que a reserva é aceita. No mapa público fica só a região.',
+                  d: 'O endereço exato só aparece depois que a reserva é confirmada com o primeiro pagamento. No mapa público fica só a região.',
                 },
                 {
                   icon: Banknote,

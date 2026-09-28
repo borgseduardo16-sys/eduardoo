@@ -11,6 +11,9 @@ import { cn } from '@/lib/utils';
  * anúncios dele. Clicar abre um painel explicativo: é também o caminho de
  * descoberta orgânica do Premium (pedido explícito), não só um enfeite.
  *
+ * O painel diz com todas as letras que Premium é plano comercial, não selo
+ * de confiança (Fase 21) — quem paga por divulgação não fica "mais confiável".
+ *
  * Estrela verde de quatro pontas (`Sparkle`, lucide-react) — pedido
  * explícito de qual ícone usar.
  */
@@ -71,6 +74,10 @@ export function PremiumBadge({ className }: { className?: string }) {
         </div>
 
         <div className="p-5 pt-2 space-y-4">
+          <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
+            Plano comercial de divulgação de anúncios. Não é uma verificação e não indica
+            que a pessoa é mais confiável — para isso, veja as verificações e as avaliações.
+          </p>
           <ul className="space-y-2 text-[0.875rem] text-[var(--content-muted)]">
             <li>• 2 Destaques gratuitos por mês</li>
             <li>• 1 Turbo gratuito por mês</li>

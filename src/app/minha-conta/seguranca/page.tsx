@@ -60,7 +60,7 @@ export default async function SegurancaPage() {
               {blocked.map((b) => (
                 <li key={b.id} className="flex items-center justify-between gap-4 p-4">
                   <div className="min-w-0 space-y-0.5">
-                    <p className="font-medium truncate">{b.fullName ?? 'Usuário'}</p>
+                    <p className="font-medium truncate">{b.publicName ?? 'Usuário da MyPlace'}</p>
                     <p className="text-[0.8125rem] text-[var(--content-muted)]">
                       Bloqueado em{' '}
                       {new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' }).format(b.blockedAt)}
@@ -86,7 +86,7 @@ export default async function SegurancaPage() {
               {
                 icon: ShieldCheck,
                 t: 'Seu endereço fica privado',
-                d: 'O endereço exato do seu espaço só aparece para o locatário depois que a reserva é aceita. No mapa público, a posição é aproximada.',
+                d: 'O endereço exato do seu espaço só aparece para o locatário depois que a reserva é confirmada, com o primeiro pagamento aprovado. No mapa público, a posição é aproximada.',
               },
               {
                 icon: MessageSquareWarning,

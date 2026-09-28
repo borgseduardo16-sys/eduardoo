@@ -180,8 +180,8 @@ export function SpacePreview({
 
       <p className="flex gap-2 items-start pt-4 border-t text-[0.75rem] text-[var(--content-subtle)] leading-relaxed">
         <ShieldCheck className="size-4 shrink-0 mt-px text-[var(--accent)]" aria-hidden />
-        O endereço completo não aparece aqui. Ele só é revelado a quem alugar, depois que você
-        aceitar a reserva.
+        O endereço completo não aparece aqui. Ele só é revelado a quem alugar, quando a reserva é
+        confirmada com o primeiro pagamento.
       </p>
     </article>
   );

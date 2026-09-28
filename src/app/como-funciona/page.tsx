@@ -99,7 +99,7 @@ export default function ComoFuncionaPage() {
               {[
                 'Conversa registrada — em caso de problema, existe histórico.',
                 'Pagamento rastreável, sem dinheiro em espécie ou combinado por fora.',
-                'Localização exata do espaço só é revelada depois que a reserva é aceita.',
+                'Localização exata do espaço só é revelada depois que a reserva é confirmada, com o primeiro pagamento aprovado.',
                 'Denúncia e suspensão de conta para quem descumpre as regras.',
               ].map((t) => (
                 <li key={t} className="flex items-start gap-2.5 text-[0.9375rem] text-[var(--content-muted)]">

@@ -1,155 +1,69 @@
-import Link from 'next/link';
-import { computeTrustProfile, type TrustInput, type TrustProfile } from '@/lib/safety/trust';
+import { Info } from 'lucide-react';
+import type { TrustSignal } from '@/lib/safety/trust';
 import { Icon } from './icon';
 import { cn } from '@/lib/utils';
 
-const LEVEL_STYLE: Record<TrustProfile['level'], { bg: string; fg: string }> = {
-  novo: { bg: 'var(--surface-sunken)', fg: 'var(--content-muted)' },
-  em_construcao: { bg: 'var(--surface-sunken)', fg: 'var(--content-muted)' },
-  estabelecido: {
-    bg: 'color-mix(in oklch, var(--color-positive) 12%, transparent)',
-    fg: 'var(--color-positive)',
-  },
-  consolidado: {
-    bg: 'color-mix(in oklch, var(--color-positive) 16%, transparent)',
-    fg: 'var(--color-positive)',
-  },
-  sob_revisao: {
-    bg: 'color-mix(in oklch, var(--color-critical) 12%, transparent)',
-    fg: 'var(--color-critical)',
-  },
-};
-
 /**
- * Sinais de confiança de um perfil.
+ * Sinais de confiança de um perfil (Fase 21).
  *
- * Mostra o que foi verificado e quanto histórico a pessoa tem na plataforma —
- * que é exatamente o que ela perde ao negociar por fora. É a razão econômica
- * para ficar, e por isso aparece com destaque em vez de ficar escondido no
- * perfil.
+ * Cada sinal é tocável e abre a explicação do que ele significa — selo que
+ * não se explica é decoração. Usa `<details>`/`<summary>` nativos: funciona
+ * sem JavaScript, o leitor de tela anuncia "expandido/recolhido" sozinho e
+ * o teclado já sabe abrir com Enter/Espaço.
  *
- * Não é nota de 0 a 100 de propósito: número único convida a comparar
- * "87 contra 84", o que passa uma precisão que o dado não tem.
+ * Só recebe sinais reais (`buildTrustSignals`). O que não existe não aparece
+ * — nunca um "✗ Telefone não verificado" para quem está olhando de fora.
  */
-export function TrustBadges({
-  input,
-  variant = 'full',
+export function TrustSignalList({
+  signals,
   className,
+  compact = false,
 }: {
-  input: TrustInput;
-  variant?: 'inline' | 'full';
+  signals: TrustSignal[];
   className?: string;
+  /** Linhas mais baixas, para caber em card de solicitação. */
+  compact?: boolean;
 }) {
-  const trust = computeTrustProfile(input);
-  const style = LEVEL_STYLE[trust.level];
-
-  if (variant === 'inline') {
-    return (
-      <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
-        <span
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[var(--radius-pill)] text-[0.75rem] font-medium"
-          style={{ backgroundColor: style.bg, color: style.fg }}
-        >
-          {trust.levelLabel}
-        </span>
-        {trust.signals
-          .filter((s) => s.tone === 'positive')
-          .slice(0, 2)
-          .map((s) => (
-            <span
-              key={s.key}
-              className="inline-flex items-center gap-1 text-[0.75rem] text-[var(--content-muted)]"
-            >
-              <Icon name={s.icon} className="size-3.5" />
-              {s.label}
-            </span>
-          ))}
-      </div>
-    );
-  }
+  if (signals.length === 0) return null;
 
   return (
-    <section className={cn('space-y-4', className)}>
-      <div className="space-y-1.5">
-        <span
-          className="inline-flex items-center px-2.5 py-1 rounded-[var(--radius-pill)] text-[0.8125rem] font-medium"
-          style={{ backgroundColor: style.bg, color: style.fg }}
-        >
-          {trust.levelLabel}
-        </span>
-        <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
-          {trust.levelHint}
-        </p>
-      </div>
-
-      <ul className="space-y-2">
-        {trust.signals.map((s) => (
-          <li key={s.key} className="flex items-center gap-2.5 text-[0.875rem]">
-            <Icon
-              name={s.icon}
+    <ul className={cn(compact ? 'space-y-0.5' : 'space-y-1', className)}>
+      {signals.map((s) => (
+        <li key={s.key}>
+          <details className="group">
+            <summary
               className={cn(
-                'size-4 shrink-0',
-                s.tone === 'positive' && 'text-[var(--color-positive)]',
-                s.tone === 'caution' && 'text-[var(--color-caution)]',
-                s.tone === 'neutral' && 'text-[var(--content-subtle)]',
+                'flex items-center gap-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden',
+                '-mx-2 px-2 rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)] transition-colors',
+                'focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent)]',
+                compact ? 'py-1 text-[0.8125rem]' : 'py-1.5 text-[0.9375rem]',
               )}
-            />
-            <span className={s.tone === 'caution' ? 'text-[var(--content-muted)]' : undefined}>
-              {s.label}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/**
- * Lista de verificações pendentes, mostrada ao dono do perfil.
- * Enquadrada como benefício ("quem aluga confia mais") e não como cobrança.
- */
-export function TrustChecklist({ input, className }: { input: TrustInput; className?: string }) {
-  const trust = computeTrustProfile(input);
-  if (trust.missing.length === 0) return null;
-
-  return (
-    <section className={cn('rounded-[var(--radius-card)] border p-5 space-y-4', className)}>
-      <header className="space-y-1">
-        <h2 className="font-semibold">
-          Conta verificada{' '}
-          <span className="text-[var(--content-subtle)] font-normal text-[0.875rem]">
-            {trust.verificationsDone} de {trust.verificationsTotal}
-          </span>
-        </h2>
-        <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
-          Conta verificada aparece em destaque para quem procura espaço — e é o que faz
-          alguém escolher o seu anúncio em vez de outro.
-        </p>
-      </header>
-
-      <ul className="space-y-3">
-        {trust.missing.map((m) => (
-          <li key={m.key} className="flex gap-3">
-            <span
-              aria-hidden
-              className="shrink-0 mt-1.5 size-1.5 rounded-full bg-[var(--content-subtle)]"
-            />
-            <div className="space-y-0.5">
-              <h3 className="text-[0.9375rem] font-medium">{m.label}</h3>
-              <p className="text-[0.8125rem] text-[var(--content-muted)] leading-relaxed">
-                {m.why}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ul>
-
-      <Link
-        href="/minha-conta/verificacao"
-        className="inline-block text-[0.875rem] text-[var(--accent)] underline underline-offset-4"
-      >
-        Verificar minha conta
-      </Link>
-    </section>
+            >
+              <Icon
+                name={s.icon}
+                className={cn(
+                  'size-4 shrink-0',
+                  s.group === 'verification' ? 'text-[var(--color-positive)]' : 'text-[var(--content-subtle)]',
+                )}
+              />
+              <span className="min-w-0 flex-1">{s.label}</span>
+              <Info
+                className="size-3.5 shrink-0 text-[var(--content-subtle)] group-open:text-[var(--accent)]"
+                aria-hidden
+              />
+              <span className="sr-only">— o que isso significa</span>
+            </summary>
+            <p
+              className={cn(
+                'pl-6.5 pr-2 text-[var(--content-muted)] leading-relaxed animate-rise',
+                compact ? 'pb-1.5 text-[0.75rem]' : 'pb-2 text-[0.8125rem]',
+              )}
+            >
+              {s.explanation}
+            </p>
+          </details>
+        </li>
+      ))}
+    </ul>
   );
 }

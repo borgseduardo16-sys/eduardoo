@@ -8,10 +8,44 @@ import {
   boolean,
   inet,
   uniqueIndex,
+  primaryKey,
+  check,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
-import { notificationType } from './enums';
+import { relations, sql } from 'drizzle-orm';
+import { notificationType, notificationCategory } from './enums';
 import { profiles } from './users';
+
+/**
+ * Preferencia de notificacao por categoria (Fase 21).
+ *
+ * Sem linha = tudo ligado (padrao), entao nao precisa de preenchimento para
+ * quem ja existe. So se grava quando a pessoa muda algo.
+ *
+ * Categorias essenciais (reservas, pagamentos, conta) nao podem ser
+ * desligadas nem por um INSERT direto: o CHECK garante — desligar aviso de
+ * pagamento recusado so prejudicaria quem desligou.
+ */
+export const notificationPreferences = pgTable(
+  'notification_preferences',
+  {
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => profiles.id, { onDelete: 'cascade' }),
+    category: notificationCategory('category').notNull(),
+    /** Aparece na central (sino). */
+    inApp: boolean('in_app').notNull().default(true),
+    /** Aviso no celular (Web Push), quando a pessoa ativou push. */
+    push: boolean('push').notNull().default(true),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.category] }),
+    check(
+      'notification_preferences_essential_locked',
+      sql`${t.category} NOT IN ('reservas', 'pagamentos', 'conta') OR (${t.inApp} AND ${t.push})`,
+    ),
+  ],
+);
 
 /** Notificacao in-app. Email/push leem desta mesma fila. */
 export const notifications = pgTable(
@@ -32,11 +66,23 @@ export const notifications = pgTable(
     readAt: timestamp('read_at', { withTimezone: true }),
     emailSentAt: timestamp('email_sent_at', { withTimezone: true }),
 
+    /**
+     * Chave de idempotencia (Fase 21), opcional. O mesmo evento processado
+     * duas vezes — webhook reenviado, cron rodando de novo, clique duplo —
+     * gera a mesma chave, e o indice unico abaixo faz o segundo INSERT virar
+     * nada (`ON CONFLICT DO NOTHING`), sem notificacao nem push duplicados.
+     * Ex.: `promotion_expiring:<promotionId>`, `review_available:<bookingId>`.
+     */
+    dedupeKey: text('dedupe_key'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('notifications_user_unread_idx').on(t.userId, t.readAt),
     index('notifications_user_created_idx').on(t.userId, t.createdAt),
+    uniqueIndex('notifications_user_dedupe_key')
+      .on(t.userId, t.dedupeKey)
+      .where(sql`dedupe_key IS NOT NULL`),
   ],
 );
 

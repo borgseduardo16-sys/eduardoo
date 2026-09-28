@@ -123,6 +123,9 @@ async function main() {
   process.env.RESEND_API_KEY = testbed.resendApiKey;
   process.env.EMAIL_FROM = 'MyPlace <nao-responda@teste.invalid>';
 
+  // Como no DAL real: o nome público vem do perfil gravado no banco (Fase 21).
+  const nomePublico = async (id: string) =>
+    id ? ((await sql<{ public_name: string | null }[]>`SELECT public_name FROM profiles WHERE id=${id}`)[0]?.public_name ?? null) : null;
   const dalPath = req.resolve('../src/lib/auth/dal.ts');
   req.cache[dalPath] = {
     id: dalPath, filename: dalPath, loaded: true,
@@ -134,6 +137,7 @@ async function main() {
           role: identidadeAtual.role,
           email: 'teste@exemplo.invalid',
           fullName: identidadeAtual.fullName,
+          publicName: await nomePublico(identidadeAtual.id),
           avatarPath: null,
           status: 'active',
           statusReason: null,
@@ -367,13 +371,15 @@ async function main() {
   const inboxLocatario = await listConversations(locatarioId);
   const itemInbox = inboxLocatario.find((c) => c.id === r1.conversationId);
   assert('conversa aparece na inbox do locatario', Boolean(itemInbox));
-  expect('inbox mostra o nome do dono (outra parte)', itemInbox?.outraParteNome, 'Dono ' + tag);
+  // Fase 21: a outra parte aparece pelo nome PÚBLICO (primeiro nome ou nome
+  // de exibição) — o nome completo não sai do servidor.
+  expect('inbox mostra o nome público do dono (outra parte)', itemInbox?.outraParteNome, 'Dono');
   assert('inbox mostra a ultima mensagem', Boolean(itemInbox?.ultimaMensagem));
 
   const inboxDono = await listConversations(donoId);
   const itemInboxDono = inboxDono.find((c) => c.id === r1.conversationId);
   assert('conversa aparece na inbox do dono', Boolean(itemInboxDono));
-  expect('inbox do dono mostra o nome do locatario (outra parte)', itemInboxDono?.outraParteNome, 'Locatario Interessado');
+  expect('inbox do dono mostra o nome público do locatario (outra parte)', itemInboxDono?.outraParteNome, 'Locatario');
 
   const inboxTerceiro = await listConversations(terceiroId);
   assert('conversa NAO aparece na inbox de quem nao participa', !inboxTerceiro.some((c) => c.id === r1.conversationId));
@@ -440,8 +446,11 @@ async function main() {
   expect('um e-mail novo foi "enviado" (capturado pelo testbed)', testbed.emailsSent.length, emailsAntes8 + 1);
   const emailRecebido = testbed.emailsSent[testbed.emailsSent.length - 1]!;
   expect('e-mail foi para o dono (destinatario certo)', emailRecebido.to, [`${tag}-dono@exemplo.invalid`]);
-  assert('assunto menciona quem mandou e o espaco',
-    emailRecebido.subject.includes('Locatario Interessado') && emailRecebido.subject.includes(`Garagem ${tag}-a`),
+  assert('assunto menciona quem mandou (nome público) e o espaco',
+    emailRecebido.subject.includes('Locatario') && emailRecebido.subject.includes(`Garagem ${tag}-a`),
+    emailRecebido.subject);
+  assert('o e-mail não leva o nome completo de quem mandou',
+    !emailRecebido.subject.includes('Interessado') && !emailRecebido.html.includes('Interessado'),
     emailRecebido.subject);
   assert('corpo do e-mail contem o link direto pra conversa',
     emailRecebido.html.includes(`/mensagens/${r1.conversationId}`), emailRecebido.html);
@@ -529,8 +538,9 @@ async function main() {
   const msgCancelar = mensagensSistemaAposCancelar[1]!;
   assert('segunda mensagem tambem e de sistema', msgCancelar.isSystem);
   expect('remetente da mensagem de cancelamento e quem cancelou (o locatario)', msgCancelar.senderId, locatarioId);
-  assert('corpo menciona cancelamento e quem cancelou',
-    msgCancelar.body.includes('cancelada') && msgCancelar.body.includes('Locatario Interessado'), msgCancelar.body);
+  assert('corpo menciona cancelamento e quem cancelou (nome público, sem o sobrenome)',
+    msgCancelar.body.includes('cancelada') && msgCancelar.body.includes('Locatario') && !msgCancelar.body.includes('Interessado'),
+    msgCancelar.body);
 
   const [{ n: aindaUmaConversaSo }] = await sql<{ n: number }[]>`
     SELECT count(*)::int AS n FROM conversations WHERE space_id=${espacoSistemaId} AND renter_id=${locatarioId}`;

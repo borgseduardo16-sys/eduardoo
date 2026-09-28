@@ -77,13 +77,18 @@ export async function SiteHeader({
                 >
                   <Heart className="size-[1.125rem]" aria-hidden />
                 </Link>
+                {/*
+                  No celular, nome e "Sair" ficam na aba "Conta" da navegação
+                  inferior (/minha-conta tem "Sair da conta") — no cabeçalho
+                  eles empurravam a página para além da largura da tela.
+                */}
                 <Link
                   href="/minha-conta"
-                  className="text-[0.875rem] font-medium px-3 py-2 rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
+                  className="hidden sm:inline-block max-w-[12rem] truncate align-middle text-[0.875rem] font-medium px-3 py-2 rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
                 >
-                  {user.fullName?.split(' ')[0] ?? 'Minha conta'}
+                  {user.publicName ?? 'Minha conta'}
                 </Link>
-                <form action={signOutAction}>
+                <form action={signOutAction} className="hidden sm:block">
                   <Button type="submit" variant="quiet" size="sm">
                     Sair
                   </Button>

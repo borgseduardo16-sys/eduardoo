@@ -249,15 +249,19 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
   }
 
   const jobs = await insertNotifications(tx, [
+    // dedupeKey por COBRANCA: CONFIRMED e RECEIVED da mesma cobranca (eventos
+    // diferentes, ids diferentes) nao viram dois avisos iguais (Fase 21).
     {
       userId: booking.renterId, type: 'payment_confirmed', title: 'Pagamento confirmado',
       body: 'Seu pagamento foi confirmado. O aluguel segue ativo.',
-      linkPath: '/reservas', data: { bookingId: booking.id, paymentId: pagamento.id },
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
     {
       userId: booking.ownerId, type: 'payment_confirmed', title: 'Pagamento recebido',
       body: 'O pagamento deste aluguel foi confirmado pelo locatário.',
       linkPath: '/meus-espacos/financeiro', data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
   ]);
 
@@ -379,17 +383,28 @@ async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow)
       .where(eq(subscriptions.id, pagamento.subscriptionId));
   }
 
-  const job = await insertNotification(tx, {
-    userId: booking.renterId, type: 'payment_failed', title: 'Pagamento em atraso',
-    body: 'O pagamento deste mês está atrasado. Regularize para manter o aluguel ativo.',
-    linkPath: '/reservas', data: { bookingId: booking.id, paymentId: pagamento.id },
-  });
+  // Os dois lados ficam sabendo (Fase 21): o proprietario tambem precisa
+  // saber que o aluguel do espaco dele esta em atraso.
+  const jobsAtraso = await insertNotifications(tx, [
+    {
+      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento em atraso',
+      body: 'O pagamento deste mês está atrasado. Regularize para manter o aluguel ativo.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_overdue:${pagamento.id}`,
+    },
+    {
+      userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento do locatário em atraso',
+      body: 'O pagamento deste mês do seu espaço está atrasado. Você é avisado quando for regularizado.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_overdue:${pagamento.id}`,
+    },
+  ]);
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.overdue',
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
   });
 
-  return job ? [job] : [];
+  return jobsAtraso;
 }
 
 async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
@@ -398,17 +413,26 @@ async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow):
     .set({ status: 'failed', failureReason: 'Recusado na analise de risco do gateway.', updatedAt: new Date() })
     .where(eq(payments.id, pagamento.id));
 
-  const job = await insertNotification(tx, {
-    userId: booking.renterId, type: 'payment_failed', title: 'Pagamento recusado',
-    body: 'Seu pagamento não foi aprovado. Tente novamente com outro cartão ou meio de pagamento.',
-    linkPath: '/reservas', data: { bookingId: booking.id, paymentId: pagamento.id },
-  });
+  const jobsRecusa = await insertNotifications(tx, [
+    {
+      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento recusado',
+      body: 'Seu pagamento não foi aprovado. Tente novamente com outro cartão ou meio de pagamento.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_failed:${pagamento.id}`,
+    },
+    {
+      userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento do locatário recusado',
+      body: 'A cobrança deste aluguel não foi aprovada. O locatário foi avisado para tentar de novo.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_failed:${pagamento.id}`,
+    },
+  ]);
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.failed',
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
   });
 
-  return job ? [job] : [];
+  return jobsRecusa;
 }
 
 async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
@@ -422,17 +446,26 @@ async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow
     userId: null, amountCents: -pagamento.amountCents, description: 'Estorno',
   });
 
-  const job = await insertNotification(tx, {
-    userId: booking.renterId, type: 'payment_failed', title: 'Pagamento estornado',
-    body: 'O pagamento deste aluguel foi estornado.',
-    linkPath: '/reservas', data: { bookingId: booking.id, paymentId: pagamento.id },
-  });
+  const jobsEstorno = await insertNotifications(tx, [
+    {
+      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento estornado',
+      body: 'O pagamento deste aluguel foi estornado.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_refunded:${pagamento.id}`,
+    },
+    {
+      userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento estornado',
+      body: 'Um pagamento deste aluguel foi estornado ao locatário.',
+      linkPath: '/meus-espacos/financeiro', data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_refunded:${pagamento.id}`,
+    },
+  ]);
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.refunded',
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
   });
 
-  return job ? [job] : [];
+  return jobsEstorno;
 }
 
 async function handleDeleted(tx: Tx, pagamento: PaymentRow): Promise<PushJob[]> {
@@ -556,7 +589,8 @@ async function handlePurchaseConfirmed(tx: Tx, compra: PromotionPurchaseRow, pay
     const job = await insertNotification(tx, {
       userId: compra.ownerId, type: 'payment_confirmed', title: 'Promoção ativada',
       body: `Pagamento confirmado — seu anúncio está com ${compra.type === 'turbo' ? 'Turbo' : 'Destaque'} ativo.`,
-      linkPath: '/meus-espacos', data: { spaceId: compra.spaceId, promotionId },
+      linkPath: '/meus-espacos/promocoes', data: { spaceId: compra.spaceId, promotionId },
+      dedupeKey: `promotion_activated:${compra.id}`,
     });
     await tx.insert(auditLogs).values({
       actorId: null, actorRole: 'system', action: 'promotion_purchase.confirmed',

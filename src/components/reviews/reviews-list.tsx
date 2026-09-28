@@ -1,36 +1,94 @@
-import { Star } from 'lucide-react';
-import { formatBookingDate } from '@/lib/bookings/format';
-import type { SpaceReviewRow } from '@/lib/reviews/queries';
+import Link from 'next/link';
+import type { ReviewRow } from '@/lib/reviews/queries';
+import { reviewMonthLabel } from '@/lib/reviews/format';
+import { displayNameOr } from '@/lib/profiles/format';
+import { UserAvatar } from '@/components/profile/user-avatar';
+import { ReportDialog } from '@/components/safety/report-dialog';
+import { Stars } from './rating-summary';
 
-/** Lista de avaliações do espaço — só renderiza quando existe pelo menos uma real. */
-export function ReviewsList({ reviews }: { reviews: SpaceReviewRow[] }) {
+/**
+ * Lista de avaliações reais (anúncio ou perfil).
+ *
+ * Cada item mostra só o que é público: nome público e foto de quem
+ * escreveu (com link para o perfil, se a conta ainda estiver ativa), nota,
+ * comentário e o MÊS — não o dia, que ajudaria a cruzar a avaliação com uma
+ * reserva específica.
+ *
+ * "Denunciar avaliação" aparece para quem está logado e não é o autor. A
+ * denúncia não tira a avaliação do ar: quem decide é a moderação.
+ */
+export function ReviewsList({
+  reviews,
+  avatarUrls,
+  viewerId,
+  showSpace = false,
+}: {
+  reviews: ReviewRow[];
+  avatarUrls: Map<string, string>;
+  viewerId: string | null;
+  /** No perfil, diz de qual anúncio foi a locação. */
+  showSpace?: boolean;
+}) {
   if (reviews.length === 0) return null;
 
   return (
-    <section className="space-y-4">
-      <h2 className="font-semibold">Avaliações</h2>
-      <ul className="space-y-4">
-        {reviews.map((r) => (
-          <li key={r.id} className="space-y-1 pb-4 border-b last:border-b-0 last:pb-0">
-            <div className="flex items-center gap-2">
-              <div className="flex" aria-hidden>
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Star
-                    key={n}
-                    className={n <= r.rating ? 'size-3.5 text-[var(--accent)]' : 'size-3.5 text-[var(--border-strong)]'}
-                    fill={n <= r.rating ? 'currentColor' : 'none'}
+    <ul className="divide-y">
+      {reviews.map((r) => {
+        const nome = displayNameOr(r.author.publicName, 'Usuário da MyPlace');
+        const avatar = r.author.avatarPath ? (avatarUrls.get(r.author.avatarPath) ?? null) : null;
+        return (
+          <li key={r.id} className="py-5 first:pt-0 last:pb-0" data-testid="avaliacao">
+            <article className="flex items-start gap-3">
+              <UserAvatar url={avatar} name={r.author.publicName} size="sm" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <header className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  {r.author.active ? (
+                    <Link
+                      href={`/perfil/${r.author.id}`}
+                      className="font-medium text-[0.9375rem] hover:text-[var(--accent)] underline-offset-2 hover:underline break-words"
+                    >
+                      {nome}
+                    </Link>
+                  ) : (
+                    <span className="font-medium text-[0.9375rem]">{nome}</span>
+                  )}
+                  <span className="text-[0.8125rem] text-[var(--content-subtle)]">
+                    {reviewMonthLabel(r.createdAt)}
+                  </span>
+                </header>
+
+                <Stars rating={r.rating} />
+
+                {showSpace && r.space && (
+                  <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                    Locação de{' '}
+                    <Link href={`/espacos/${r.space.slug}`} className="underline underline-offset-2 hover:text-[var(--accent)]">
+                      {r.space.title}
+                    </Link>
+                  </p>
+                )}
+
+                {r.comment && (
+                  <p className="text-[0.9375rem] text-[var(--content-muted)] leading-relaxed whitespace-pre-line break-words">
+                    {r.comment}
+                  </p>
+                )}
+
+                {viewerId && viewerId !== r.author.id && (
+                  <ReportDialog
+                    targetType="review"
+                    targetId={r.id}
+                    targetLabel="esta avaliação"
+                    triggerLabel="Denunciar avaliação"
+                    variant="ghost"
+                    className="!h-auto !px-0 !py-0.5 !text-[0.75rem] text-[var(--content-subtle)] hover:!bg-transparent hover:text-[var(--content)] [&_svg]:!size-3"
                   />
-                ))}
+                )}
               </div>
-              <p className="text-[0.8125rem] font-medium">{r.authorName ?? 'Locatário'}</p>
-              <p className="text-[0.75rem] text-[var(--content-subtle)]">{formatBookingDate(r.createdAt)}</p>
-            </div>
-            {r.comment && (
-              <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">{r.comment}</p>
-            )}
+            </article>
           </li>
-        ))}
-      </ul>
-    </section>
+        );
+      })}
+    </ul>
   );
 }

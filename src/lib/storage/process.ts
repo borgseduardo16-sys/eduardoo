@@ -129,6 +129,52 @@ export async function processUploadedImage(
   };
 }
 
+/** Lado da foto de perfil. Aparece no maximo a ~96 px; 512 cobre telas de alta densidade. */
+const AVATAR_EDGE = 512;
+
+export type ProcessedAvatar = {
+  bytes: Uint8Array;
+  sizeBytes: number;
+  mime: 'image/jpeg' | 'image/webp';
+  extension: 'jpg' | 'webp';
+};
+
+/**
+ * Foto de perfil (Fase 21): recorte quadrado centralizado, 512 px, e o
+ * MESMO reencode das fotos de anuncio — sem EXIF, sem GPS. Selfie tirada em
+ * casa carregaria o endereco da pessoa exatamente como a foto da garagem.
+ */
+export async function processAvatarImage(bytes: Uint8Array, sourceMime: AcceptedMime): Promise<ProcessedAvatar> {
+  const paraWebp = sourceMime === 'image/webp';
+
+  const meta = await sharp(bytes, { limitInputPixels: 100_000_000, failOn: 'error' })
+    .metadata()
+    .catch(() => null);
+  if (!meta?.width || !meta?.height) {
+    throw new ImageProcessingError('Não foi possível ler a imagem. Tente outro arquivo.');
+  }
+  if (meta.width < MIN_DIMENSION || meta.height < MIN_DIMENSION) {
+    throw new ImageProcessingError(
+      `A foto precisa ter pelo menos ${MIN_DIMENSION} x ${MIN_DIMENSION} pixels. ` +
+        `Esta tem ${meta.width} x ${meta.height}.`,
+    );
+  }
+
+  // Sem withMetadata(): o sharp descarta todo metadado na saida (ver o comentario acima).
+  const pipeline = sharp(bytes, { limitInputPixels: 100_000_000, failOn: 'error' })
+    .rotate()
+    .resize({ width: AVATAR_EDGE, height: AVATAR_EDGE, fit: 'cover', position: 'attention' });
+  const buf = await (paraWebp ? pipeline.webp({ quality: 80 }) : pipeline.jpeg({ quality: 80, mozjpeg: true }))
+    .toBuffer();
+
+  return {
+    bytes: new Uint8Array(buf),
+    sizeBytes: buf.byteLength,
+    mime: paraWebp ? 'image/webp' : 'image/jpeg',
+    extension: paraWebp ? 'webp' : 'jpg',
+  };
+}
+
 /**
  * Confere se sobrou metadado sensivel na saida.
  *

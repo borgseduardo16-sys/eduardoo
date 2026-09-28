@@ -82,6 +82,57 @@ async function main() {
     lembrete('Geocodificacao de endereco nao configurada', 'busca por CEP continua funcionando; busca por texto livre de endereco fica limitada — ver docs/SETUP.md §3.4');
   }
 
+  if (configurado('NEXT_PUBLIC_VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT')) {
+    pronto('Web Push (VAPID) configurado', 'avisos no celular com o app fechado');
+  } else {
+    lembrete('Web Push (VAPID) nao configurado', 'as notificacoes continuam na central (sino), mas nao chegam no celular — ver docs/SETUP.md §12');
+  }
+
+  if (configurado('CRON_SECRET')) {
+    pronto('CRON_SECRET configurado', 'avisos agendados (vencimentos, resumo do proprietario, Destaque/Turbo expirando)');
+  } else {
+    lembrete('CRON_SECRET nao configurado', 'o job agendado de notificacoes recusa as chamadas — ver docs/SETUP.md §11');
+  }
+
+  if (configurado('TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_VERIFY_SERVICE_SID')) {
+    pronto('Twilio Verify configurado', 'verificacao de telefone por SMS disponivel');
+  } else {
+    lembrete(
+      'Twilio Verify nao configurado',
+      'ninguem consegue verificar telefone, e o selo "Telefone verificado" nao aparece para ninguem — ver docs/SETUP.md §13',
+    );
+  }
+
+  // "E-mail verificado" copia auth.users.email_confirmed_at. Com a confirmacao
+  // de e-mail DESLIGADA no Supabase, todo cadastro nasce "confirmado" sem
+  // ninguem abrir link nenhum — e o selo passaria a mentir. O endpoint
+  // /auth/v1/settings do Supabase Auth e publico (so exige a chave anon).
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (supabaseUrl && anonKey && !/localhost|127\.0\.0\.1/.test(supabaseUrl)) {
+    try {
+      const res = await fetch(`${supabaseUrl.replace(/\/+$/, '')}/auth/v1/settings`, {
+        headers: { apikey: anonKey },
+        signal: AbortSignal.timeout(8000),
+      });
+      const cfg = (await res.json()) as { mailer_autoconfirm?: boolean };
+      if (cfg.mailer_autoconfirm === false) {
+        pronto('Supabase exige confirmacao de e-mail', 'o selo "E-mail verificado" vem de um link aberto de verdade');
+      } else if (cfg.mailer_autoconfirm === true) {
+        faltando(
+          'Confirmacao de e-mail DESLIGADA no Supabase',
+          'todo cadastro sairia como "E-mail verificado" sem confirmacao real — ligue em Authentication → Sign In / Providers → Email → "Confirm email"',
+        );
+      } else {
+        lembrete('Nao foi possivel ler a configuracao de e-mail do Supabase', `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      lembrete('Nao foi possivel consultar o Supabase Auth', String(err).slice(0, 200));
+    }
+  } else {
+    lembrete('Supabase apontando para o ambiente local', 'a checagem de "Confirm email" so vale contra o projeto real');
+  }
+
   secao('2. Ambiente e infraestrutura');
 
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? '';

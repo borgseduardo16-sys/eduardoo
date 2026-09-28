@@ -1,202 +1,172 @@
 /**
- * Sinais de confianca de um perfil.
+ * Sinais de confianca de um perfil (reescrito na Fase 21).
  *
  * POR QUE ISTO E A DEFESA MAIS FORTE CONTRA SAIR DA PLATAFORMA
  *
- * Aviso nao segura ninguem. Quem quer combinar por fora combina, e um alerta
- * a mais na tela nao muda isso.
- *
- * O que muda o calculo e a pessoa ter algo a PERDER: um proprietario com 14
- * locacoes concluidas e documento conferido nao troca esse historico por
- * economizar 3% num mes — porque o historico e o que faz o proximo locatario
- * escolher o anuncio dele. Reputacao construida aqui nao acompanha ninguem
- * para fora.
- *
- * Por isso este modulo existe: nao para enfeitar o perfil, mas para tornar a
+ * Aviso nao segura ninguem. O que muda o calculo e a pessoa ter algo a
+ * PERDER: historico de locacoes concluidas e avaliacoes reais nao acompanham
+ * ninguem para fora. Mostrar esse historico de forma honesta e o que torna a
  * permanencia economicamente racional.
+ *
+ * O QUE MUDOU NA FASE 21
+ *
+ * Antes havia um "nivel" sintetico (Conta nova / Historico consolidado /
+ * Conta em revisao). Saiu, por tres motivos:
+ * - era uma classificacao artificial, sem formula exposta a quem le;
+ * - "Conta em revisao" publicava dado interno de moderacao (denuncias
+ *   procedentes) — isso nao e informacao publica;
+ * - "Conta nova" transformava ausencia de historico em algo negativo.
+ *
+ * A regra por tras de "Conta em revisao" continua valendo (ver `underReview`
+ * e `shouldEmphasizeVisit`) — so deixou de ser publicada.
+ *
+ * Agora sao so SINAIS REAIS, cada um com a explicacao do que significa
+ * (aparece ao tocar). Sinal que nao existe simplesmente nao aparece — nunca
+ * vira um "x vermelho" nem um "0 avaliacoes".
+ *
+ * Premium, Destaque, Turbo e quantidade de anuncios NAO entram aqui:
+ * popularidade/uso nao e confianca.
  *
  * Modulo puro — sem banco, sem rede. Recebe os dados e devolve a leitura.
  */
+import { formatRating, reviewCountLabel } from '@/lib/reviews/format';
+import { memberSinceLabel } from '@/lib/profiles/format';
+
+/**
+ * Verificacao de identidade: so estrutura nesta fase (coluna
+ * `identity_verification_status`). Nao ha provedor integrado, entao o selo
+ * nao aparece em lugar nenhum — mesmo que o banco diga 'verified', um valor
+ * posto a mao nao e um processo real. Vira `true` quando existir o
+ * processo de verdade.
+ */
+export const IDENTITY_VERIFICATION_AVAILABLE = false;
 
 export type TrustInput = {
   createdAt: Date;
   emailVerified: boolean;
   phoneVerified: boolean;
-  documentVerified: boolean;
+  identityVerified?: boolean;
   completedBookings: number;
-  upheldReports: number;
-  /** Media das avaliacoes, quando ja houver alguma. */
-  ratingAvg?: number | null;
-  ratingCount?: number;
+  /** Reputacao no papel que importa para quem esta lendo (ex.: como proprietario). */
+  rating?: { average: string | null; count: number } | null;
+  /**
+   * Denuncias procedentes no limite de revisao
+   * (`safety.auto_review_upheld_threshold`, o mesmo da moderacao).
+   *
+   * Dado INTERNO: nunca vira selo, texto nem motivo na tela. So faz a
+   * recomendacao de visita subir de destaque — historico longo nao pode
+   * mascarar denuncia confirmada (regra que existia desde a Fase 11 no
+   * antigo nivel "Conta em revisao", mantida sem publicar a moderacao).
+   */
+  underReview?: boolean;
 };
 
-export type TrustLevel = 'novo' | 'em_construcao' | 'estabelecido' | 'consolidado' | 'sob_revisao';
+export type TrustSignalKey = 'email' | 'phone' | 'identity' | 'member_since' | 'bookings' | 'rating';
 
 export type TrustSignal = {
-  key: string;
+  key: TrustSignalKey;
   label: string;
-  /** Nome do icone lucide-react. */
+  /** O que o sinal significa. Obrigatorio: selo sem explicacao e decoracao. */
+  explanation: string;
+  /** Nome do icone lucide-react (ver components/safety/icon.tsx). */
   icon: string;
-  tone: 'positive' | 'neutral' | 'caution';
+  group: 'verification' | 'history';
 };
 
-export type TrustProfile = {
-  level: TrustLevel;
-  levelLabel: string;
-  /** Explicacao curta do nivel, para quem esta olhando o perfil. */
-  levelHint: string;
-  signals: TrustSignal[];
-  /** Quantas das tres verificacoes a pessoa completou. */
-  verificationsDone: number;
-  verificationsTotal: number;
-  /** O que falta verificar — vira a lista de proximos passos no proprio perfil. */
-  missing: { key: string; label: string; why: string }[];
-};
-
-const DIA = 24 * 60 * 60 * 1000;
-
-function mesesDesde(date: Date): number {
-  return Math.floor((Date.now() - date.getTime()) / (30 * DIA));
-}
-
-const LEVEL_COPY: Record<TrustLevel, { label: string; hint: string }> = {
-  sob_revisao: {
-    label: 'Conta em revisão',
-    hint: 'Esta conta tem denúncias procedentes e está sendo analisada.',
-  },
-  novo: {
-    label: 'Conta nova',
-    hint: 'Ainda sem histórico na plataforma. Visite o espaço antes de fechar.',
-  },
-  em_construcao: {
-    label: 'Construindo histórico',
-    hint: 'Já tem verificações, mas poucas locações concluídas.',
-  },
-  estabelecido: {
-    label: 'Histórico consistente',
-    hint: 'Verificado e com locações concluídas na plataforma.',
-  },
-  consolidado: {
-    label: 'Histórico consolidado',
-    hint: 'Verificado, com várias locações concluídas e boa avaliação.',
-  },
-};
+/** Texto das explicacoes — um lugar so, para perfil, anuncio e solicitacao dizerem o mesmo. */
+export const TRUST_EXPLANATIONS = {
+  email:
+    'Esta pessoa confirmou o endereço de e-mail abrindo o link de confirmação enviado pela plataforma. O e-mail em si nunca é mostrado.',
+  phone:
+    'Esta pessoa confirmou um número de telefone através do processo de verificação da plataforma, com um código enviado por SMS. O número em si nunca é mostrado.',
+  identity:
+    'A identidade desta pessoa foi verificada através de um processo oficial da plataforma.',
+  member_since: 'Data em que a conta foi criada na MyPlace.',
+  bookings:
+    'Aluguéis que chegaram ao fim dentro da MyPlace, contando os dois lados — como proprietário e como locatário.',
+  rating:
+    'Média das notas dadas por quem participou de uma locação concluída com esta pessoa. Só avalia quem alugou de verdade, uma vez por locação.',
+} as const satisfies Record<TrustSignalKey, string>;
 
 /**
- * Calcula o nivel de confianca.
- *
- * Deliberadamente NAO e uma nota de 0 a 100. Numero unico convida a comparar
- * "87 contra 84", o que nao quer dizer nada e passa uma precisao que o dado
- * nao tem. Faixas com explicacao sao mais honestas e mais uteis para decidir.
+ * Lista de sinais, na ordem em que devem aparecer: verificacoes primeiro,
+ * historico depois.
  */
-export function computeTrustProfile(input: TrustInput): TrustProfile {
-  const verifications = [input.emailVerified, input.phoneVerified, input.documentVerified];
-  const verificationsDone = verifications.filter(Boolean).length;
-
-  let level: TrustLevel;
-  if (input.upheldReports >= 3) {
-    // Denuncia procedente domina qualquer outro sinal. Um perfil com historico
-    // longo E denuncias confirmadas e mais perigoso, nao menos.
-    level = 'sob_revisao';
-  } else if (input.completedBookings >= 5 && verificationsDone === 3 && (input.ratingAvg ?? 0) >= 4.5) {
-    level = 'consolidado';
-  } else if (input.completedBookings >= 2 && verificationsDone >= 2) {
-    level = 'estabelecido';
-  } else if (verificationsDone >= 1 || input.completedBookings >= 1) {
-    level = 'em_construcao';
-  } else {
-    level = 'novo';
-  }
-
+export function buildTrustSignals(input: TrustInput): TrustSignal[] {
   const signals: TrustSignal[] = [];
 
   if (input.emailVerified) {
-    signals.push({ key: 'email', label: 'E-mail confirmado', icon: 'Mail', tone: 'positive' });
+    signals.push({
+      key: 'email',
+      label: 'E-mail verificado',
+      explanation: TRUST_EXPLANATIONS.email,
+      icon: 'MailCheck',
+      group: 'verification',
+    });
   }
   if (input.phoneVerified) {
-    signals.push({ key: 'phone', label: 'Telefone confirmado', icon: 'Smartphone', tone: 'positive' });
+    signals.push({
+      key: 'phone',
+      label: 'Telefone verificado',
+      explanation: TRUST_EXPLANATIONS.phone,
+      icon: 'Smartphone',
+      group: 'verification',
+    });
   }
-  if (input.documentVerified) {
-    signals.push({ key: 'document', label: 'Documento conferido', icon: 'BadgeCheck', tone: 'positive' });
+  if (IDENTITY_VERIFICATION_AVAILABLE && input.identityVerified) {
+    signals.push({
+      key: 'identity',
+      label: 'Identidade verificada',
+      explanation: TRUST_EXPLANATIONS.identity,
+      icon: 'BadgeCheck',
+      group: 'verification',
+    });
   }
 
-  const meses = mesesDesde(input.createdAt);
-  if (meses >= 1) {
-    signals.push({
-      key: 'age',
-      label: meses >= 12 ? `Na MyPlace há ${Math.floor(meses / 12)} ano(s)` : `Na MyPlace há ${meses} ${meses === 1 ? 'mês' : 'meses'}`,
-      icon: 'CalendarDays',
-      tone: 'neutral',
-    });
+  if (input.rating && input.rating.count > 0) {
+    const nota = formatRating(input.rating.average);
+    if (nota) {
+      signals.push({
+        key: 'rating',
+        label: `${nota} ★ · ${reviewCountLabel(input.rating.count)}`,
+        explanation: TRUST_EXPLANATIONS.rating,
+        icon: 'Star',
+        group: 'history',
+      });
+    }
   }
 
   if (input.completedBookings > 0) {
     signals.push({
       key: 'bookings',
       label: `${input.completedBookings} ${input.completedBookings === 1 ? 'locação concluída' : 'locações concluídas'}`,
+      explanation: TRUST_EXPLANATIONS.bookings,
       icon: 'CircleCheckBig',
-      tone: 'positive',
+      group: 'history',
     });
   }
 
-  if (input.ratingCount && input.ratingCount > 0 && input.ratingAvg) {
-    signals.push({
-      key: 'rating',
-      label: `${input.ratingAvg.toFixed(1)} de 5 em ${input.ratingCount} ${input.ratingCount === 1 ? 'avaliação' : 'avaliações'}`,
-      icon: 'Star',
-      tone: 'positive',
-    });
-  }
+  signals.push({
+    key: 'member_since',
+    label: memberSinceLabel(input.createdAt),
+    explanation: TRUST_EXPLANATIONS.member_since,
+    icon: 'CalendarDays',
+    group: 'history',
+  });
 
-  if (level === 'novo') {
-    signals.push({
-      key: 'new',
-      label: 'Sem histórico ainda',
-      icon: 'CircleAlert',
-      tone: 'caution',
-    });
-  }
-
-  const missing: TrustProfile['missing'] = [];
-  if (!input.emailVerified) {
-    missing.push({
-      key: 'email',
-      label: 'Confirmar e-mail',
-      why: 'Sem isso você não recebe avisos de reserva e pagamento.',
-    });
-  }
-  if (!input.phoneVerified) {
-    missing.push({
-      key: 'phone',
-      label: 'Confirmar telefone',
-      why: 'Aumenta a confiança de quem vai negociar com você.',
-    });
-  }
-  if (!input.documentVerified) {
-    missing.push({
-      key: 'document',
-      label: 'Conferir documento',
-      why: 'Obrigatório para receber pagamentos. É o sinal que mais pesa para quem aluga.',
-    });
-  }
-
-  return {
-    level,
-    levelLabel: LEVEL_COPY[level].label,
-    levelHint: LEVEL_COPY[level].hint,
-    signals,
-    verificationsDone,
-    verificationsTotal: 3,
-    missing,
-  };
+  return signals;
 }
 
 /**
- * Deve recomendar visita presencial antes de fechar?
+ * Deve recomendar visita presencial com mais enfase?
  *
- * Sempre recomendamos visitar. Mas quando a outra parte tem pouco historico, o
- * aviso sobe de tom — e ai a recomendacao vira destaque, nao rodape.
+ * Sempre recomendamos visitar. A recomendacao sobe de destaque quando a
+ * outra parte ainda nao tem nenhuma locacao concluida nem avaliacao, ou
+ * quando a moderacao ja confirmou denuncias contra ela (`underReview`) —
+ * neste caso mesmo com historico longo. Nos dois casos, sem rotular a
+ * pessoa nem dizer o motivo.
  */
-export function shouldEmphasizeVisit(trust: TrustProfile): boolean {
-  return trust.level === 'novo' || trust.level === 'em_construcao' || trust.level === 'sob_revisao';
+export function shouldEmphasizeVisit(input: TrustInput): boolean {
+  if (input.underReview) return true;
+  return input.completedBookings === 0 && (input.rating?.count ?? 0) === 0;
 }

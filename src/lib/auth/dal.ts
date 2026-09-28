@@ -23,6 +23,8 @@ export type SessionUser = {
   id: string;
   email: string;
   fullName: string | null;
+  /** Nome de exibição ou primeiro nome — o que outras pessoas veem (Fase 21). */
+  publicName: string | null;
   avatarPath: string | null;
   role: 'user' | 'owner' | 'admin';
   status: 'active' | 'suspended' | 'banned' | 'deleted';
@@ -49,6 +51,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     .select({
       id: profiles.id,
       fullName: profiles.fullName,
+      publicName: profiles.publicName,
       avatarPath: profiles.avatarPath,
       role: profiles.role,
       status: profiles.status,
@@ -68,6 +71,7 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
     id: profile.id,
     email: user.email ?? '',
     fullName: profile.fullName,
+    publicName: profile.publicName,
     avatarPath: profile.avatarPath,
     role: profile.role,
     status: profile.status,

@@ -148,6 +148,34 @@
       "when": 1790465210756,
       "tag": "0020_luxuriant_prima",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790592696127,
+      "tag": "0021_sleepy_brother_voodoo",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790595802223,
+      "tag": "0022_first_steel_serpent",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790624952280,
+      "tag": "0023_stub_auth_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790626157211,
+      "tag": "0024_rotulos_com_acento",
+      "breakpoints": true
     }
   ]
 }

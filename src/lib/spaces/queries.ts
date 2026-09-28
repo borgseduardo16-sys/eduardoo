@@ -103,6 +103,8 @@ export type SearchSpacesOptions = {
   city?: string;
   /** Tipo do espaco (space_type). Valor desconhecido = nenhum resultado, de proposito. */
   type?: string;
+  /** So anuncios desta pessoa (perfil publico, Fase 21). */
+  ownerId?: string;
 
   /** Ponto de referencia (GPS, CEP ou endereco geocodificado) — ver resolve-location.ts. */
   point?: LatLng | null;
@@ -167,6 +169,9 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
     eq(spaces.status, 'published'),
     isNull(spaces.deletedAt),
   ];
+  if (options?.ownerId) {
+    conditions.push(eq(spaces.ownerId, options.ownerId));
+  }
   if (options?.city) {
     // ILIKE sem curinga = comparacao exata ignorando maiusculas.
     conditions.push(sql`${spaces.city} ILIKE ${options.city}`);
@@ -360,22 +365,38 @@ export const getPublicSpaceBySlug = cache(async (slug: string) => {
       .innerJoin(features, eq(features.key, spaceFeatures.featureKey))
       .where(eq(spaceFeatures.spaceId, space.id))
       .orderBy(features.sortOrder),
+    // Proprietario: so o que e publico (Fase 21) — nome publico, nunca o
+    // completo; verificacoes lidas do dado real, nunca presumidas. Conta
+    // suspensa/apagada nao aparece como "quem anuncia".
     db
       .select({
         id: profiles.id,
-        fullName: profiles.fullName,
+        publicName: profiles.publicName,
         avatarPath: profiles.avatarPath,
+        bio: profiles.bio,
         createdAt: profiles.createdAt,
-        phoneVerifiedAt: profiles.phoneVerifiedAt,
-        documentVerifiedAt: profiles.documentVerifiedAt,
+        emailVerified: sql<boolean>`${profiles.emailVerifiedAt} IS NOT NULL`,
+        phoneVerified: sql<boolean>`${profiles.phoneVerifiedAt} IS NOT NULL`,
+        identityVerified: sql<boolean>`${profiles.identityVerificationStatus} = 'verified'`,
         completedBookingsCount: profiles.completedBookingsCount,
-        upheldReportCount: profiles.upheldReportCount,
-        isPremium: sql<boolean>`EXISTS (
-          SELECT 1 FROM premium_memberships pm WHERE pm.user_id = ${profiles.id} AND pm.status = 'active'
+        // `profiles.id` por extenso: ver o comentario em profiles/queries.ts.
+        activeSpacesCount: sql<number>`(
+          SELECT count(*)::int FROM spaces s2
+          WHERE s2.owner_id = profiles.id AND s2.status = 'published' AND s2.deleted_at IS NULL
         )`,
+        isPremium: sql<boolean>`EXISTS (
+          SELECT 1 FROM premium_memberships pm WHERE pm.user_id = profiles.id AND pm.status = 'active'
+        )`,
+        // Dado interno de moderação: só reforça a recomendação de visita,
+        // nunca vira texto na tela (ver `underReview` em safety/trust.ts).
+        // Mesmo limite que a moderação usa, lido de platform_settings.
+        underReview: sql<boolean>`(profiles.upheld_report_count >= COALESCE((
+          SELECT (ps.value #>> '{}')::int FROM platform_settings ps
+          WHERE ps.key = 'safety.auto_review_upheld_threshold'
+        ), 3))`,
       })
       .from(profiles)
-      .where(eq(profiles.id, space.ownerId))
+      .where(and(eq(profiles.id, space.ownerId), eq(profiles.status, 'active'), isNull(profiles.deletedAt)))
       .limit(1),
   ]);
 

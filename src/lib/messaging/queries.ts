@@ -61,7 +61,7 @@ export async function listConversations(userId: string) {
       lastMessageAt: conversations.lastMessageAt,
       closedAt: conversations.closedAt,
       outraParteNome: sql<string | null>`
-        (SELECT full_name FROM profiles WHERE id =
+        (SELECT public_name FROM profiles WHERE id =
           CASE WHEN ${conversations.renterId} = ${userId} THEN ${conversations.ownerId} ELSE ${conversations.renterId} END)
       `,
       ultimaMensagem: sql<string | null>`
@@ -108,7 +108,8 @@ export async function listMessages(conversationId: string) {
     .select({
       id: messages.id,
       senderId: messages.senderId,
-      senderName: profiles.fullName,
+      // Nome PUBLICO (Fase 21) — o nome completo nao aparece na conversa.
+      senderName: profiles.publicName,
       body: messages.body,
       isSystem: messages.isSystem,
       hiddenAt: messages.hiddenAt,

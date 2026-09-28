@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { reports, profiles, auditLogs, premiumMemberships, bookingDeposits } from '@/db/schema';
+import { notifyUser } from '@/lib/notifications/dispatch';
 import { requireAdminOrThrow } from '@/lib/auth/dal';
 import { releaseDeposit } from '@/lib/payments/deposits';
 import { parseBRLToCents } from '@/lib/money';
@@ -325,7 +326,22 @@ export async function togglePremiumMembershipAction(
     ip: await clientIp(),
   });
 
+  // A pessoa fica sabendo da mudança no plano dela (Fase 21) — sem isso o
+  // selo aparecia/sumia do perfil sem nenhum aviso.
+  await notifyUser(db, {
+    userId,
+    type: 'premium_changed',
+    title: acao === 'conceder' ? 'Você agora é Membro Premium' : 'Seu Premium foi encerrado',
+    body:
+      acao === 'conceder'
+        ? '2 Destaques e 1 Turbo gratuitos por mês para seus anúncios, renovados todo mês.'
+        : 'Seus anúncios continuam no ar normalmente; os benefícios mensais deixam de valer.',
+    linkPath: '/premium',
+    data: { acao },
+  });
+
   revalidatePath('/admin/usuarios');
+  revalidatePath(`/perfil/${userId}`);
 
   return { ok: true, message: acao === 'conceder' ? 'Premium concedido.' : 'Premium revogado.' };
 }

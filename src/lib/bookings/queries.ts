@@ -1,5 +1,6 @@
 import 'server-only';
-import { and, desc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db/client';
 import { bookings, spaces, profiles, bookingStatus, payments } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
@@ -176,6 +177,10 @@ const lastPaymentDueDateExpr = sql<string | null>`(
   SELECT due_date FROM payments p
   WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
 )`;
+const lastPaymentInvoiceUrlExpr = sql<string | null>`(
+  SELECT invoice_url FROM payments p
+  WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
+)`;
 const lastPaymentAmountExpr = sql<number | null>`(
   SELECT amount_cents FROM payments p
   WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
@@ -194,7 +199,7 @@ export async function listRenterBookings(renterId: string) {
     .select({
       ...listSelection,
       ownerId: profiles.id,
-      ownerName: profiles.fullName,
+      ownerPublicName: profiles.publicName,
       subscriptionStatus: latestSubscriptionExpr,
       nextDueDate: nextDueDateExpr,
       lastPaymentStatus: lastPaymentStatusExpr,
@@ -219,24 +224,138 @@ export async function getRenterBooking(id: string, renterId: string) {
   return row ?? null;
 }
 
-/** Solicitacoes recebidas pelo PROPRIETARIO — para a area "Solicitações". */
-export async function listOwnerBookingRequests(ownerId: string, statusFilter?: BookingStatus[]) {
+/**
+ * Quem pediu o espaco, visto pelo proprietario (Fase 21): so dado publico —
+ * nome publico, foto, verificacoes reais, locacoes concluidas. Telefone e
+ * e-mail continuam fora: o contato e pelo chat da plataforma.
+ */
+const renterPublicSelection = {
+  renterId: profiles.id,
+  renterPublicName: profiles.publicName,
+  renterAvatarPath: profiles.avatarPath,
+  renterCreatedAt: profiles.createdAt,
+  renterEmailVerified: sql<boolean>`${profiles.emailVerifiedAt} IS NOT NULL`,
+  renterPhoneVerified: sql<boolean>`${profiles.phoneVerifiedAt} IS NOT NULL`,
+  renterIdentityVerified: sql<boolean>`${profiles.identityVerificationStatus} = 'verified'`,
+  renterCompletedBookings: profiles.completedBookingsCount,
+};
+
+const renterP = alias(profiles, 'booking_renter');
+const ownerP = alias(profiles, 'booking_owner');
+
+function publicPerson(p: typeof renterP | typeof ownerP) {
+  return {
+    id: p.id,
+    publicName: p.publicName,
+    avatarPath: p.avatarPath,
+    createdAt: p.createdAt,
+    emailVerified: sql<boolean>`${p.emailVerifiedAt} IS NOT NULL`,
+    phoneVerified: sql<boolean>`${p.phoneVerifiedAt} IS NOT NULL`,
+    identityVerified: sql<boolean>`${p.identityVerificationStatus} = 'verified'`,
+    completedBookingsCount: p.completedBookingsCount,
+    active: sql<boolean>`(${p.status} = 'active' AND ${p.deletedAt} IS NULL)`,
+  };
+}
+
+/**
+ * Pagina da reserva (/reservas/[id], Fase 21) — para QUALQUER uma das duas
+ * partes, e so para elas. A posse esta no WHERE: id de reserva alheia
+ * devolve null, igual a id inexistente (nao da para descobrir se existe).
+ *
+ * De cada parte sai so o dado publico (nome publico, foto, verificacoes);
+ * telefone e e-mail seguem fora — o contato e pelo chat da plataforma.
+ */
+export async function getBookingForParticipant(id: string, userId: string) {
+  const [row] = await db
+    .select({
+      ...listSelection,
+      renterId: bookings.renterId,
+      renterFeeBps: bookings.renterFeeBps,
+      ownerFeeBps: bookings.ownerFeeBps,
+      subscriptionStatus: latestSubscriptionExpr,
+      nextDueDate: nextDueDateExpr,
+      lastPaymentStatus: lastPaymentStatusExpr,
+      lastPaymentDueDate: lastPaymentDueDateExpr,
+      lastPaymentAmountCents: lastPaymentAmountExpr,
+      lastPaymentInvoiceUrl: lastPaymentInvoiceUrlExpr,
+      depositInvoiceUrl: sql<string | null>`(
+        SELECT invoice_url FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
+      )`,
+      renter: publicPerson(renterP),
+      owner: publicPerson(ownerP),
+    })
+    .from(bookings)
+    .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
+    .innerJoin(renterP, eq(renterP.id, bookings.renterId))
+    .innerJoin(ownerP, eq(ownerP.id, bookings.ownerId))
+    .where(and(eq(bookings.id, id), or(eq(bookings.renterId, userId), eq(bookings.ownerId, userId))))
+    .limit(1);
+  if (!row) return null;
+  return { ...row, viewerRole: row.renterId === userId ? ('renter' as const) : ('owner' as const) };
+}
+
+export type BookingDetail = NonNullable<Awaited<ReturnType<typeof getBookingForParticipant>>>;
+
+/** Status em que o locatario ja pode ver o endereco exato: reserva confirmada (paga). */
+export const ADDRESS_VISIBLE_STATUSES = ['active', 'past_due'] as const;
+
+/**
+ * Endereco EXATO do espaco para o locatario de uma reserva confirmada.
+ *
+ * O unico caminho de leitura de rua/numero/complemento fora da area do
+ * proprio dono. A condicao de status esta no WHERE — nao num `if` depois —
+ * para que nenhum chamador consiga pular a regra: antes do primeiro
+ * pagamento confirmado, a resposta e simplesmente vazia.
+ */
+export async function getBookingAddressForRenter(bookingId: string, renterId: string) {
+  const [row] = await db
+    .select({
+      street: spaces.street,
+      number: spaces.number,
+      complement: spaces.complement,
+      district: spaces.district,
+      city: spaces.city,
+      state: spaces.state,
+      postalCode: spaces.postalCode,
+    })
+    .from(bookings)
+    .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
+    .where(
+      and(
+        eq(bookings.id, bookingId),
+        eq(bookings.renterId, renterId),
+        inArray(bookings.status, [...ADDRESS_VISIBLE_STATUSES]),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Solicitacoes recebidas pelo PROPRIETARIO — para a area "Solicitações".
+ * `limit`/`offset` opcionais: a tela pagina (Fase 21); sem eles, devolve tudo.
+ */
+export async function listOwnerBookingRequests(
+  ownerId: string,
+  statusFilter?: BookingStatus[],
+  page?: { limit: number; offset: number },
+) {
   await expireStaleBookingRequests();
   const condicoes = [eq(bookings.ownerId, ownerId)];
   if (statusFilter?.length) condicoes.push(inArray(bookings.status, statusFilter));
 
-  return db
+  const consulta = db
     .select({
       ...listSelection,
-      renterId: profiles.id,
-      renterName: profiles.fullName,
-      renterAvatarPath: profiles.avatarPath,
+      ...renterPublicSelection,
     })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
     .innerJoin(profiles, eq(profiles.id, bookings.renterId))
     .where(and(...condicoes))
-    .orderBy(desc(bookings.requestedAt));
+    .orderBy(desc(bookings.requestedAt), desc(bookings.id));
+
+  return page ? consulta.limit(page.limit).offset(page.offset) : consulta;
 }
 
 /** Uma solicitacao do proprietario, com checagem de posse embutida na propria consulta. */
@@ -244,9 +363,7 @@ export async function getOwnerBooking(id: string, ownerId: string) {
   const [row] = await db
     .select({
       ...listSelection,
-      renterId: profiles.id,
-      renterName: profiles.fullName,
-      renterAvatarPath: profiles.avatarPath,
+      ...renterPublicSelection,
     })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
@@ -315,3 +432,19 @@ export async function listOwnerPayments(ownerId: string) {
     .where(eq(bookings.ownerId, ownerId))
     .orderBy(desc(payments.dueDate));
 }
+
+/**
+ * Reserva mais recente entre este espaço e este locatário (Fase 21) — liga
+ * a conversa à reserva correspondente. Quem chama já provou que participa
+ * da conversa (e portanto do par espaço/locatário).
+ */
+export async function findLatestBookingForSpaceAndRenter(spaceId: string, renterId: string) {
+  const [row] = await db
+    .select({ id: bookings.id, status: sql<string>`${bookings.status}::text`, reference: bookings.reference })
+    .from(bookings)
+    .where(and(eq(bookings.spaceId, spaceId), eq(bookings.renterId, renterId)))
+    .orderBy(desc(bookings.requestedAt))
+    .limit(1);
+  return row ?? null;
+}
+

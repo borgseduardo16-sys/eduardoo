@@ -4,6 +4,14 @@ import Link from 'next/link';
 import { ArrowLeft, Lock, EyeOff } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { getConversationForUser, listMessages } from '@/lib/messaging/queries';
+import { findLatestBookingForSpaceAndRenter } from '@/lib/bookings/queries';
+import { bookingStatusLabel } from '@/lib/bookings/format';
+import { getPublicProfile } from '@/lib/profiles/queries';
+import { displayNameOr } from '@/lib/profiles/format';
+import { hasBlocked } from '@/lib/safety/queries';
+import { signImagePath } from '@/lib/storage/signed-urls';
+import { UserAvatar } from '@/components/profile/user-avatar';
+import { BlockButton, UnblockButton } from '@/components/safety/block-button';
 import { markConversationReadAction } from '@/lib/messaging/actions';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -27,7 +35,15 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
   if (!conversa) notFound();
 
   await markConversationReadAction(id);
-  const mensagens = await listMessages(id);
+  const outraParteId = conversa.renterId === user.id ? conversa.ownerId : conversa.renterId;
+  const [mensagens, outraParte, reserva, bloqueadoPorMim] = await Promise.all([
+    listMessages(id),
+    getPublicProfile(outraParteId),
+    findLatestBookingForSpaceAndRenter(conversa.spaceId, conversa.renterId),
+    hasBlocked(user.id, outraParteId),
+  ]);
+  const avatarOutra = await signImagePath(outraParte?.avatarPath ?? null);
+  const nomeOutra = displayNameOr(outraParte?.publicName ?? null);
 
   return (
     <>
@@ -52,6 +68,53 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
               </p>
             )}
           </header>
+
+          {/*
+            Com quem é a conversa (Fase 21): perfil público, reserva ligada a
+            este espaço e as ferramentas de segurança — tudo sem expor
+            telefone ou e-mail.
+          */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-card)] border p-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <UserAvatar url={avatarOutra} name={outraParte?.publicName ?? null} size="md" />
+              <div className="min-w-0">
+                {outraParte ? (
+                  <Link href={`/perfil/${outraParte.id}`} className="font-medium hover:text-[var(--accent)] break-words">
+                    {nomeOutra}
+                  </Link>
+                ) : (
+                  <p className="font-medium">Conta não está mais ativa</p>
+                )}
+                <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                  {conversa.renterId === user.id ? 'Proprietário' : 'Interessado'}
+                  {reserva && (
+                    <>
+                      {' · '}
+                      <Link href={`/reservas/${reserva.id}`} className="underline underline-offset-2 hover:text-[var(--content)]">
+                        Reserva {reserva.reference} ({bookingStatusLabel(reserva.status).toLowerCase()})
+                      </Link>
+                    </>
+                  )}
+                </p>
+              </div>
+            </div>
+            {outraParte && (
+              <div className="flex flex-wrap items-start gap-2">
+                <ReportDialog
+                  targetType="user"
+                  targetId={outraParte.id}
+                  targetLabel={`o perfil de ${nomeOutra}`}
+                  triggerLabel="Denunciar usuário"
+                  variant="ghost"
+                />
+                {bloqueadoPorMim ? (
+                  <UnblockButton userId={outraParte.id} />
+                ) : (
+                  <BlockButton userId={outraParte.id} userName={nomeOutra} />
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <ul className="space-y-3">
@@ -80,7 +143,7 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
                 </div>
                 <div className="flex items-center gap-2 px-1">
                   <span className="text-[0.75rem] text-[var(--content-subtle)]">
-                    {minha ? 'Você' : m.senderName} · {formatarHora(m.createdAt)}
+                    {minha ? 'Você' : m.isSystem ? 'MyPlace' : displayNameOr(m.senderName)} · {formatarHora(m.createdAt)}
                   </span>
                   {!minha && !escondida && !m.isSystem && (
                     <ReportDialog targetType="message" targetId={m.id} targetLabel="esta mensagem" variant="ghost" className="!h-auto !p-0 !text-[0.75rem] text-[var(--content-subtle)] underline underline-offset-2" />

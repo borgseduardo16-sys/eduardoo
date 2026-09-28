@@ -89,7 +89,7 @@ async function handleDepositConfirmed(tx: Tx, deposito: DepositRow): Promise<Pus
   const job = await insertNotification(tx, {
     userId: booking.renterId, type: 'payment_confirmed', title: 'Caução confirmada',
     body: 'Sua caução foi confirmada e fica em garantia até o fim do aluguel, sem dano.',
-    linkPath: '/reservas', data: { bookingId: deposito.bookingId },
+    linkPath: `/reservas/${deposito.bookingId}`, data: { bookingId: deposito.bookingId },
   });
   return job ? [job] : [];
 }
@@ -106,7 +106,7 @@ async function handleDepositFailed(tx: Tx, deposito: DepositRow): Promise<PushJo
   const job = await insertNotification(tx, {
     userId: booking.renterId, type: 'payment_failed', title: 'Cobrança da caução recusada',
     body: 'A cobrança da caução não foi aprovada. O aluguel segue normalmente — regularize a caução assim que possível.',
-    linkPath: '/reservas', data: { bookingId: deposito.bookingId },
+    linkPath: `/reservas/${deposito.bookingId}`, data: { bookingId: deposito.bookingId },
   });
   return job ? [job] : [];
 }
@@ -199,14 +199,14 @@ export async function releaseDeposit(
       await notifyUser(db, {
         userId: booking.renterId, type: 'payment_confirmed', title: 'Caução devolvida',
         body: 'Sua caução foi devolvida integralmente — o aluguel encerrou sem nenhum dano registrado.',
-        linkPath: '/reservas', data: { bookingId: deposito.bookingId },
+        linkPath: `/reservas/${deposito.bookingId}`, data: { bookingId: deposito.bookingId },
       });
     } else {
       const complemento = releaseCents > 0 ? ` (${formatBRL(releaseCents)} devolvidos)` : '';
       await notifyUser(db, {
         userId: booking.renterId, type: 'payment_failed', title: 'Parte da caução foi retida',
         body: `Uma denúncia de dano foi confirmada e parte da caução ficou retida${complemento}.`,
-        linkPath: '/reservas', data: { bookingId: deposito.bookingId },
+        linkPath: `/reservas/${deposito.bookingId}`, data: { bookingId: deposito.bookingId },
       });
       await notifyUser(db, {
         userId: booking.ownerId, type: 'payment_confirmed', title: 'Caução retida a seu favor',

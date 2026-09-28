@@ -183,6 +183,9 @@ async function main() {
   ok('testbed do Asaas no ar (compra avulsa de Destaque/Turbo)', testbed.url);
 
   // Mock da DAL (identidade) e do next/cache — mesmo padrao de verify-payments.ts.
+  // Como no DAL real: o nome público vem do perfil gravado no banco (Fase 21).
+  const nomePublico = async (id: string) =>
+    id ? ((await sql<{ public_name: string | null }[]>`SELECT public_name FROM profiles WHERE id=${id}`)[0]?.public_name ?? null) : null;
   const dalPath = req.resolve('../src/lib/auth/dal.ts');
   req.cache[dalPath] = {
     id: dalPath, filename: dalPath, loaded: true,
@@ -191,7 +194,7 @@ async function main() {
         if (!identidadeAtual.id) throw new Error('Voce precisa entrar para continuar.');
         return {
           id: identidadeAtual.id, role: identidadeAtual.role, email: identidadeAtual.email,
-          fullName: identidadeAtual.fullName, avatarPath: null, status: 'active',
+          fullName: identidadeAtual.fullName, publicName: await nomePublico(identidadeAtual.id), avatarPath: null, status: 'active',
           statusReason: null, acceptedTermsAt: new Date(),
         };
       },

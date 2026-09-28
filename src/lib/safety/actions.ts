@@ -4,7 +4,7 @@ import { headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { reports, userBlocks, profiles, auditLogs, platformSettings } from '@/db/schema';
+import { reports, userBlocks, profiles, auditLogs, platformSettings, reviews, bookings } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { rateLimit } from '@/lib/rate-limit';
 import {
@@ -43,12 +43,57 @@ async function setting(key: string, fallback: number): Promise<number> {
 }
 
 /** Coluna de alvo correspondente ao tipo. */
-function targetColumn(targetType: ReportTarget) {
-  return targetType === 'space'
-    ? { spaceId: true }
-    : targetType === 'user'
-      ? { targetUserId: true }
-      : { messageId: true };
+function targetColumns(targetType: ReportTarget, targetId: string) {
+  switch (targetType) {
+    case 'space':
+      return { spaceId: targetId };
+    case 'user':
+      return { targetUserId: targetId };
+    case 'message':
+      return { messageId: targetId };
+    case 'review':
+      return { reviewId: targetId };
+  }
+}
+
+/**
+ * A reserva informada (opcional) precisa ser de quem denuncia E ter a ver
+ * com o alvo: a outra parte da reserva (usuario), o espaco dela (anuncio) ou
+ * uma avaliacao dela. Sem isso, qualquer um poderia pendurar uma denuncia
+ * na reserva de outras pessoas — e denuncia com reserva e o que a
+ * moderacao usa para decidir sobre a caucao (Fase 20).
+ */
+async function bookingMatchesTarget(
+  bookingId: string,
+  reporterId: string,
+  targetType: ReportTarget,
+  targetId: string,
+): Promise<boolean> {
+  const [b] = await db
+    .select({ renterId: bookings.renterId, ownerId: bookings.ownerId, spaceId: bookings.spaceId })
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  if (!b) return false;
+  if (b.renterId !== reporterId && b.ownerId !== reporterId) return false;
+
+  const outraParte = b.renterId === reporterId ? b.ownerId : b.renterId;
+  switch (targetType) {
+    case 'user':
+      return targetId === outraParte;
+    case 'space':
+      return targetId === b.spaceId;
+    case 'review': {
+      const [r] = await db
+        .select({ bookingId: reviews.bookingId })
+        .from(reviews)
+        .where(eq(reviews.id, targetId))
+        .limit(1);
+      return r?.bookingId === bookingId;
+    }
+    case 'message':
+      return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,13 +123,37 @@ export async function createReportAction(
     targetId: formData.get('targetId'),
     reason: formData.get('reason'),
     details: formData.get('details') ?? undefined,
+    bookingId: formData.get('bookingId') || undefined,
   });
 
   if (!parsed.success) {
     return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors };
   }
 
-  const { targetType, targetId, reason, details } = parsed.data;
+  const { targetType, targetId, reason, details, bookingId } = parsed.data;
+
+  if (targetType === 'user' && targetId === user.id) {
+    return { ok: false, message: 'Não é possível denunciar a si mesmo.' };
+  }
+
+  // Avaliacao: so as que estao no ar, e ninguem denuncia a propria.
+  if (targetType === 'review') {
+    const [review] = await db
+      .select({ authorId: reviews.authorId, hiddenAt: reviews.hiddenAt })
+      .from(reviews)
+      .where(eq(reviews.id, targetId))
+      .limit(1);
+    if (!review || review.hiddenAt) {
+      return { ok: false, message: 'Esta avaliação não está mais disponível.' };
+    }
+    if (review.authorId === user.id) {
+      return { ok: false, message: 'Você não pode denunciar a sua própria avaliação.' };
+    }
+  }
+
+  if (bookingId && !(await bookingMatchesTarget(bookingId, user.id, targetType, targetId))) {
+    return { ok: false, message: 'Esta reserva não está ligada ao que você está denunciando.' };
+  }
 
   // A denuncia tambem pode virar ferramenta de assedio: alguem abrindo dezenas
   // contra a mesma pessoa. Por isso ha um teto diario.
@@ -108,15 +177,12 @@ export async function createReportAction(
     return { ok: false, message: 'Aguarde um instante antes de enviar outra denúncia.' };
   }
 
-  const column = targetColumn(targetType);
-
   try {
     await db.insert(reports).values({
       targetType,
-      ...(column.spaceId ? { spaceId: targetId } : {}),
-      ...(column.targetUserId ? { targetUserId: targetId } : {}),
-      ...(column.messageId ? { messageId: targetId } : {}),
+      ...targetColumns(targetType, targetId),
       reporterId: user.id,
+      bookingId: bookingId ?? null,
       reason,
       severity: severityFor(reason),
       details,
@@ -144,7 +210,7 @@ export async function createReportAction(
     action: 'report.created',
     entityType: targetType,
     entityId: targetId,
-    metadata: { reason, severity: severityFor(reason) },
+    metadata: { reason, severity: severityFor(reason), ...(bookingId ? { bookingId } : {}) },
     ip: await clientIp(),
   });
 

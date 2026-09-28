@@ -211,6 +211,15 @@ export function buildImagePath(ownerId: string, spaceId: string, extension: stri
   return `${ownerId}/${spaceId}/${unico}.${extension}`;
 }
 
+/**
+ * Caminho da foto de perfil: `<userId>/avatar/<uuid>.<ext>`. O CHECK
+ * `profiles_avatar_path_own_folder` (migracao 0021) recusa qualquer outro
+ * formato — ninguem aponta o proprio avatar para a foto de outra pessoa.
+ */
+export function buildAvatarPath(userId: string, extension: string): string {
+  return `${userId}/avatar/${crypto.randomUUID()}.${extension}`;
+}
+
 /** Extrai o id do dono de um caminho. Usado para conferir antes de apagar. */
 export function ownerFromPath(path: string): string | null {
   const first = path.split('/')[0];

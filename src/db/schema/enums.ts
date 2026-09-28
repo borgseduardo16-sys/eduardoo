@@ -146,8 +146,8 @@ export const payoutAccountStatus = pgEnum('payout_account_status', [
   'disabled',
 ]);
 
-/** O que esta sendo denunciado. */
-export const reportTarget = pgEnum('report_target', ['space', 'user', 'message']);
+/** O que esta sendo denunciado. `review` (Fase 21): avaliacao publicada. */
+export const reportTarget = pgEnum('report_target', ['space', 'user', 'message', 'review']);
 
 /**
  * Motivos de denuncia.
@@ -179,6 +179,11 @@ export const reportReason = pgEnum('report_reason', [
   'dano_ao_espaco',
   'uso_indevido_do_espaco',
   'outro',
+  // --- Fase 21: motivos que faltavam para anuncio, usuario e avaliacao ---
+  'fotos_enganosas',
+  'comportamento_suspeito',
+  'informacao_falsa',
+  'conteudo_ofensivo',
 ]);
 
 /**
@@ -230,6 +235,55 @@ export const notificationType = pgEnum('notification_type', [
   'new_compatible_space',
   /** Resumo agrupado de favoritos/conversas novas nos anúncios do proprietário. */
   'owner_activity_digest',
+  // --- Fase 21: confiança, reputação e notificações ---
+  /** O aluguel encerrou e esta pessoa ainda pode avaliar a outra parte. */
+  'review_available',
+  /** Destaque/Turbo do anúncio termina nas próximas 24h. */
+  'promotion_expiring',
+  /** Premium concedido ou encerrado pela administração. */
+  'premium_changed',
+]);
+
+/**
+ * Categoria de preferencia de notificacao (Fase 21). O mapa tipo -> categoria
+ * vive em src/lib/notifications/categories.ts; `reservas`, `pagamentos` e
+ * `conta` sao essenciais e nao podem ser desligadas (CHECK na tabela).
+ */
+export const notificationCategory = pgEnum('notification_category', [
+  'reservas',
+  'pagamentos',
+  'mensagens',
+  'avaliacoes',
+  'meus_espacos',
+  'recomendacoes',
+  'conta',
+]);
+
+/**
+ * Ciclo de vida de uma verificacao de telefone por SMS (Fase 21).
+ * pending -> approved | failed | expired | cancelled. So `approved` marca o
+ * perfil como verificado — e so o servidor, depois do provedor confirmar.
+ */
+export const phoneVerificationStatus = pgEnum('phone_verification_status', [
+  'pending',
+  'approved',
+  'failed',
+  'expired',
+  'cancelled',
+]);
+
+/**
+ * Verificacao de identidade (Fase 21) — SO ESTRUTURA. Nenhum provedor esta
+ * integrado; nada no codigo leva uma conta a `verified`, e a interface nunca
+ * mostra "Identidade verificada" sem isso. Fica pronta para quando existir um
+ * provedor especializado (ver docs/STATUS.md, Fase 21).
+ */
+export const identityVerificationStatus = pgEnum('identity_verification_status', [
+  'not_started',
+  'pending',
+  'verified',
+  'rejected',
+  'expired',
 ]);
 
 /** Estado do processamento de um evento de webhook (idempotencia). */

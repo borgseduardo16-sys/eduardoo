@@ -32,12 +32,25 @@ export const isBlockedBetween = cache(async (a: string, b: string): Promise<bool
   return Boolean(row);
 });
 
+/**
+ * `blockerId` bloqueou `blockedId`? DIRECIONAL — so para mostrar a quem
+ * bloqueou o botao "Desbloquear". Quem foi bloqueado nunca ve isso.
+ */
+export const hasBlocked = cache(async (blockerId: string, blockedId: string): Promise<boolean> => {
+  const [row] = await db
+    .select({ blockerId: userBlocks.blockerId })
+    .from(userBlocks)
+    .where(and(eq(userBlocks.blockerId, blockerId), eq(userBlocks.blockedId, blockedId)))
+    .limit(1);
+  return Boolean(row);
+});
+
 /** Lista de bloqueios do usuario, para a tela de segurança da conta. */
 export const listBlockedUsers = cache(async (userId: string) => {
   return db
     .select({
       id: profiles.id,
-      fullName: profiles.fullName,
+      publicName: profiles.publicName,
       avatarPath: profiles.avatarPath,
       reason: userBlocks.reason,
       blockedAt: userBlocks.createdAt,

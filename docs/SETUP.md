@@ -21,6 +21,7 @@ As outras acompanham as fases seguintes — não crie nada antes da hora.
 | Resend | Grátis até 3.000 e-mails/mês | US$ 20/mês | Fase 6 |
 | Upstash Redis | Grátis até 10k comandos/dia | ~US$ 10/mês | Antes de produção |
 | Sentry | Grátis até 5k erros/mês | US$ 26/mês | Antes de produção |
+| Twilio Verify | Por verificação concluída, sem mensalidade | idem | Opcional — selo "Telefone verificado" (§13) |
 
 **Para começar hoje: R$ 0,00.** Para ir ao ar com segurança: ~US$ 45/mês +
 domínio.
@@ -78,7 +79,15 @@ Use a porta **5432** (conexão direta), não a 6543.
   - `http://localhost:3000/auth/callback`
   - `http://localhost:3000/auth/confirmar`
 
-**Authentication → Providers → Email:** deixe **Confirm email** ligado.
+**Authentication → Providers → Email** (em versões novas do painel:
+**Authentication → Sign In / Providers → Email**): deixe **Confirm email**
+ligado.
+
+> Desde a Fase 21 isto deixou de ser só boa prática: o selo **"E-mail
+> verificado"** do perfil público é uma cópia de `auth.users.email_confirmed_at`.
+> Com **Confirm email** desligado, o Supabase marca todo cadastro como
+> confirmado sem ninguém abrir link nenhum — e o selo passaria a afirmar algo
+> que não aconteceu. `pnpm check:producao` confere essa opção sozinho.
 
 ### 1.5 Criar o bucket de fotos
 
@@ -111,11 +120,13 @@ Nenhuma credencial sai das suas mãos.
 3. Cole o arquivo **inteiro** e clique em **Run**
 
 **Já rodou o schema antes e só quer a parte nova?** Existe um arquivo menor
-com apenas as migrações recentes — hoje `supabase/atualizacao-0009.sql`. Ele é
-gerado do mesmo lugar e guardado pelo mesmo hash, então dá no mesmo:
+com apenas as migrações recentes — hoje `supabase/atualizacao-0010.sql`, com
+tudo o que veio depois da `0009` (a última confirmada no seu projeto, em
+18/09). Ele é gerado do mesmo lugar e guardado pelo mesmo hash, então dá no
+mesmo — e colar o `setup.sql` completo também continua seguro:
 
 ```bash
-pnpm tsx scripts/build-supabase-setup.ts --desde 9
+pnpm tsx scripts/build-supabase-setup.ts --desde 10
 ```
 
 *Verificado:* colar o `setup.sql` antigo e depois a atualização produz um
@@ -123,7 +134,7 @@ schema **byte a byte idêntico** ao de um banco novo com o `setup.sql`
 completo, e idêntico ao que o `pnpm db:migrate` gera (comparado com `pg_dump`,
 1300 linhas).
 
-Pronto: 22 tabelas, índices geoespaciais, triggers, RLS, as políticas do
+Pronto: 30 tabelas, índices geoespaciais, triggers, RLS, as políticas do
 bucket de fotos e as taxas iniciais.
 
 **É seguro rodar mais de uma vez.** Cada migração só é aplicada se ainda não
@@ -622,6 +633,57 @@ disto.
 entrega push para um site depois que a pessoa adiciona-o à tela de início
 ("Adicionar à Tela de Início") — restrição da Apple, sem contorno possível a
 partir do navegador comum.
+
+---
+
+## 13. Twilio Verify — verificação de telefone por SMS (Fase 21)
+
+**Opcional, mas sem isto ninguém ganha o selo "Telefone verificado".** O resto
+do perfil, das avaliações e das verificações funciona normalmente — a tela
+`Minha conta → Verificações` diz com todas as letras que a verificação por
+SMS ainda não está disponível, e nenhum código é enviado.
+
+**Por que um serviço de verificação, e não "gerar um código e mandar por
+SMS":** no Twilio Verify o código nunca passa pela MyPlace — quem gera,
+envia, expira (10 minutos) e confere é o Twilio. Não existe código guardado
+no nosso banco para vazar, nem comparação feita por nós que um bug pudesse
+aceitar errado. O selo só é gravado quando o Twilio responde `approved`.
+
+1. Crie a conta em [twilio.com](https://www.twilio.com/try-twilio)
+2. No **Console**, em **Account Info** (página inicial), copie:
+   - **Account SID** (começa com `AC`) → `TWILIO_ACCOUNT_SID`
+   - **Auth Token** → `TWILIO_AUTH_TOKEN` — é **segredo**: nunca leva
+     `NEXT_PUBLIC_`, nunca vai para chat ou issue
+3. Em **Verify → Services → Create new**, crie um serviço (nome sugerido:
+   `MyPlace`, canal **SMS** ligado) e copie o **Service SID** (começa com
+   `VA`) → `TWILIO_VERIFY_SERVICE_SID`
+4. Coloque as três variáveis no `.env.local` e na Vercel. **Não** defina
+   `TWILIO_VERIFY_BASE_URL` — ela só existe para os testes automatizados
+   apontarem para o dublê local
+5. Teste: entre no app, abra **Minha conta → Verificações**, informe seu
+   celular, receba o SMS e digite o código. O selo aparece no seu perfil
+   público (`/perfil/<seu-id>`). `pnpm check:producao` também confirma que
+   as três variáveis estão presentes
+
+**Conta de teste (trial) do Twilio:** só envia SMS para números que você
+mesmo cadastrou e confirmou no Console (**Verified Caller IDs**). Para
+usuários reais é preciso ativar a conta (adicionar saldo). Se o SMS não
+chegar para números do Brasil, confira nas configurações do Verify as
+**permissões geográficas** — o Brasil (+55) precisa estar liberado.
+
+**Custo:** cobrado por verificação, sem mensalidade — confira o preço atual
+em [twilio.com/verify/pricing](https://www.twilio.com/en-us/verify/pricing).
+A MyPlace já limita os pedidos de código por pessoa (rate limit + no máximo
+uma verificação pendente por vez, garantido pelo banco) e o próprio Twilio
+barra reenvio excessivo ao mesmo número, então um usuário sozinho não
+consegue gerar uma conta alta.
+
+**O que continua fora, de propósito:** verificação de **identidade**
+(documento + selfie). A estrutura existe no banco
+(`identity_verification_status`), mas nenhum provedor está integrado e o
+selo "Identidade verificada" **não aparece para ninguém** até existir um de
+verdade (ex.: idwall, unico, Serpro Datavalid). Escolher o provedor é uma
+decisão sua — custo, contrato e LGPD mudam bastante entre eles.
 
 ---
 

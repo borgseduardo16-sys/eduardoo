@@ -59,6 +59,7 @@ async function main() {
   const ownerId = crypto.randomUUID();
   const renterId = crypto.randomUUID();
   const strangerId = crypto.randomUUID();
+  const confirmedId = crypto.randomUUID();
   let spaceId = '';
   let bookingId = '';
 
@@ -827,6 +828,311 @@ async function main() {
         'booking_deposits_provider_id_key',
       );
     }
+
+    console.log('\n\x1b[1m14. Confiança, perfil e verificações (Fase 21)\x1b[0m');
+    {
+      // --- Avaliação: quem recebeu vem da reserva, nunca de quem escreve ---
+      const [avaliacaoDoEspaco] = await sql<{ id: string; reviewed_user_id: string }[]>`
+        SELECT id, reviewed_user_id FROM reviews
+        WHERE booking_id = ${bookingId} AND kind = 'renter_to_space'`;
+      if (avaliacaoDoEspaco?.reviewed_user_id === ownerId) {
+        ok('avaliação do espaço é atribuída ao proprietário da reserva', 'reviewed_user_id preenchido pela trigger');
+      } else {
+        bad('reviewed_user_id derivado (renter_to_space)', JSON.stringify(avaliacaoDoEspaco));
+      }
+
+      await mustReject(
+        'avaliação que aponta outra pessoa como avaliada é bloqueada',
+        () => sql`
+          INSERT INTO reviews (booking_id, kind, author_id, target_user_id, reviewed_user_id, rating)
+          VALUES (${bookingId}, 'owner_to_renter', ${ownerId}, ${renterId}, ${strangerId}, 1)`,
+        'nao e a outra parte da reserva',
+      );
+
+      const [avaliacaoDoLocatario] = await sql<{ id: string; reviewed_user_id: string }[]>`
+        INSERT INTO reviews (booking_id, kind, author_id, target_user_id, rating, comment)
+        VALUES (${bookingId}, 'owner_to_renter', ${ownerId}, ${renterId}, 4, 'Pagou em dia.')
+        RETURNING id, reviewed_user_id`;
+      if (avaliacaoDoLocatario.reviewed_user_id === renterId) {
+        ok('avaliação do locatário sem informar o avaliado recebe o locatário da reserva');
+      } else {
+        bad('reviewed_user_id derivado (owner_to_renter)', JSON.stringify(avaliacaoDoLocatario));
+      }
+
+      // --- Avaliação publicada não muda nem some ---
+      await mustReject(
+        'nota de avaliação publicada não pode ser alterada',
+        () => sql`UPDATE reviews SET rating = 1 WHERE id = ${avaliacaoDoLocatario.id}`,
+        'nao pode ser alterada',
+      );
+      await mustReject(
+        'texto de avaliação publicada não pode ser alterado',
+        () => sql`UPDATE reviews SET comment = 'Texto trocado depois' WHERE id = ${avaliacaoDoLocatario.id}`,
+        'nao pode ser alterada',
+      );
+      await mustReject(
+        'avaliação não pode ser apagada (a moderação só oculta)',
+        () => sql`DELETE FROM reviews WHERE id = ${avaliacaoDoLocatario.id}`,
+        'nao pode ser apagada',
+      );
+
+      // --- Média: uma casa decimal, arredondada uma única vez ---
+      // Mais duas locações encerradas do mesmo espaço: notas 5 (seção 5), 5 e 4.
+      const reservaEncerrada = async (sufixo: string) => {
+        const [b] = await sql<{ id: string }[]>`
+          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date, ended_at,
+            monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+            owner_fee_cents, total_charged_cents, owner_payout_cents)
+          VALUES (${`MP-${tag.slice(-6).toUpperCase()}${sufixo}`}, ${spaceId}, ${renterId}, ${ownerId},
+            'ended', CURRENT_DATE - 90, now(), 18000, 300, 300, 540, 540, 18540, 17460)
+          RETURNING id`;
+        return b.id;
+      };
+      const reservaNota5 = await reservaEncerrada('F');
+      const reservaNota4 = await reservaEncerrada('G');
+      await sql`INSERT INTO reviews (booking_id, kind, author_id, space_id, rating)
+                VALUES (${reservaNota5}, 'renter_to_space', ${renterId}, ${spaceId}, 5)`;
+      const [avaliacaoNota4] = await sql<{ id: string }[]>`
+        INSERT INTO reviews (booking_id, kind, author_id, space_id, rating)
+        VALUES (${reservaNota4}, 'renter_to_space', ${renterId}, ${spaceId}, 4)
+        RETURNING id`;
+      const mediaDoEspaco = async () =>
+        (await sql<{ rating_avg: string | null; rating_count: number }[]>`
+          SELECT rating_avg::text AS rating_avg, rating_count FROM spaces WHERE id = ${spaceId}`)[0];
+
+      const media3 = await mediaDoEspaco();
+      if (Number(media3.rating_avg) === 4.7 && media3.rating_count === 3) {
+        ok('notas 5, 5 e 4 (4,666…) viram 4,7 — uma casa, arredondada uma vez', `${media3.rating_avg} (${media3.rating_count})`);
+      } else {
+        bad('arredondamento da média', JSON.stringify(media3));
+      }
+
+      await mustAccept(
+        'moderação oculta avaliação (hidden_at) — a única mudança permitida',
+        () => sql`UPDATE reviews SET hidden_at = now(), hidden_reason = 'Teste de moderação'
+                  WHERE id = ${avaliacaoNota4.id}`,
+      );
+      const media2 = await mediaDoEspaco();
+      if (Number(media2.rating_avg) === 5 && media2.rating_count === 2) {
+        ok('avaliação oculta sai da média e da contagem', `${media2.rating_avg} (${media2.rating_count})`);
+      } else {
+        bad('média sem a avaliação oculta', JSON.stringify(media2));
+      }
+
+      // --- Denúncia de avaliação ---
+      await mustReject(
+        'denúncia de avaliação sem a avaliação é bloqueada',
+        () => sql`INSERT INTO reports (target_type, reporter_id, reason)
+                  VALUES ('review', ${ownerId}, 'conteudo_ofensivo')`,
+        'reports_target_matches_type',
+      );
+      await mustReject(
+        'denúncia de avaliação que aponta também um usuário é bloqueada (um alvo por denúncia)',
+        () => sql`INSERT INTO reports (target_type, review_id, target_user_id, reporter_id, reason)
+                  VALUES ('review', ${avaliacaoDoEspaco.id}, ${renterId}, ${ownerId}, 'conteudo_ofensivo')`,
+        'reports_target_matches_type',
+      );
+      const [denunciaAvaliacao] = await sql<{ id: string; evidence_snapshot: { rating?: number; comment?: string } | null }[]>`
+        INSERT INTO reports (target_type, review_id, reporter_id, reason)
+        VALUES ('review', ${avaliacaoDoEspaco.id}, ${ownerId}, 'conteudo_ofensivo')
+        RETURNING id, evidence_snapshot`;
+      if (
+        denunciaAvaliacao.evidence_snapshot?.comment === 'Espaco limpo e seguro.' &&
+        denunciaAvaliacao.evidence_snapshot.rating === 5
+      ) {
+        ok('evidência da avaliação denunciada é copiada na hora', 'nota e texto preservados');
+      } else {
+        bad('evidência da denúncia de avaliação', JSON.stringify(denunciaAvaliacao.evidence_snapshot));
+      }
+      await mustReject(
+        'segunda denúncia aberta da mesma avaliação pela mesma pessoa é bloqueada',
+        () => sql`INSERT INTO reports (target_type, review_id, reporter_id, reason)
+                  VALUES ('review', ${avaliacaoDoEspaco.id}, ${ownerId}, 'spam')`,
+        'reports_one_open_per_target',
+      );
+      const contadorDoAutor = async () =>
+        (await sql<{ upheld_report_count: number }[]>`
+          SELECT upheld_report_count FROM profiles WHERE id = ${renterId}`)[0].upheld_report_count;
+      const antesDaDecisao = await contadorDoAutor();
+      await sql`UPDATE reports SET status = 'resolved', upheld = true, resolved_at = now()
+                WHERE id = ${denunciaAvaliacao.id}`;
+      const depoisDaDecisao = await contadorDoAutor();
+      if (depoisDaDecisao === antesDaDecisao + 1) {
+        ok('denúncia procedente de avaliação conta contra quem a escreveu', `${antesDaDecisao} -> ${depoisDaDecisao}`);
+      } else {
+        bad('reincidência por avaliação', `${antesDaDecisao} -> ${depoisDaDecisao}`);
+      }
+
+      // --- Perfil público ---
+      await mustReject(
+        'nome de exibição com 1 caractere é bloqueado',
+        () => sql`UPDATE profiles SET display_name = 'A' WHERE id = ${ownerId}`,
+        'profiles_display_name_length',
+      );
+      await mustReject(
+        'nome de exibição com mais de 40 caracteres é bloqueado',
+        () => sql`UPDATE profiles SET display_name = ${'x'.repeat(41)} WHERE id = ${ownerId}`,
+        'profiles_display_name_length',
+      );
+      await mustReject(
+        'bio com mais de 500 caracteres é bloqueada',
+        () => sql`UPDATE profiles SET bio = ${'a'.repeat(501)} WHERE id = ${ownerId}`,
+        'profiles_bio_length',
+      );
+      await mustReject(
+        'foto de perfil apontando para a pasta de outra pessoa é bloqueada',
+        () => sql`UPDATE profiles SET avatar_path = ${`${renterId}/avatar/emprestada.webp`} WHERE id = ${ownerId}`,
+        'profiles_avatar_path_own_folder',
+      );
+      await mustReject(
+        '"identidade verificada" sem documento verificado é bloqueado',
+        () => sql`UPDATE profiles SET identity_verification_status = 'verified' WHERE id = ${ownerId}`,
+        'profiles_identity_status_matches',
+      );
+
+      await sql`UPDATE profiles SET full_name = 'Maria Aparecida Souza', display_name = NULL WHERE id = ${ownerId}`;
+      const [semApelido] = await sql<{ public_name: string | null }[]>`SELECT public_name FROM profiles WHERE id = ${ownerId}`;
+      await sql`UPDATE profiles SET display_name = '  Cida  ' WHERE id = ${ownerId}`;
+      const [comApelido] = await sql<{ public_name: string | null }[]>`SELECT public_name FROM profiles WHERE id = ${ownerId}`;
+      if (semApelido.public_name === 'Maria' && comApelido.public_name === 'Cida') {
+        ok('nome público = nome de exibição ou só o primeiro nome (nunca o completo)', `"${semApelido.public_name}" -> "${comApelido.public_name}"`);
+      } else {
+        bad('nome público gerado', JSON.stringify({ semApelido, comApelido }));
+      }
+
+      // --- Telefone verificado ---
+      await sql`UPDATE profiles SET phone = '+5527999990001', phone_verified_at = now() WHERE id = ${ownerId}`;
+      await mustReject(
+        'o mesmo telefone verificado em duas contas é bloqueado',
+        () => sql`UPDATE profiles SET phone = '+5527999990001', phone_verified_at = now() WHERE id = ${renterId}`,
+        'profiles_verified_phone_key',
+      );
+      // Pelo caminho do navegador (papel authenticated + JWT): trocar o
+      // número é permitido, mas leva a verificação embora.
+      await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('request.jwt.claim.sub', ${ownerId}, true)`;
+        await tx`UPDATE profiles SET phone = '+5527999990002' WHERE id = ${ownerId}`;
+      });
+      const [telefone] = await sql<{ phone: string; phone_verified_at: Date | null }[]>`
+        SELECT phone, phone_verified_at FROM profiles WHERE id = ${ownerId}`;
+      if (telefone.phone === '+5527999990002' && telefone.phone_verified_at === null) {
+        ok('trocar o telefone derruba a verificação do número anterior');
+      } else {
+        bad('troca de telefone', JSON.stringify(telefone));
+      }
+
+      // Segunda trava, independente do GRANT por coluna: mesmo com um papel
+      // que tem o privilégio, requisição com JWT de usuário não mexe em selo.
+      await mustReject(
+        'com JWT de usuário, nem o próprio dono liga o selo de telefone (trigger, além do GRANT)',
+        () => sql.begin(async (tx) => {
+          await tx`SELECT set_config('request.jwt.claim.sub', ${renterId}, true)`;
+          await tx`UPDATE profiles SET phone_verified_at = now() WHERE id = ${renterId}`;
+        }),
+        'nao podem ser alterados por esta via',
+      );
+      await mustReject(
+        'navegador logado não lê o telefone de outra pessoa (GRANT por coluna)',
+        () => sql.begin(async (tx) => {
+          await tx`SET LOCAL ROLE authenticated`;
+          await tx`SELECT set_config('request.jwt.claim.sub', ${renterId}, true)`;
+          await tx`SELECT phone FROM profiles WHERE id = ${ownerId}`;
+        }),
+        'permission denied',
+      );
+
+      await mustReject(
+        'verificação com telefone fora do formato internacional (E.164) é bloqueada',
+        () => sql`INSERT INTO phone_verifications (user_id, phone, expires_at)
+                  VALUES (${ownerId}, '27 99999-0002', now() + interval '10 minutes')`,
+        'phone_verifications_phone_e164',
+      );
+      await mustAccept(
+        'verificação de telefone pendente válida é aceita',
+        () => sql`INSERT INTO phone_verifications (user_id, phone, expires_at)
+                  VALUES (${ownerId}, '+5527999990002', now() + interval '10 minutes')`,
+      );
+      await mustReject(
+        'duas verificações pendentes ao mesmo tempo para a mesma pessoa é bloqueado',
+        () => sql`INSERT INTO phone_verifications (user_id, phone, expires_at)
+                  VALUES (${ownerId}, '+5527999990003', now() + interval '10 minutes')`,
+        'phone_verifications_one_pending_per_user',
+      );
+      await mustReject(
+        'verificação aprovada sem data de conclusão é bloqueada',
+        () => sql`INSERT INTO phone_verifications (user_id, phone, status, expires_at)
+                  VALUES (${renterId}, '+5527999990004', 'approved', now() + interval '10 minutes')`,
+        'phone_verifications_resolved_matches_status',
+      );
+      await mustReject(
+        'mais de 10 tentativas de código na mesma verificação é bloqueado',
+        () => sql`UPDATE phone_verifications SET check_attempts = 11 WHERE user_id = ${ownerId}`,
+        'phone_verifications_attempts_range',
+      );
+
+      // --- E-mail verificado: cópia fiel do Supabase Auth ---
+      await sql`UPDATE auth.users SET email_confirmed_at = now() WHERE id = ${ownerId}`;
+      const [emailConfirmado] = await sql<{ email_verified_at: Date | null }[]>`
+        SELECT email_verified_at FROM profiles WHERE id = ${ownerId}`;
+      await sql`UPDATE auth.users SET email_confirmed_at = NULL WHERE id = ${ownerId}`;
+      const [emailDesfeito] = await sql<{ email_verified_at: Date | null }[]>`
+        SELECT email_verified_at FROM profiles WHERE id = ${ownerId}`;
+      if (emailConfirmado.email_verified_at && emailDesfeito.email_verified_at === null) {
+        ok('e-mail verificado acompanha auth.users.email_confirmed_at (liga e desliga junto)');
+      } else {
+        bad('espelho do e-mail verificado', JSON.stringify({ emailConfirmado, emailDesfeito }));
+      }
+      await sql`INSERT INTO auth.users (id, email, email_confirmed_at)
+                VALUES (${confirmedId}, ${`confirmado-${tag}@example.com`}, now())`;
+      const [nasceConfirmado] = await sql<{ email_verified_at: Date | null }[]>`
+        SELECT email_verified_at FROM profiles WHERE id = ${confirmedId}`;
+      if (nasceConfirmado?.email_verified_at) ok('cadastro já confirmado nasce com e-mail verificado');
+      else bad('perfil de cadastro confirmado', JSON.stringify(nasceConfirmado));
+
+      // --- Preferências de notificação: essenciais não desligam ---
+      await mustReject(
+        'categoria essencial (reservas) não pode ser desligada na central',
+        () => sql`INSERT INTO notification_preferences (user_id, category, in_app, push)
+                  VALUES (${ownerId}, 'reservas', false, true)`,
+        'notification_preferences_essential_locked',
+      );
+      await mustReject(
+        'categoria essencial (pagamentos) não pode ter o celular desligado',
+        () => sql`INSERT INTO notification_preferences (user_id, category, in_app, push)
+                  VALUES (${ownerId}, 'pagamentos', true, false)`,
+        'notification_preferences_essential_locked',
+      );
+      await mustAccept(
+        'categoria opcional (recomendações) pode ser desligada',
+        () => sql`INSERT INTO notification_preferences (user_id, category, in_app, push)
+                  VALUES (${ownerId}, 'recomendacoes', false, false)`,
+      );
+
+      // --- Notificação idempotente ---
+      const chave = `review_available:${bookingId}`;
+      await mustAccept(
+        'notificação com chave de idempotência é aceita',
+        () => sql`INSERT INTO notifications (user_id, type, title, dedupe_key)
+                  VALUES (${ownerId}, 'review_available', 'Avalie sua locação', ${chave})`,
+      );
+      await mustReject(
+        'o mesmo evento não gera duas notificações para a mesma pessoa',
+        () => sql`INSERT INTO notifications (user_id, type, title, dedupe_key)
+                  VALUES (${ownerId}, 'review_available', 'Avalie sua locação', ${chave})`,
+        'notifications_user_dedupe_key',
+      );
+      await mustAccept(
+        'a mesma chave para OUTRA pessoa é aceita (cada parte recebe a sua)',
+        () => sql`INSERT INTO notifications (user_id, type, title, dedupe_key)
+                  VALUES (${renterId}, 'review_available', 'Avalie sua locação', ${chave})`,
+      );
+      await mustAccept(
+        'notificações sem chave seguem livres (cada mensagem nova é um aviso)',
+        () => sql`INSERT INTO notifications (user_id, type, title)
+                  VALUES (${ownerId}, 'new_message', 'Nova mensagem'), (${ownerId}, 'new_message', 'Nova mensagem')`,
+      );
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.
@@ -834,14 +1140,19 @@ async function main() {
     await sql`DELETE FROM ledger_entries WHERE booking_id IN (
                 SELECT id FROM bookings WHERE owner_id = ${ownerId})`;
     await sql`ALTER TABLE ledger_entries ENABLE TRIGGER ledger_entries_append_only`;
-    await sql`DELETE FROM reviews WHERE author_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    // Avaliacao nao se apaga (Fase 21, `guard_review_immutable`) — so com a
+    // chave de manutencao explicita, valida apenas dentro desta transacao.
+    await sql.begin(async (tx) => {
+      await tx`SET LOCAL myplace.allow_review_delete = 'on'`;
+      await tx`DELETE FROM reviews WHERE author_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    });
     // booking_deposits.booking_id e RESTRICT — precisa sair antes de bookings (Fase 20).
     await sql`DELETE FROM booking_deposits WHERE booking_id IN (
                 SELECT id FROM bookings WHERE owner_id = ${ownerId})`;
     await sql`DELETE FROM bookings WHERE owner_id = ${ownerId}`;
     await sql`DELETE FROM spaces WHERE owner_id = ${ownerId}`;
     await sql`DELETE FROM webhook_events WHERE provider_event_id LIKE ${`evt_verify-%`}`;
-    await sql`DELETE FROM auth.users WHERE id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    await sql`DELETE FROM auth.users WHERE id IN (${ownerId}, ${renterId}, ${strangerId}, ${confirmedId})`;
   }
 
   console.log(

@@ -49,7 +49,8 @@ export default async function PublicadoPage({ params }: { params: Promise<{ id: 
         <h2 className="font-semibold text-[0.9375rem]">O que vem agora</h2>
         <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
           Quem se interessar vai poder conversar com você pela plataforma antes de fechar. O
-          endereço completo só é revelado depois que você aceitar a reserva.
+          endereço completo só é revelado ao locatário quando a reserva é confirmada, com o
+          primeiro pagamento aprovado.
         </p>
         <p className="text-[0.8125rem] text-[var(--content-subtle)] leading-relaxed pt-1">
           As conversas e o pagamento entram nas próximas fases. Por enquanto, o anúncio fica

@@ -173,3 +173,8 @@ export function parseBRLToCents(input: string): number {
   if (!Number.isSafeInteger(cents)) throw new InvalidAmountError(`Valor fora da faixa: "${input}"`);
   return cents;
 }
+
+/** 300 bps → "3%"; 250 → "2,5%". So exibicao — conta de dinheiro continua em centavos. */
+export function formatBps(bps: number): string {
+  return `${(bps / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+}

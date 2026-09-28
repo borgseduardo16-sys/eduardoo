@@ -1,7 +1,13 @@
 # Banco de dados — o que cada tabela faz
 
-Explicação em linguagem simples de cada uma das 22 tabelas, por que existe e
-que regra ela protege. O modelo em código está em `src/db/schema/`.
+Explicação em linguagem simples das tabelas principais, por que existem e
+que regra cada uma protege. O modelo em código está em `src/db/schema/`.
+
+> As tabelas das Fases 13 a 20 — `promotions`, `promotion_purchases` e
+> `premium_memberships` (Destaque/Turbo/Premium), `space_quality_assessments`
+> (classificação de padrão), `push_subscriptions` (push no celular) e
+> `booking_deposits` (caução) — estão descritas no
+> [STATUS.md](./STATUS.md), na fase de cada uma.
 
 > Convenção que vale para tudo: **todo valor em dinheiro é inteiro, em
 > centavos.** `R$ 102,00` é gravado como `10200`.
@@ -29,6 +35,26 @@ sensível, e varrer a tabela de denúncias toda vez sairia caro.
 **Protege:** um usuário comum não consegue se promover a admin. Existe
 permissão por coluna (só escreve em nome, telefone e foto) mais uma trigger que
 recusa mudança de papel, status ou CPF por essa via.
+
+**Perfil público e verificações (Fase 21):**
+
+- `display_name` (opcional, 2–40 caracteres) e `public_name`, **coluna
+  gerada**: o nome de exibição, ou só o primeiro nome. É o único nome que
+  aparece para outras pessoas — o completo fica para cobrança e suporte.
+- `bio` (até 500 caracteres) e `avatar_path`, que um `CHECK` prende à pasta
+  do próprio usuário no Storage (`<id>/avatar/...`).
+- `email_verified_at` — cópia de `auth.users.email_confirmed_at`, mantida por
+  trigger. A fonte da verdade é o Supabase Auth.
+- `phone_verified_at` — só o servidor grava, e só depois de o provedor de SMS
+  responder `approved`. **Trocar o telefone zera a verificação** (trigger). Um
+  índice único impede o mesmo número verificado em duas contas.
+- `identity_verification_status` — só estrutura nesta fase; um `CHECK`
+  amarra `verified` a `document_verified_at` preenchido.
+
+Pela API do navegador, a leitura é **por coluna**: só o que pode ser público
+(telefone, CPF, nome completo e contadores de moderação ficam de fora). E
+nenhuma requisição com JWT de usuário altera selo ou contador — nem no
+próprio perfil (`guard_profile_verification`).
 
 ### `owner_payout_accounts`
 Onde o proprietário recebe o dinheiro — a referência à subconta dele no gateway.
@@ -197,11 +223,26 @@ Avaliações depois da locação encerrada.
 Tentar avaliar contrato em andamento, ou avaliar locação de terceiro, é
 recusado pelo banco. Testado.
 
-Uma trigger mantém a nota média do anúncio sempre coerente.
+**Quem recebeu** (`reviewed_user_id`, Fase 21) vem da própria reserva: a
+trigger preenche com a outra parte, e informar qualquer outra pessoa é
+recusado. É o que alimenta a reputação de cada um, separada por papel
+(como proprietário e como locatário).
+
+**Avaliação publicada não muda nem some** (`guard_review_immutable`): nota,
+texto, autor e alvo são imutáveis, e `DELETE` é recusado — apagar avaliação
+ruim é o jeito mais simples de inflar média. A moderação só **oculta**
+(`hidden_at`, `hidden_reason`), e avaliação oculta sai da média. Para
+manutenção excepcional (ex.: pedido de exclusão pela LGPD), quem opera o
+banco liga `SET LOCAL myplace.allow_review_delete = 'on'` na própria
+transação; a aplicação nunca faz isso.
+
+Uma trigger mantém a nota média do anúncio sempre coerente — com **uma casa
+decimal, arredondada uma única vez** a partir das notas (4,666… → 4,7).
 
 ### `reports`
-Denúncias. **Uma tabela para três alvos**: anúncio, usuário e mensagem
-específica.
+Denúncias. **Uma tabela para quatro alvos**: anúncio, usuário, mensagem
+específica e avaliação (Fase 21). `booking_id` (Fase 20, opcional) liga a
+denúncia a uma locação — é a base para decidir uma caução.
 
 Poder denunciar uma mensagem isolada importa: sem isso, uma denúncia de assédio
 chega ao moderador sem nada que ele possa ler.
@@ -222,7 +263,11 @@ seguida.
 - autodenúncia é recusada
 - uma denúncia em aberto por alvo, por pessoa
 - motivo tem que combinar com o alvo ("não compareceu" não serve para anúncio)
-- quem denunciou vê a própria denúncia; **ninguém vê denúncia feita contra si**
+- quem denunciou acompanha o status da própria denúncia, mas não lê a
+  evidência copiada nem a anotação de quem julgou (permissão por coluna);
+  **ninguém vê denúncia feita contra si**
+- denúncia procedente de anúncio, mensagem ou avaliação conta contra quem
+  **escreveu** o conteúdo
 
 ### `user_blocks`
 Bloqueio entre usuários. A ferramenta que **não depende de moderação** — vale na
@@ -246,8 +291,20 @@ Detalhes em [SEGURANCA.md](./SEGURANCA.md).
 ## Sistema
 
 ### `notifications`
-Fila de notificações do usuário. Email e push (quando existirem) leem daqui —
-uma origem só, em vez de cada evento disparar e-mail por conta própria.
+Fila de notificações do usuário. E-mail e push leem daqui — uma origem só, em
+vez de cada evento disparar e-mail por conta própria.
+
+`dedupe_key` (Fase 21) torna o aviso **idempotente**: um índice único por
+pessoa + chave faz o mesmo evento (webhook reentregue, clique duplo) virar
+um aviso só. Avisos sem chave — cada mensagem nova, por exemplo — seguem
+livres.
+
+### `notification_preferences`
+O que cada pessoa quer receber, por categoria, "na central" e "no celular"
+(Fase 21). Sem linha, vale o padrão (tudo ligado).
+
+**Protege:** reservas, pagamentos e conta são **essenciais** — um `CHECK`
+recusa desligá-las, qualquer que seja o caminho (tela, servidor ou SQL).
 
 ### `audit_logs`
 Trilha de auditoria. Toda ação sensível registra aqui: admin bloqueando conta,
@@ -275,19 +332,29 @@ Configuração em tempo de execução. **As taxas moram aqui**, não no código:
 
 Mudar a taxa é um `UPDATE`, não um deploy — e fica registrado em `audit_logs`.
 
+### `phone_verifications`
+Cada pedido de verificação de telefone por SMS (Fase 21). **O código não fica
+aqui** — quem gera, envia e confere é o provedor (Twilio Verify). Guarda o
+número que o servidor pediu para verificar (é ele, e não o que vier do
+formulário depois, que recebe o selo), o estado e as tentativas.
+
+**Protege:** número só no formato internacional (E.164); no máximo uma
+verificação pendente por pessoa; no máximo 10 tentativas; estado e data de
+conclusão sempre coerentes.
+
 ---
 
 ## Verificação
 
-Nada acima é promessa. Os scripts rodam **237 checagens contra um Postgres
-real**, provando que cada regra citada aqui bloqueia mesmo o dado inválido:
+Nada acima é promessa. Os scripts rodam contra um **Postgres real**,
+provando que cada regra citada aqui bloqueia mesmo o dado inválido:
 
 ```bash
-pnpm tsx scripts/verify-schema.ts        # 29 — invariantes centrais
-pnpm tsx scripts/verify-safety.ts        # 72 — segurança entre usuários
-pnpm tsx scripts/verify-spaces.ts        # 37 — anúncios, capa e permissões
-pnpm tsx scripts/verify-images.ts        # 14 — EXIF e processamento
-pnpm tsx scripts/verify-integracoes.ts   # 85 — Storage, mapa e CEP em navegador real
+pnpm tsx scripts/verify-schema.ts        # 99 — cada CHECK, trigger e índice único
+pnpm tsx scripts/verify-safety.ts        # 77 — segurança entre usuários
+pnpm tsx scripts/verify-confianca.ts     # 158 — perfil, avaliações, verificações, RLS
+pnpm verify                              # todos os scripts de servidor
+pnpm verify:integracoes                  # o app de verdade num navegador real
 ```
 
 Ele cria dados, tenta violar cada invariante, confirma que o banco recusa, e

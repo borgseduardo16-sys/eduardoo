@@ -130,9 +130,10 @@ function ReservaCard({ r, coverUrl, jaAvaliada }: { r: ReservaRow; coverUrl: str
           )}
         </div>
         <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-start justify-between gap-2">
+          {/* No celular o selo de status desce: ao lado do título, cortava o nome do espaço. */}
+          <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:justify-between sm:gap-2">
             <div className="min-w-0">
-              <Link href={`/espacos/${r.spaceSlug}`} className="font-medium truncate hover:underline block">
+              <Link href={`/espacos/${r.spaceSlug}`} className="font-medium line-clamp-2 break-words hover:underline">
                 {r.spaceTitle}
               </Link>
               <p className="text-[0.8125rem] text-[var(--content-muted)]">
@@ -154,7 +155,10 @@ function ReservaCard({ r, coverUrl, jaAvaliada }: { r: ReservaRow; coverUrl: str
           </p>
           <p className="text-[0.9375rem] font-medium tabular-nums">
             {formatBRL(r.totalChargedCents)}
-            <span className="font-normal text-[var(--content-muted)]"> /mês, se aceito</span>
+            {/* "se aceito" só enquanto ninguém respondeu — depois disso o valor já é o combinado. */}
+            <span className="font-normal text-[var(--content-muted)]">
+              {r.status === 'requested' ? ' /mês, se aceito' : ' /mês'}
+            </span>
           </p>
         </div>
       </div>
@@ -226,11 +230,16 @@ function ReservaCard({ r, coverUrl, jaAvaliada }: { r: ReservaRow; coverUrl: str
         <p className="text-[0.8125rem] text-[var(--content-subtle)]">Motivo do proprietário: {r.ownerResponse}</p>
       )}
 
-      {r.status === 'approved' && (
-        <Link href={`/reservas/${r.id}/pagar`} className={buttonVariants({ size: 'sm', className: 'w-fit' })}>
-          Pagar agora
+      <div className="flex flex-wrap items-center gap-2">
+        {r.status === 'approved' && (
+          <Link href={`/reservas/${r.id}/pagar`} className={buttonVariants({ size: 'sm', className: 'w-fit' })}>
+            Pagar agora
+          </Link>
+        )}
+        <Link href={`/reservas/${r.id}`} className={buttonVariants({ size: 'sm', variant: 'secondary', className: 'w-fit' })}>
+          Ver detalhes
         </Link>
-      )}
+      </div>
 
       <CancelBookingButton bookingId={r.id} status={r.status} label="Cancelar solicitação" />
       <EndBookingButton bookingId={r.id} status={r.status} />
@@ -239,7 +248,7 @@ function ReservaCard({ r, coverUrl, jaAvaliada }: { r: ReservaRow; coverUrl: str
         kind="renter_to_space"
         status={r.status}
         alreadyReviewed={jaAvaliada}
-        label="Como foi o espaço?"
+        label="Como foi alugar este espaço?"
       />
     </div>
   );

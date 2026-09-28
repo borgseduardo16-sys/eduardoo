@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
  * visual de que copiou. Nenhum dos dois é fingido: um chama a API real do
  * navegador, o outro escreve na área de transferência de verdade.
  */
-export function ShareButton({ title, url }: { title: string; url: string }) {
+export function ShareButton({ title, url, className }: { title: string; url: string; className?: string }) {
   const [copiado, setCopiado] = useState(false);
 
   async function compartilhar() {
@@ -38,7 +38,7 @@ export function ShareButton({ title, url }: { title: string; url: string }) {
   }
 
   return (
-    <Button type="button" variant="secondary" onClick={compartilhar} data-testid="botao-compartilhar">
+    <Button type="button" variant="secondary" onClick={compartilhar} data-testid="botao-compartilhar" className={className}>
       {copiado ? <Check className="size-4" aria-hidden /> : <Share2 className="size-4" aria-hidden />}
       {copiado ? 'Link copiado' : 'Compartilhar'}
     </Button>

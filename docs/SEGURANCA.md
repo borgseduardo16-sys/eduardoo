@@ -329,34 +329,75 @@ ninguém para fora.
 Por isso `src/lib/safety/trust.ts` existe: não para enfeitar o perfil, mas para
 tornar a permanência economicamente racional.
 
-### Níveis
+### Sinais, não níveis (Fase 21)
 
-| Nível | Critério |
-|-------|----------|
-| Conta nova | sem verificação e sem locação |
-| Construindo histórico | 1 verificação ou 1 locação |
-| Histórico consistente | 2+ locações e 2+ verificações |
-| Histórico consolidado | 5+ locações, 3 verificações e nota ≥ 4,5 |
-| **Conta em revisão** | 3+ denúncias procedentes — **domina todo o resto** |
+Até a Fase 20 havia um "nível" sintético (Conta nova → Histórico
+consolidado, e "Conta em revisão"). Saiu na Fase 21, por três motivos:
 
-Aquele último é o caso que mais importa: **histórico longo não pode mascarar
-denúncias procedentes.** Um golpista com 20 locações e 3 denúncias confirmadas
-é mais perigoso, não menos. *Testado.*
+- era uma classificação sem fórmula visível para quem lia;
+- "Conta nova" transformava **ausência** de histórico em algo negativo;
+- "Conta em revisão" **publicava dado de moderação** (denúncias procedentes).
 
-Não é nota de 0 a 100 de propósito: número único convida a comparar "87 contra
-84", o que passa uma precisão que o dado não tem.
+Agora são só **sinais reais**, cada um com a explicação do que significa
+(aparece ao tocar — selo sem explicação é decoração):
+
+| Sinal | De onde vem | Quando aparece |
+|-------|-------------|----------------|
+| E-mail verificado | `auth.users.email_confirmed_at`, copiado por trigger | a pessoa abriu o link de confirmação (exige "Confirm email" ligado no Supabase) |
+| Telefone verificado | Twilio Verify respondeu `approved` | nunca por campo vindo da tela; trocar o número derruba |
+| Identidade verificada | — | **nunca, por enquanto**: não há provedor integrado (`IDENTITY_VERIFICATION_AVAILABLE = false`) |
+| ★ nota · N avaliações | média com uma casa, arredondada uma vez no banco | só com avaliação de locação encerrada |
+| N locações concluídas | contador mantido por trigger | só se > 0 |
+| Membro desde | data de criação da conta | sempre |
+
+Premium, Destaque, Turbo e quantidade de anúncios **não** entram na lista:
+popularidade e plano pago não são prova de confiança. O selo Premium aparece
+à parte, discreto, explicando que é benefício comercial.
+
+### Denúncia procedente continua pesando — sem ser publicada
+
+A regra da Fase 11 fica: **histórico longo não pode mascarar denúncia
+confirmada.** Um golpista com 20 locações e 3 denúncias procedentes é mais
+perigoso, não menos. O que mudou foi a forma:
+
+- a partir de `safety.auto_review_upheld_threshold` (3) denúncias
+  procedentes, a recomendação de **visitar antes de fechar** sobe de
+  destaque na página do anúncio, com texto neutro, sem dizer o motivo;
+- a contagem em si continua só para a moderação (`/admin/usuarios`) e
+  nunca sai em resposta pública — nem na página, nem no payload.
+
+*Testado* em `verify-safety.ts` (função pura) e `verify-confianca.ts`
+(banco real: 3 procedentes ligam o destaque, reverter desliga, o perfil
+público não traz nada disso).
 
 ### Quando a visita ganha destaque
 
-`shouldEmphasizeVisit()` devolve `true` para conta nova, histórico em construção
-e conta em revisão. Nesses casos a recomendação de visitar vira destaque, em vez
-de rodapé.
+`shouldEmphasizeVisit()` devolve `true` quando a outra parte não tem nenhuma
+locação concluída nem avaliação, ou quando está no limite de revisão. A
+recomendação de visitar existe sempre; nesses casos ela vira destaque, em
+vez de rodapé.
 
-### `public_profiles`
+### `public_profiles` e o que o navegador alcança
 
-A view pública ganhou `phone_verified`, `document_verified` e
-`completed_bookings_count`. Continua **sem** CPF, telefone, motivo de bloqueio
-ou contagem de denúncias. *Testado: a view não expõe nenhuma coluna sensível.*
+A view pública expõe o **nome público** (nome de exibição ou só o primeiro
+nome — nunca o completo), foto, bio, data de criação, os selos como
+booleanos e o contador de locações. Continua **sem** CPF, telefone, e-mail,
+motivo de bloqueio ou contagem de denúncias.
+
+**Achado da Fase 21, corrigido:** além da view, o papel `authenticated` tinha
+`SELECT` em **todas** as colunas de `profiles`, e a policy de leitura libera
+todas as linhas ativas. Somadas, qualquer conta logada lia telefone e CPF de
+qualquer perfil ativo direto pela API REST do Supabase, com a chave pública.
+O app não usava esse caminho (o servidor lê com conexão privilegiada), mas a
+porta existia. A migração `0021` troca por `GRANT SELECT` **por coluna**, só
+nas colunas que podem ser públicas; o mesmo foi feito em `reports` (quem
+denunciou acompanha o status, mas não lê a evidência copiada nem a anotação
+de quem julgou). *Testado* com o papel `authenticated` de verdade.
+
+Além do GRANT, uma trigger (`guard_profile_verification`) recusa qualquer
+mudança de selo ou contador feita por requisição com JWT de usuário — nem o
+próprio dono consegue se marcar como verificado pela API. Só o servidor e
+as triggers do sistema mudam esses campos.
 
 ---
 
@@ -370,15 +411,17 @@ o contador do denunciado sobe, mantido por trigger.
 | 3 | `safety.auto_review_upheld_threshold` | conta entra em revisão obrigatória |
 | 5 | `safety.auto_suspend_upheld_threshold` | suspensão automática |
 
-Para denúncia de anúncio ou mensagem, quem responde é o **autor do conteúdo** —
-senão bastaria republicar o mesmo anúncio com outro id para zerar o histórico.
+Para denúncia de anúncio, mensagem ou avaliação, quem responde é o **autor do
+conteúdo** — senão bastaria republicar o mesmo anúncio com outro id para zerar
+o histórico.
 
 > **Estado:** ✅ implementado. A contagem sobe por trigger; ao atingir 5, o
 > mesmo trigger (`refresh_upheld_report_count`, migração
 > `0011_suspensao_automatica.sql`) coloca a conta em `suspended` sozinho — sem
 > depender do painel estar aberto ou de alguém clicar em nada. O limite de 3
-> (revisão obrigatória) já era aplicado antes, no nível de confiança do perfil
-> (`sob_revisao` em `src/lib/safety/trust.ts`). Ver
+> (revisão) faz a recomendação de visita subir de destaque no anúncio, sem
+> publicar o motivo (`underReview` em `src/lib/safety/trust.ts`, Fase 21 —
+> ver §6). Ver
 > [STATUS.md — Fase 11](./STATUS.md#fase-11--painel-administrativo-) para o
 > painel de moderação em si.
 
@@ -419,7 +462,7 @@ nunca apareça inteiro em log, tela de suporte ou mensagem de erro:
 
 | Peça | Banco | Lógica | Interface |
 |------|-------|--------|-----------|
-| Denúncia (3 alvos) | ✅ | ✅ | ✅ componente pronto |
+| Denúncia (4 alvos: anúncio, usuário, mensagem, avaliação) | ✅ | ✅ | ✅ componente pronto |
 | Severidade automática | ✅ | ✅ | — |
 | Evidência congelada | ✅ trigger | — | — |
 | Limites anti-abuso | ✅ | ✅ | — |
@@ -433,8 +476,10 @@ nunca apareça inteiro em log, tela de suporte ou mensagem de erro:
 | Incentivo a fechar no app | — | ✅ | ✅ home, `/protecao`, rodapé |
 | Checklist de visita | — | ✅ | ✅ interativo, salvo no navegador |
 | Aviso escalonado de pagamento por fora | — | ✅ | ✅ Fase 6 — no chat, ao digitar |
-| Níveis de confiança | ✅ | ✅ | ✅ componente pronto |
-| Contagem de locações concluídas | ✅ trigger | — | ⬜ aparece com os anúncios (Fase 2) |
+| Sinais de confiança (Fase 21) | ✅ | ✅ | ✅ anúncio, solicitação, solicitações, reserva, perfil |
+| Denúncia de avaliação (Fase 21) | ✅ CHECK + evidência | ✅ | ✅ na lista de avaliações |
+| Selos só pelo caminho certo | ✅ GRANT por coluna + trigger | ✅ | — |
+| Contagem de locações concluídas | ✅ trigger | — | ✅ sinal "N locações concluídas" |
 
 O componente de denúncia (`ReportDialog`) está pronto e funcional, e já
 aparece nas telas de anúncio (Fase 2) e de conversa (Fase 6).
@@ -447,7 +492,9 @@ aparece nas telas de anúncio (Fase 2) e de conversa (Fase 6).
 pnpm tsx scripts/verify-safety.ts
 ```
 
-**72 checagens**, entre funções puras e invariantes do banco. Inclui os casos
+**77 checagens**, entre funções puras e invariantes do banco. As regras de
+confiança da Fase 21 (avaliações, perfil público, verificações, RLS) têm
+suíte própria: `pnpm tsx scripts/verify-confianca.ts` (158 checagens). Inclui os casos
 que não podem dar falso positivo:
 
 ```
@@ -475,6 +522,7 @@ E as que protegem a honestidade do texto e o julgamento de confiança:
 ✓ todo item pendente declara o que falta
 ✓ "nao pague nada na visita" e item critico               7 criticos
 ✓ checklist muda conforme o tipo de espaco                manobra so em garagem
-✓ denuncias procedentes dominam o historico               20 locacoes + 3 denuncias = sob revisao
-✓ view publica de perfil nao expoe dado sensivel
+✓ denuncias procedentes dominam o historico: 20 locacoes + revisao = visita em destaque
+✓ a revisao nao vira sinal publico (nada menciona denuncia ou revisao)
+✓ "Identidade verificada" nao aparece sem provedor de verificacao
 ```

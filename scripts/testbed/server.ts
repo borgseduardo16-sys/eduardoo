@@ -28,6 +28,13 @@
  *                       busca) — INCR/EXPIRE/TTL o bastante para provar que
  *                       o limitador de taxa usa um contador COMPARTILHADO
  *                       quando configurado, nao um `Map` por processo.
+ *   - Twilio Verify   — POST /v2/Services/:sid/Verifications e
+ *                       /VerificationCheck (contrato confirmado na doc oficial,
+ *                       Fase 21) — Basic auth, codigo de 6 digitos que o
+ *                       teste le em `twilioSmsSent` (o "celular"), validade de
+ *                       10 min, 5 conferencias (60202), 5 envios/10 min
+ *                       (60203), numero fixo (60205), invalido (60200) e
+ *                       verificacao encerrada (20404).
  *
  * O que isto PROVA: que o nosso codigo monta a requisicao certa, trata a
  * resposta certa, grava no banco certo e mostra a imagem certa.
@@ -83,6 +90,12 @@ export type Testbed = {
   upstashToken: string;
   /** Estado do "Redis" — pra teste inspecionar o contador direto, sem depender so da resposta HTTP. */
   redisStore: Map<string, { count: number; expiresAt: number }>;
+  /** Credenciais que o dublê do Twilio Verify exige (Basic auth + Service SID na URL). */
+  twilio: { accountSid: string; authToken: string; serviceSid: string };
+  /** Todo SMS de verificacao "enviado" — e onde o teste le o codigo, como a pessoa leria no celular. */
+  twilioSmsSent: { to: string; code: string; at: number }[];
+  /** Numeros tratados como fixos (respondem 60205). */
+  twilioLandlines: Set<string>;
   close: () => Promise<void>;
 };
 
@@ -108,6 +121,15 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const asaasSubscriptions = new Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>();
   const asaasPayments = new Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number; subscription: string | null }>();
   const emailsSent: { id: string; from: string; to: string[]; subject: string; html: string; text: string }[] = [];
+  const twilio = {
+    accountSid: `AC${randomUUID().replace(/-/g, '')}`,
+    authToken: randomUUID().replace(/-/g, ''),
+    serviceSid: `VA${randomUUID().replace(/-/g, '')}`,
+  };
+  const twilioSmsSent: { to: string; code: string; at: number }[] = [];
+  const twilioLandlines = new Set<string>();
+  /** Uma verificacao aberta por numero, como no Twilio. */
+  const twilioVerifs = new Map<string, { sid: string; code: string; status: string; checks: number; expiresAt: number }>();
 
   async function lerCorpo(req: IncomingMessage): Promise<Buffer> {
     const partes: Buffer[] = [];
@@ -536,6 +558,62 @@ export async function startTestbed(port = 0): Promise<Testbed> {
           }
         }
 
+        // ---------------------------------------------------------------
+        // Twilio Verify — Basic auth (Account SID : Auth Token)
+        // ---------------------------------------------------------------
+        else if (req.method === 'POST' && /^\/v2\/Services\/[^/]+\/(Verifications|VerificationCheck)$/.test(rota)) {
+          const [, , , servico, recurso] = rota.split('/');
+          const esperado = `Basic ${Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString('base64')}`;
+          const params = new URLSearchParams((await lerCorpo(req)).toString());
+          const to = params.get('To') ?? '';
+          const agora = Date.now();
+          const erro = (http: number, code: number, message: string) =>
+            json(res, http, { code, message, more_info: `https://www.twilio.com/docs/errors/${code}`, status: http });
+
+          if ((req.headers.authorization ?? '') !== esperado) {
+            status = erro(401, 20003, 'Authenticate');
+          } else if (servico !== twilio.serviceSid) {
+            status = erro(404, 20404, `The requested resource /Services/${servico} was not found`);
+          } else if (recurso === 'Verifications') {
+            const envios = twilioSmsSent.filter((m) => m.to === to && agora - m.at < 10 * 60_000).length;
+            if (!/^\+[1-9]\d{7,14}$/.test(to)) {
+              status = erro(400, 60200, 'Invalid parameter `To`');
+            } else if (twilioLandlines.has(to)) {
+              status = erro(400, 60205, 'SMS is not supported by landline phone number');
+            } else if (envios >= 5) {
+              status = erro(429, 60203, 'Max send attempts reached');
+            } else {
+              const code = String(Math.floor(100000 + Math.random() * 900000));
+              const sid = `VE${randomUUID().replace(/-/g, '')}`;
+              twilioVerifs.set(to, { sid, code, status: 'pending', checks: 0, expiresAt: agora + 10 * 60_000 });
+              twilioSmsSent.push({ to, code, at: agora });
+              status = json(res, 201, {
+                sid, service_sid: twilio.serviceSid, account_sid: twilio.accountSid,
+                to, channel: params.get('Channel') ?? 'sms', status: 'pending', valid: false,
+                date_created: new Date(agora).toISOString(),
+              });
+            }
+          } else {
+            const v = twilioVerifs.get(to);
+            if (!v || v.status !== 'pending' || v.expiresAt <= agora) {
+              // Aprovada ou expirada: o Twilio "apaga" e responde 20404.
+              status = erro(404, 20404, `The requested resource /Services/${servico}/VerificationCheck was not found`);
+            } else if (v.checks >= 5) {
+              v.status = 'max_attempts_reached';
+              status = erro(429, 60202, 'Max check attempts reached');
+            } else {
+              v.checks++;
+              const certo = params.get('Code') === v.code;
+              if (certo) v.status = 'approved';
+              status = json(res, 200, {
+                sid: v.sid, service_sid: twilio.serviceSid, account_sid: twilio.accountSid,
+                to, channel: 'sms', status: certo ? 'approved' : 'pending', valid: certo,
+              });
+              if (certo) twilioVerifs.delete(to);
+            }
+          }
+        }
+
         else {
           status = json(res, 404, { error: 'rota nao implementada no testbed', rota });
         }
@@ -579,6 +657,9 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     emailsSent,
     upstashToken: estado.upstashToken,
     redisStore,
+    twilio,
+    twilioSmsSent,
+    twilioLandlines,
     tilesServidos: () => tiles.slice(),
     close: () =>
       new Promise<void>((resolve) => {

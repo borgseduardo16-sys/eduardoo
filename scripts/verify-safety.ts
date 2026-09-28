@@ -16,7 +16,7 @@ import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { isValidCpf, isValidCnpj, isBrazilianPhone, maskDocument } from '../src/lib/safety/documents';
 import { detectContactInfo, buildFlagReason } from '../src/lib/safety/contact-detection';
 import { severityFor, isReasonValidForTarget, reasonsForTarget } from '../src/lib/safety/report-config';
-import { computeTrustProfile, shouldEmphasizeVisit } from '../src/lib/safety/trust';
+import { buildTrustSignals, shouldEmphasizeVisit } from '../src/lib/safety/trust';
 import { liveProtections, pendingProtections, PROTECTIONS } from '../src/lib/safety/protection';
 import { checklistFor, criticalItems, checklistCount } from '../src/lib/safety/visit-checklist';
 import { computeBookingAmounts, platformNetCents, formatBRL } from '../src/lib/money';
@@ -39,6 +39,10 @@ function bad(name: string, detail: string) {
 function expect(name: string, actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) === JSON.stringify(expected)) ok(name);
   else bad(name, `esperava ${JSON.stringify(expected)}, veio ${JSON.stringify(actual)}`);
+}
+function assert(name: string, cond: boolean, detail = 'condicao falsa') {
+  if (cond) ok(name);
+  else bad(name, detail);
 }
 
 async function mustReject(name: string, fn: () => Promise<unknown>, fragment: string) {
@@ -387,52 +391,71 @@ async function main() {
       }
     }
 
-    console.log('\n\x1b[1m11. Sinais de confianca\x1b[0m');
+    console.log('\n\x1b[1m11. Sinais de confianca (Fase 21: so sinais reais, explicaveis)\x1b[0m');
     {
       const agora = new Date();
       const anoPassado = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
 
-      const novo = computeTrustProfile({
+      const novo = buildTrustSignals({
         createdAt: agora,
         emailVerified: false,
         phoneVerified: false,
-        documentVerified: false,
         completedBookings: 0,
-        upheldReports: 0,
       });
-      expect('conta recem-criada e "novo"', novo.level, 'novo');
-      expect('conta nova destaca a visita', shouldEmphasizeVisit(novo), true);
-      expect('conta nova lista as 3 verificacoes pendentes', novo.missing.length, 3);
+      expect('conta nova mostra so "desde quando" (ausencia nao vira sinal negativo)',
+        novo.map((s) => s.key).join(','), 'member_since');
+      expect('conta nova destaca a visita', shouldEmphasizeVisit({ createdAt: agora, emailVerified: false, phoneVerified: false, completedBookings: 0 }), true);
 
-      const consolidado = computeTrustProfile({
+      const completo = buildTrustSignals({
         createdAt: anoPassado,
         emailVerified: true,
         phoneVerified: true,
-        documentVerified: true,
+        identityVerified: true,
         completedBookings: 8,
-        upheldReports: 0,
-        ratingAvg: 4.8,
-        ratingCount: 6,
+        rating: { average: '4.8', count: 6 },
       });
-      expect('perfil completo e "consolidado"', consolidado.level, 'consolidado');
-      expect('perfil consolidado nao destaca visita', shouldEmphasizeVisit(consolidado), false);
+      expect('perfil completo: verificacoes, nota, locacoes e desde quando, nessa ordem',
+        completo.map((s) => s.key).join(','), 'email,phone,rating,bookings,member_since');
+      expect('nota formatada em pt-BR, com contagem', completo.find((s) => s.key === 'rating')?.label, '4,8 ★ · 6 avaliações');
+      assert('todo sinal traz explicacao (selo nao e decoracao)', completo.every((s) => s.explanation.length > 20));
+      /*
+       * Identidade: so estrutura nesta fase. Mesmo com o banco dizendo
+       * 'verified', sem provedor real o selo NAO aparece.
+       */
+      assert('"Identidade verificada" nao aparece sem provedor de verificacao',
+        !completo.some((s) => s.key === 'identity') && !completo.some((s) => /identidade/i.test(s.label)));
+      expect('perfil com historico nao destaca visita',
+        shouldEmphasizeVisit({ createdAt: anoPassado, emailVerified: true, phoneVerified: true, completedBookings: 8, rating: { average: '4.8', count: 6 } }), false);
+
+      const semNota = buildTrustSignals({
+        createdAt: anoPassado,
+        emailVerified: true,
+        phoneVerified: false,
+        completedBookings: 0,
+        rating: { average: null, count: 0 },
+      });
+      assert('sem avaliacao nao existe "0,0 ★" nem "0 avaliações"',
+        !semNota.some((s) => s.key === 'rating' || /0 avalia/.test(s.label)));
 
       /*
-       * O caso que mais importa: historico longo NAO pode mascarar denuncias
-       * procedentes. Um golpista com muitas locacoes e mais perigoso, nao menos.
+       * Regra que vem da Fase 11 (antigo nivel "Conta em revisao"): historico
+       * longo nao pode mascarar denuncia confirmada. Na Fase 21 o rotulo
+       * publico saiu (moderacao nao e informacao publica), mas o efeito fica:
+       * a recomendacao de visita sobe de destaque — sem dizer o motivo.
        */
-      const suspeito = computeTrustProfile({
-        createdAt: anoPassado,
-        emailVerified: true,
-        phoneVerified: true,
-        documentVerified: true,
-        completedBookings: 20,
-        upheldReports: 3,
-        ratingAvg: 4.9,
-        ratingCount: 18,
-      });
-      expect('denuncias procedentes dominam o historico', suspeito.level, 'sob_revisao');
-      expect('perfil sob revisao destaca a visita', shouldEmphasizeVisit(suspeito), true);
+      const veterano = {
+        createdAt: anoPassado, emailVerified: true, phoneVerified: true,
+        completedBookings: 20, rating: { average: '4.9', count: 15 },
+      };
+      expect('denuncias procedentes dominam o historico: 20 locacoes + revisao = visita em destaque',
+        shouldEmphasizeVisit({ ...veterano, underReview: true }), true);
+      expect('...e sem revisao, o mesmo historico nao destaca visita',
+        shouldEmphasizeVisit(veterano), false);
+      const sinaisEmRevisao = buildTrustSignals({ ...veterano, underReview: true });
+      assert('a revisao nao vira sinal publico (nada menciona denuncia ou revisao)',
+        !sinaisEmRevisao.some((s) => /denúncia|denuncia|revis/i.test(`${s.label} ${s.explanation}`)));
+      expect('...e os sinais reais continuam os mesmos',
+        sinaisEmRevisao.map((s) => s.key).join(','), buildTrustSignals(veterano).map((s) => s.key).join(','));
     }
 
     // =====================================================================

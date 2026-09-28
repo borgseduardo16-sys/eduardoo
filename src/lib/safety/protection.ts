@@ -50,7 +50,7 @@ export const PROTECTIONS: Protection[] = [
     key: 'endereco_protegido',
     title: 'Seu endereço só é revelado no momento certo',
     description:
-      'O endereço exato do espaço aparece para o locatário apenas depois que você aceita a reserva. No mapa público, a posição é aproximada.',
+      'O endereço exato do espaço aparece para o locatário apenas quando a reserva é confirmada, com o primeiro pagamento aprovado. No mapa público, a posição é aproximada.',
     icon: 'MapPinned',
     status: 'live',
   },

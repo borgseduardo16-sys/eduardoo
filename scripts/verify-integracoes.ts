@@ -430,6 +430,9 @@ async function testesDeServidor() {
   secao('TESTE A (servidor) - upload real no Storage');
 
   // Substitui SO a leitura da sessao. Todo o resto da action e o codigo real.
+  // Como no DAL real: o nome público vem do perfil gravado no banco (Fase 21).
+  const nomePublico = async (id: string) =>
+    id ? ((await sql<{ public_name: string | null }[]>`SELECT public_name FROM profiles WHERE id=${id}`)[0]?.public_name ?? null) : null;
   const dalPath = req.resolve('../src/lib/auth/dal.ts');
   req.cache[dalPath] = {
     id: dalPath, filename: dalPath, loaded: true,
@@ -439,6 +442,7 @@ async function testesDeServidor() {
         role: identidadeAtual.role,
         email: 'teste@exemplo.invalid',
         fullName: 'Teste',
+        publicName: await nomePublico(identidadeAtual.id),
         avatarPath: null,
         status: 'active',
         statusReason: null,

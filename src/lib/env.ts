@@ -44,6 +44,9 @@ const baseSchema = z.object({
   NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().optional(),
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
 });
 
 function parseEnv() {
@@ -104,6 +107,11 @@ const INTEGRATIONS = {
     label: 'Notificação push no navegador (Web Push/VAPID)',
     vars: ['NEXT_PUBLIC_VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'],
     doc: 'docs/SETUP.md#12-vapid-notificacao-push-no-navegador',
+  },
+  phoneVerification: {
+    label: 'Verificação de telefone por SMS (Twilio Verify)',
+    vars: ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_VERIFY_SERVICE_SID'],
+    doc: 'docs/SETUP.md#13-twilio-verify-verificacao-de-telefone',
   },
 } as const;
 

@@ -7,6 +7,7 @@ import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { PromotionBadge } from '@/components/promotions/promotion-badge';
 import type { PublicSpace } from '@/lib/spaces/queries';
+import { formatRating } from '@/lib/reviews/format';
 
 /**
  * Card de resultado da busca.
@@ -84,8 +85,12 @@ export function ResultCard({
             {space.ratingCount > 0 && (
               <span className="shrink-0 flex items-center gap-1 text-[0.8125rem] tabular-nums">
                 <Star className="size-3.5 text-[var(--accent)]" aria-hidden fill="currentColor" />
-                {Number(space.ratingAvg).toFixed(1)}
-                <span className="text-[var(--content-subtle)]">({space.ratingCount})</span>
+                {formatRating(space.ratingAvg)}
+                <span className="sr-only"> de 5,</span>
+                <span className="text-[var(--content-subtle)]">
+                  ({space.ratingCount}
+                  <span className="sr-only"> {space.ratingCount === 1 ? 'avaliação' : 'avaliações'}</span>)
+                </span>
               </span>
             )}
           </div>

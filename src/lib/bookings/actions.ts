@@ -190,9 +190,9 @@ export async function requestBookingAction(
     userId: space.ownerId,
     type: 'booking_requested',
     title: 'Nova solicitação de aluguel',
-    body: `${user.fullName ?? 'Alguém'} quer alugar "${space.title}".`,
-    linkPath: '/meus-espacos/solicitacoes',
-    data: { bookingId },
+    body: `${user.publicName ?? 'Alguém'} quer alugar "${space.title}".`,
+    linkPath: `/meus-espacos/solicitacoes?filtro=pendentes#reserva-${bookingId}`,
+    data: { bookingId }, dedupeKey: `booking_requested:${bookingId}`,
   });
 
   revalidatePath('/meus-espacos/solicitacoes');
@@ -209,7 +209,7 @@ export async function requestBookingAction(
    * a chance de rodar — a navegacao para /reservas nunca acontecia.
    * `redirect()` evita a corrida de vez: e a propria action que decide.
    */
-  redirect('/reservas?enviada=1');
+  redirect(`/reservas/${bookingId}?enviada=1`);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,8 +263,8 @@ export async function respondToBookingRequestAction(
     });
     await notifyUser(db, {
       userId: booking.renterId, type: 'booking_rejected', title: 'Solicitação recusada',
-      body: 'O proprietário não aceitou sua solicitação desta vez.', linkPath: '/reservas',
-      data: { bookingId },
+      body: 'O proprietário não aceitou sua solicitação desta vez.', linkPath: `/reservas/${bookingId}`,
+      data: { bookingId }, dedupeKey: `booking_rejected:${bookingId}`,
     });
 
     revalidatePath('/meus-espacos/solicitacoes');
@@ -358,8 +358,9 @@ export async function respondToBookingRequestAction(
   });
   await notifyUser(db, {
     userId: booking.renterId, type: 'booking_approved', title: 'Solicitação aceita!',
-    body: `O proprietário aceitou sua solicitação para "${space.title}".`, linkPath: '/reservas',
-    data: { bookingId },
+    body: `O proprietário aceitou sua solicitação para "${space.title}". Confirme o pagamento para garantir o espaço.`,
+    linkPath: `/reservas/${bookingId}`,
+    data: { bookingId }, dedupeKey: `booking_approved:${bookingId}`,
   });
 
   if (preteridos.length > 0) {
@@ -370,8 +371,9 @@ export async function respondToBookingRequestAction(
         type: 'booking_rejected' as const,
         title: 'Solicitação recusada',
         body: `Outro interessado foi aceito primeiro para "${space.title}".`,
-        linkPath: '/reservas',
+        linkPath: `/reservas/${p.id}`,
         data: { bookingId: p.id },
+        dedupeKey: `booking_rejected:${p.id}`,
       })),
     );
   }
@@ -468,11 +470,11 @@ export async function cancelBookingAction(
   });
 
   const outraParte = souLocatario ? booking.ownerId : booking.renterId;
-  const [autor] = await db.select({ fullName: profiles.fullName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  const [autor] = await db.select({ publicName: profiles.publicName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
   await notifyUser(db, {
     userId: outraParte, type: 'booking_cancelled', title: 'Reserva cancelada',
-    body: `${autor?.fullName ?? 'A outra parte'} cancelou esta reserva.`, linkPath: '/reservas',
-    data: { bookingId },
+    body: `${autor?.publicName ?? 'A outra parte'} cancelou esta reserva.`, linkPath: `/reservas/${bookingId}`,
+    data: { bookingId }, dedupeKey: `booking_cancelled:${bookingId}`,
   });
 
   revalidatePath('/meus-espacos/solicitacoes');
@@ -489,7 +491,7 @@ export async function cancelBookingAction(
     spaceTitle: booking.spaceTitle,
     actorId: user.id,
     recipientId: outraParte,
-    body: `Reserva cancelada por ${autor?.fullName ?? 'a outra parte'}.`,
+    body: `Reserva cancelada por ${autor?.publicName ?? 'a outra parte'}.`,
     createIfMissing: false,
   });
 
@@ -587,12 +589,23 @@ export async function endBookingAction(
   });
 
   const outraParte = souLocatario ? booking.ownerId : booking.renterId;
-  const [autor] = await db.select({ fullName: profiles.fullName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
-  await notifyUser(db, {
-    userId: outraParte, type: 'booking_cancelled', title: 'Aluguel encerrado',
-    body: `${autor?.fullName ?? 'A outra parte'} encerrou o aluguel de "${booking.spaceTitle}".`,
-    linkPath: '/reservas', data: { bookingId },
-  });
+  const [autor] = await db.select({ publicName: profiles.publicName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
+  // A outra parte fica sabendo do encerramento (categoria reservas — essencial)
+  // e, no mesmo aviso, que já pode avaliar. Quem encerrou recebe só o
+  // "avaliação disponível" (categoria avaliações). Uma notificação por
+  // pessoa, nunca duas pelo mesmo evento.
+  await notifyUsers(db, [
+    {
+      userId: outraParte, type: 'booking_cancelled', title: 'Aluguel encerrado',
+      body: `${autor?.publicName ?? 'A outra parte'} encerrou o aluguel de "${booking.spaceTitle}". Conte como foi: a avaliação já está disponível.`,
+      linkPath: `/reservas/${bookingId}`, data: { bookingId }, dedupeKey: `booking_ended:${bookingId}`,
+    },
+    {
+      userId: user.id, type: 'review_available', title: 'Avaliação disponível',
+      body: `Conte como foi o aluguel de "${booking.spaceTitle}" — sua avaliação ajuda as próximas pessoas.`,
+      linkPath: `/reservas/${bookingId}`, data: { bookingId }, dedupeKey: `review_available:${bookingId}`,
+    },
+  ]);
 
   revalidatePath('/meus-espacos/solicitacoes');
   revalidatePath('/meus-espacos/financeiro');
@@ -605,7 +618,7 @@ export async function endBookingAction(
     spaceTitle: booking.spaceTitle,
     actorId: user.id,
     recipientId: outraParte,
-    body: `Aluguel encerrado por ${autor?.fullName ?? 'a outra parte'}.`,
+    body: `Aluguel encerrado por ${autor?.publicName ?? 'a outra parte'}.`,
     createIfMissing: false,
   });
 

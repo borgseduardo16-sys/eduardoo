@@ -68,8 +68,10 @@ export default function PrivacidadePage() {
             <h2 className="text-[1.125rem] font-semibold">Quem mais vê o quê</h2>
             <p className="text-[0.9375rem] text-[var(--content-muted)] leading-relaxed">
               O endereço exato de um espaço só é visível para você mesmo, e para o locatário
-              depois que uma reserva é aceita. Outros usuários veem apenas nome, foto de
-              perfil e o histórico de avaliações — nunca telefone, e-mail ou CPF/CNPJ.
+              depois que uma reserva é confirmada com o primeiro pagamento. Outros usuários
+              veem apenas o nome público (nome de exibição ou primeiro nome), a foto de perfil,
+              a apresentação, as verificações concluídas e o histórico de avaliações — nunca
+              telefone, e-mail, CPF/CNPJ ou nome completo.
               Moderadores da MyPlace podem ver dados relevantes só ao analisar uma denúncia.
             </p>
           </div>

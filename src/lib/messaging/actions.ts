@@ -113,7 +113,7 @@ export async function sendMessageAction(
   await notifyNewMessage({
     recipientId: destinatarioId,
     conversationId,
-    senderName: user.fullName ?? 'Alguém',
+    senderName: user.publicName ?? 'Alguém',
     spaceTitle: conversa.spaceTitle,
     preview: body,
   });

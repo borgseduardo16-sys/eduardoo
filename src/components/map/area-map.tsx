@@ -127,8 +127,8 @@ export function AreaMap({
 
       <p className="flex gap-2 items-start text-[0.75rem] text-[var(--content-subtle)] leading-relaxed">
         <MapPin className="size-3.5 shrink-0 mt-px" aria-hidden />
-        Área aproximada. O endereço exato é revelado depois que o proprietário aceitar a
-        reserva.
+        Área aproximada. O endereço exato aparece para o locatário quando a reserva é
+        confirmada, com o primeiro pagamento aprovado.
       </p>
     </div>
   );

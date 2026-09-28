@@ -28,7 +28,7 @@ const SECOES = [
     titulo: '3. Publicação de anúncios',
     paragrafos: [
       'Um anúncio precisa descrever o espaço real, com fotos do espaço real, e só pode ser publicado com as informações mínimas exigidas (tipo, localização, ao menos 3 fotos, preço, disponibilidade).',
-      'A localização exata (rua, número, complemento) só é revelada ao locatário depois que uma reserva é aceita — antes disso, só a área aproximada aparece publicamente.',
+      'A localização exata (rua, número, complemento) só é revelada ao locatário depois que uma reserva é confirmada, com o primeiro pagamento aprovado — antes disso, só a área aproximada aparece publicamente.',
     ],
   },
   {

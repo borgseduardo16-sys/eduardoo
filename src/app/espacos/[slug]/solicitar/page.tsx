@@ -5,15 +5,17 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft, ImageOff, MapPin } from 'lucide-react';
 import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
+import { getReputation } from '@/lib/reviews/reputation';
 import { requireUser } from '@/lib/auth/dal';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { settingInt } from '@/lib/settings';
 import { formatBRL } from '@/lib/money';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
-import { bookingStatusLabel } from '@/lib/bookings/format';
+import { bookingStatusLabel, formatBookingDate } from '@/lib/bookings/format';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { RequestBookingForm } from '@/components/bookings/request-booking-form';
+import { PersonTrustCard } from '@/components/profile/person-trust-card';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
 
@@ -32,11 +34,16 @@ export default async function SolicitarAluguelPage({
 
   const isOwner = space.ownerId === user.id;
 
-  const [urls, existing, renterFeeBps, ownerFeeBps] = await Promise.all([
-    signImagePaths(space.images.slice(0, 1).map((i) => i.thumbPath ?? i.storagePath).filter(Boolean) as string[]),
+  const [urls, existing, renterFeeBps, ownerFeeBps, ownerReputation] = await Promise.all([
+    signImagePaths(
+      [...space.images.slice(0, 1).map((i) => i.thumbPath ?? i.storagePath), space.owner?.avatarPath].filter(
+        Boolean,
+      ) as string[],
+    ),
     isOwner ? Promise.resolve(null) : getViewerActiveBookingForSpace(space.id, user.id),
     settingInt('fees.renter_fee_bps', 300),
     settingInt('fees.owner_fee_bps', 300),
+    space.owner ? getReputation(space.owner.id) : Promise.resolve(null),
   ]);
 
   const capa = space.images[0];
@@ -82,6 +89,59 @@ export default async function SolicitarAluguelPage({
           </div>
         </div>
 
+        {/*
+          Confiança no momento da decisão (Fase 21): quem é o proprietário e
+          o que vale saber do espaço, antes de enviar — só dado real.
+        */}
+        {!isOwner && !existing && (
+          <>
+            <section aria-labelledby="antes-titulo" className="rounded-[var(--radius-card)] border p-4 sm:p-5 space-y-3">
+              <h2 id="antes-titulo" className="font-semibold">Antes de enviar</h2>
+              <dl className="grid gap-3 sm:grid-cols-2 text-[0.875rem]">
+                {space.availableFrom && (
+                  <div>
+                    <dt className="text-[var(--content-subtle)] text-[0.8125rem]">Disponível a partir de</dt>
+                    <dd>{formatBookingDate(space.availableFrom)}</dd>
+                  </div>
+                )}
+                {space.accessHours && (
+                  <div>
+                    <dt className="text-[var(--content-subtle)] text-[0.8125rem]">Horário de acesso</dt>
+                    <dd className="break-words">{space.accessHours}</dd>
+                  </div>
+                )}
+                {space.rulesText && (
+                  <div className="sm:col-span-2">
+                    <dt className="text-[var(--content-subtle)] text-[0.8125rem]">Regras do espaço</dt>
+                    <dd className="whitespace-pre-line break-words line-clamp-4">{space.rulesText}</dd>
+                  </div>
+                )}
+              </dl>
+              <Link
+                href={`/espacos/${space.slug}`}
+                className="inline-block text-[0.8125rem] text-[var(--accent)] underline underline-offset-4"
+              >
+                Ver fotos, características e regras completas
+              </Link>
+            </section>
+
+            {space.owner && ownerReputation && (
+              <section aria-label="Sobre este proprietário" className="rounded-[var(--radius-card)] border p-4 sm:p-5 space-y-3">
+                <h2 className="font-semibold">Sobre este proprietário</h2>
+                <PersonTrustCard
+                  role="owner"
+                  compact
+                  person={{
+                    ...space.owner,
+                    avatarUrl: space.owner.avatarPath ? (urls.get(space.owner.avatarPath) ?? null) : null,
+                  }}
+                  rating={ownerReputation.asOwner}
+                />
+              </section>
+            )}
+          </>
+        )}
+
         {space.depositEnabled && (
           <Alert tone="info" title={`Este anúncio exige caução de ${formatBRL(space.priceMonthlyCents)}`}>
             Equivale a 1 mês de aluguel, cobrada junto do primeiro pagamento se a solicitação for
@@ -105,10 +165,10 @@ export default async function SolicitarAluguelPage({
               Código {existing.reference}. Acompanhe o andamento na sua área de reservas.
             </p>
             <Link
-              href="/reservas"
+              href={`/reservas/${existing.id}`}
               className="inline-flex items-center gap-1.5 text-[0.875rem] text-[var(--accent)] underline underline-offset-4"
             >
-              Ver em “Minhas reservas”
+              Ver detalhes da solicitação
             </Link>
           </div>
         ) : (

@@ -230,6 +230,9 @@ async function main() {
    * (nao um mock novo por usuario), porque a action e importada uma vez so e
    * teria a referencia velha se o mock fosse recriado a cada troca de usuario.
    */
+  // Como no DAL real: o nome público vem do perfil gravado no banco (Fase 21).
+  const nomePublico = async (id: string) =>
+    id ? ((await sql<{ public_name: string | null }[]>`SELECT public_name FROM profiles WHERE id=${id}`)[0]?.public_name ?? null) : null;
   const dalPath = req.resolve('../src/lib/auth/dal.ts');
   req.cache[dalPath] = {
     id: dalPath, filename: dalPath, loaded: true,
@@ -238,7 +241,7 @@ async function main() {
         if (!identidadeAtual.id) throw new Error('Voce precisa entrar para continuar.');
         return {
           id: identidadeAtual.id, role: identidadeAtual.role, email: identidadeAtual.email,
-          fullName: identidadeAtual.fullName, avatarPath: null, status: 'active',
+          fullName: identidadeAtual.fullName, publicName: await nomePublico(identidadeAtual.id), avatarPath: null, status: 'active',
           statusReason: null, acceptedTermsAt: new Date(),
         };
       },
@@ -247,7 +250,7 @@ async function main() {
         if (identidadeAtual.role !== 'admin') throw new Error('Acesso restrito ao administrador.');
         return {
           id: identidadeAtual.id, role: identidadeAtual.role, email: identidadeAtual.email,
-          fullName: identidadeAtual.fullName, avatarPath: null, status: 'active',
+          fullName: identidadeAtual.fullName, publicName: await nomePublico(identidadeAtual.id), avatarPath: null, status: 'active',
           statusReason: null, acceptedTermsAt: new Date(),
         };
       },
@@ -750,8 +753,12 @@ async function main() {
   expect('as duas avaliacoes (tipos diferentes) coexistem na mesma reserva', avaliacoesDaReserva, 2);
 
   const listaAvaliacoes = await listReviewsForSpace(espacoSemContaId);
-  assert('listReviewsForSpace traz a avaliacao com o comentario e autor certos',
-    listaAvaliacoes.some((r) => r.comment === 'Espaço ótimo, super acessível.' && r.authorName === 'Locatario de Teste'),
+  // Fase 21: quem avaliou aparece pelo nome PUBLICO (primeiro nome), nunca o completo.
+  assert('listReviewsForSpace traz a avaliacao com o comentario e o nome publico do autor',
+    listaAvaliacoes.rows.some((r) => r.comment === 'Espaço ótimo, super acessível.' && r.author.publicName === 'Locatario'),
+    JSON.stringify(listaAvaliacoes));
+  assert('listReviewsForSpace NAO expoe o nome completo de quem avaliou',
+    !JSON.stringify(listaAvaliacoes).includes('Locatario de Teste'),
     JSON.stringify(listaAvaliacoes));
 
   const avaliadasLocatario = await listReviewedBookingIds(renterId, 'renter_to_space');

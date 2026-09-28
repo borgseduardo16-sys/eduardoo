@@ -257,3 +257,25 @@ export function contactWarningMessage(result: DetectionResult): string | null {
     'plataforma: sem histórico da conversa, não há como mediar um problema depois.'
   );
 }
+
+/**
+ * Texto PUBLICO (avaliacao, apresentacao do perfil, nome de exibicao) nao
+ * pode carregar dado de contato. Diferente do chat — conversa entre duas
+ * partes, onde so SINALIZAMOS —, ali e vitrine: telefone numa bio vira canal
+ * para fechar por fora com qualquer visitante, e CPF numa avaliacao expoe a
+ * outra pessoa. Por isso aqui quem chama RECUSA o texto.
+ *
+ * So deteccao de alta confianca: "rua 27, numero 1500" numa avaliacao
+ * continua passando. Mencao a pagamento por fora nao e dado de contato.
+ */
+export function publicTextContactKinds(text: string): ContactKind[] {
+  const r = detectContactInfo(text);
+  return [
+    ...new Set(
+      r.matches
+        .filter((m) => m.confidence === 'alta' && m.kind !== 'mencao_pagamento_externo')
+        .map((m) => m.kind),
+    ),
+  ];
+}
+

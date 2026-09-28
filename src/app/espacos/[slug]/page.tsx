@@ -8,8 +8,8 @@ import { getCurrentUser } from '@/lib/auth/dal';
 import { isFavorited } from '@/lib/favorites/queries';
 import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { bookingStatusLabel } from '@/lib/bookings/format';
-import { listReviewsForSpace } from '@/lib/reviews/queries';
-import { computeTrustProfile } from '@/lib/safety/trust';
+import { listReviewsForSpace, parsePage } from '@/lib/reviews/queries';
+import { getReputation } from '@/lib/reviews/reputation';
 import { formatBRL } from '@/lib/money';
 import { serverEnv } from '@/lib/env';
 import type { SpaceTypeKey } from '@/lib/spaces/types';
@@ -17,7 +17,9 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SpacePreview } from '@/components/anunciar/space-preview';
 import { AreaMap } from '@/components/map/area-map';
-import { TrustBadges } from '@/components/safety/trust-badges';
+import { PersonTrustCard } from '@/components/profile/person-trust-card';
+import { RatingSummaryLine } from '@/components/reviews/rating-summary';
+import { Pager } from '@/components/ui/pager';
 import { ReportDialog } from '@/components/safety/report-dialog';
 import { ProtectionNotice } from '@/components/safety/protection-notice';
 import { VisitChecklist } from '@/components/safety/visit-checklist';
@@ -25,10 +27,12 @@ import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { ShareButton } from '@/components/espacos/share-button';
 import { ReviewsList } from '@/components/reviews/reviews-list';
 import { StartConversationButton } from '@/components/messaging/start-conversation-button';
-import { PremiumBadge } from '@/components/promotions/premium-badge';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
+
+/** Compartilhar/Favoritar: mais compactos no celular, para caberem lado a lado. */
+const ACAO_COMPACTA = 'h-10 px-3 text-[0.875rem] sm:h-11 sm:px-4 sm:text-[0.9375rem]';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,57 +71,66 @@ export async function generateMetadata({
  * número, complemento nem a coordenada exata. Um erro de template não tem como
  * vazar o endereço: o dado nem chega neste arquivo.
  */
-export default async function EspacoPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
+export default async function EspacoPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ avaliacoes?: string }>;
+}) {
+  const [{ slug }, sp] = await Promise.all([params, searchParams]);
   const [space, viewer] = await Promise.all([getPublicSpaceBySlug(slug), getCurrentUser()]);
 
   if (!space) notFound();
 
   const isOwner = viewer?.id === space.ownerId;
+  const paginaAvaliacoes = parsePage(sp.avaliacoes);
 
-  const [urls, favorited, existingBooking, reviews] = await Promise.all([
-    signImagePaths(space.images.flatMap((i) => [i.storagePath, i.thumbPath].filter(Boolean) as string[])),
+  const [favorited, existingBooking, reviewsPage, ownerReputation] = await Promise.all([
     viewer ? isFavorited(viewer.id, space.id) : Promise.resolve(false),
     viewer && !isOwner ? getViewerActiveBookingForSpace(space.id, viewer.id) : Promise.resolve(null),
-    listReviewsForSpace(space.id),
+    listReviewsForSpace(space.id, { page: paginaAvaliacoes }),
+    space.owner ? getReputation(space.owner.id) : Promise.resolve(null),
   ]);
-  const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
 
-  const trust = space.owner
-    ? computeTrustProfile({
-        createdAt: space.owner.createdAt,
-        emailVerified: true, // conta ativa só existe com e-mail confirmado
-        phoneVerified: Boolean(space.owner.phoneVerifiedAt),
-        documentVerified: Boolean(space.owner.documentVerifiedAt),
-        completedBookings: space.owner.completedBookingsCount,
-        upheldReports: space.owner.upheldReportCount,
-        ratingAvg: space.ratingAvg ? Number(space.ratingAvg) : null,
-        ratingCount: space.ratingCount,
-      })
-    : null;
+  // Uma chamada só para assinar fotos do anúncio, foto do proprietário e de quem avaliou.
+  const urls = await signImagePaths(
+    [
+      ...space.images.flatMap((i) => [i.storagePath, i.thumbPath]),
+      space.owner?.avatarPath,
+      ...reviewsPage.rows.map((r) => r.author.avatarPath),
+    ].filter(Boolean) as string[],
+  );
+  const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
 
   return (
     <>
       <SiteHeader />
 
       <main id="conteudo" className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10 space-y-8">
+        {/*
+          No celular a volta é só a seta (o nome continua para leitor de tela):
+          com o texto, a linha passava da largura da tela abaixo de ~430 px.
+        */}
         <div className="flex items-center justify-between gap-3">
           <Link
             href="/espacos"
-            className="inline-flex items-center gap-1.5 text-[0.875rem] text-[var(--content-muted)] hover:text-[var(--content)]"
+            aria-label="Todos os espaços"
+            className="inline-flex items-center gap-1.5 shrink-0 min-h-10 min-w-10 text-[0.875rem] text-[var(--content-muted)] hover:text-[var(--content)]"
           >
             <ArrowLeft className="size-4" aria-hidden />
-            Todos os espaços
+            <span className="hidden sm:inline">Todos os espaços</span>
           </Link>
 
-          <div className="flex items-center gap-2">
-            <ShareButton title={space.title} url={shareUrl} />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <ShareButton title={space.title} url={shareUrl} className={ACAO_COMPACTA} />
             {!isOwner && (
               <FavoriteButton
                 spaceId={space.id}
                 initialFavorited={favorited}
                 loggedIn={Boolean(viewer)}
                 variant="page"
+                className={ACAO_COMPACTA}
               />
             )}
           </div>
@@ -179,10 +192,10 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Link
-                    href="/reservas"
+                    href={`/reservas/${existingBooking.id}`}
                     className="inline-flex items-center gap-1.5 h-11 px-5 font-medium rounded-[var(--radius-field)] border hover:bg-[var(--surface-sunken)] transition-colors"
                   >
-                    Ver em “Minhas reservas”
+                    Ver detalhes da solicitação
                   </Link>
                   <StartConversationButton spaceId={space.id} />
                 </div>
@@ -220,6 +233,47 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
           </section>
         )}
 
+        {/* Sobre o proprietário + Por que confiar neste anúncio? — só sinais reais */}
+        {space.owner && ownerReputation && (
+          <PersonTrustCard
+            role="owner"
+            person={{
+              ...space.owner,
+              avatarUrl: space.owner.avatarPath ? (urls.get(space.owner.avatarPath) ?? null) : null,
+            }}
+            rating={ownerReputation.asOwner}
+          />
+        )}
+
+        {/* Avaliações do espaço */}
+        <section id="avaliacoes" aria-labelledby="avaliacoes-titulo" className="space-y-4 scroll-mt-20">
+          <h2 id="avaliacoes-titulo" className="font-semibold text-[1.125rem]">
+            Avaliações
+          </h2>
+          {space.ratingCount > 0 ? (
+            <>
+              <RatingSummaryLine average={space.ratingAvg} count={space.ratingCount} size="lg" />
+              <h3 className="text-[0.9375rem] font-medium text-[var(--content-muted)]">
+                Comentários de quem alugou este espaço
+              </h3>
+              <ReviewsList reviews={reviewsPage.rows} avatarUrls={urls} viewerId={viewer?.id ?? null} />
+              <Pager
+                page={reviewsPage.page}
+                hasMore={reviewsPage.hasMore}
+                href={(p) => `/espacos/${space.slug}${p > 1 ? `?avaliacoes=${p}` : ''}#avaliacoes`}
+                label="avaliações"
+              />
+            </>
+          ) : (
+            <div className="rounded-[var(--radius-card)] border border-dashed p-6 sm:p-8 text-center space-y-2">
+              <p className="text-[0.9375rem]">Este espaço ainda não possui avaliações.</p>
+              <p className="text-[0.8125rem] text-[var(--content-subtle)] max-w-sm mx-auto leading-relaxed">
+                Depois da primeira locação concluída, os usuários poderão compartilhar sua experiência.
+              </p>
+            </div>
+          )}
+        </section>
+
         {/* Onde fica — área, não ponto */}
         {space.approxLat != null && space.approxLng != null && (
           <section className="space-y-3">
@@ -230,39 +284,6 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
             <AreaMap lat={space.approxLat} lng={space.approxLng} />
           </section>
         )}
-
-        {/* Quem anuncia */}
-        {space.owner && trust && (
-          <section className="rounded-[var(--radius-card)] border p-5 space-y-4">
-            <div className="space-y-1">
-              <h2 className="font-semibold">Quem anuncia</h2>
-              {/*
-                div, nao p: PremiumBadge renderiza um <dialog> (nao e
-                "phrasing content"), invalido dentro de <p> — o parser HTML
-                fecharia o <p> mais cedo, dando uma arvore diferente da que o
-                React espera e causando erro de hidratacao.
-              */}
-              <div className="flex items-center gap-2 flex-wrap text-[var(--content-muted)]">
-                {space.owner.fullName ?? 'Proprietário'}
-                {space.owner.isPremium && <PremiumBadge />}
-              </div>
-            </div>
-            <TrustBadges
-              input={{
-                createdAt: space.owner.createdAt,
-                emailVerified: true,
-                phoneVerified: Boolean(space.owner.phoneVerifiedAt),
-                documentVerified: Boolean(space.owner.documentVerifiedAt),
-                completedBookings: space.owner.completedBookingsCount,
-                upheldReports: space.owner.upheldReportCount,
-                ratingAvg: space.ratingAvg ? Number(space.ratingAvg) : null,
-                ratingCount: space.ratingCount,
-              }}
-            />
-          </section>
-        )}
-
-        <ReviewsList reviews={reviews} />
 
         <ProtectionNotice variant="card" />
 
@@ -276,6 +297,7 @@ export default async function EspacoPage({ params }: { params: Promise<{ slug: s
               targetType="space"
               targetId={space.id}
               targetLabel="este anúncio"
+              triggerLabel="Denunciar este anúncio"
             />
           </div>
         )}

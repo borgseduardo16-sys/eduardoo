@@ -6,6 +6,7 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { spaces, spaceFeatures, features, auditLogs, bookings } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
+import { notifyUser } from '@/lib/notifications/dispatch';
 import { parseBRLToCents, formatBRL } from '@/lib/money';
 import { settingInt } from '@/lib/settings';
 import { rateLimit } from '@/lib/rate-limit';
@@ -520,6 +521,25 @@ export async function publishSpaceAction(
     entityType: 'space',
     entityId: spaceId,
   });
+
+  // Registro na central (Fase 21): "Espaço publicado", com link para ver
+  // como ficou. Só na primeira publicação — republicar depois de uma edição
+  // não é novidade para quem publicou. dedupeKey por anúncio: nunca repete.
+  if (primeiraPublicacao) {
+    try {
+      await notifyUser(db, {
+        userId: user.id,
+        type: 'space_published',
+        title: 'Seu espaço está no ar',
+        body: `"${space.title}" já aparece nas buscas. Compartilhe o link para chegar a mais gente.`,
+        linkPath: `/espacos/${space.slug}`,
+        data: { spaceId },
+        dedupeKey: `space_published:${spaceId}`,
+      });
+    } catch (err) {
+      console.error('[publicar] falha ao registrar notificação de publicação:', err);
+    }
+  }
 
   // Só na primeira publicação: "de novo no ar" (retomar) não é espaço NOVO.
   // Precisa vir antes do redirect() (ele lança para interromper a função).

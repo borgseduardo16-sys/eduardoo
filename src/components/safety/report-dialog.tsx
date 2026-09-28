@@ -11,7 +11,7 @@ import { SubmitButton } from '@/components/auth/form-shell';
 import { cn } from '@/lib/utils';
 
 /**
- * Denúncia de anúncio, usuário ou mensagem.
+ * Denúncia de anúncio, usuário, mensagem ou avaliação.
  *
  * Usa o `<dialog>` nativo em vez de uma biblioteca de modal: ele já entrega
  * foco preso dentro da caixa, fechamento com Esc e fundo inerte — que é
@@ -25,6 +25,8 @@ export function ReportDialog({
   targetType,
   targetId,
   targetLabel,
+  triggerLabel = 'Denunciar',
+  bookingId,
   variant = 'quiet',
   className,
 }: {
@@ -32,6 +34,13 @@ export function ReportDialog({
   targetId: string;
   /** O que aparece no título: "este anúncio", "esta mensagem"… */
   targetLabel: string;
+  /** Texto do botão que abre ("Denunciar avaliação", "Denunciar usuário"…). */
+  triggerLabel?: string;
+  /**
+   * Reserva a que a denúncia se refere (ex.: dano ao espaço). O servidor
+   * confere que quem denuncia participou dela e que ela tem a ver com o alvo.
+   */
+  bookingId?: string;
   variant?: 'quiet' | 'ghost' | 'secondary';
   className?: string;
 }) {
@@ -65,7 +74,7 @@ export function ReportDialog({
         className={className}
       >
         <Flag aria-hidden />
-        Denunciar
+        {triggerLabel}
       </Button>
 
       <dialog
@@ -113,6 +122,7 @@ export function ReportDialog({
           <form action={action} className="p-5 pt-2 space-y-5">
             <input type="hidden" name="targetType" value={targetType} />
             <input type="hidden" name="targetId" value={targetId} />
+            {bookingId && <input type="hidden" name="bookingId" value={bookingId} />}
 
             {state?.message && !state.ok && <Alert tone="critical">{state.message}</Alert>}
 

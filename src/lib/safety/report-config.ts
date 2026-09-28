@@ -8,7 +8,7 @@ import { z } from 'zod';
  * mesma lista de motivos, e duas listas divergentes seria fonte garantida de bug.
  */
 
-export const REPORT_TARGETS = ['space', 'user', 'message'] as const;
+export const REPORT_TARGETS = ['space', 'user', 'message', 'review'] as const;
 export type ReportTarget = (typeof REPORT_TARGETS)[number];
 
 export type ReportSeverity = 'low' | 'normal' | 'high' | 'critical';
@@ -31,6 +31,8 @@ type ReasonConfig = {
 };
 
 export const REPORT_REASONS = {
+  // A ordem das chaves e a ordem em que aparecem no formulario (por alvo).
+
   // --- Anuncio ---
   anuncio_falso: {
     label: 'Anúncio falso',
@@ -38,9 +40,21 @@ export const REPORT_REASONS = {
     targets: ['space'],
     severity: 'high',
   },
+  espaco_inexistente: {
+    label: 'O espaço não existe',
+    hint: 'Fui até o local e não há espaço nenhum.',
+    targets: ['space'],
+    severity: 'high',
+  },
   endereco_incorreto: {
-    label: 'Endereço incorreto',
+    label: 'Localização incorreta',
     hint: 'A localização no mapa não corresponde ao endereço real.',
+    targets: ['space'],
+    severity: 'normal',
+  },
+  fotos_enganosas: {
+    label: 'Fotos enganosas',
+    hint: 'As fotos não mostram o espaço como ele é (outro local, editadas, antigas).',
     targets: ['space'],
     severity: 'normal',
   },
@@ -50,18 +64,18 @@ export const REPORT_REASONS = {
     targets: ['space'],
     severity: 'normal',
   },
-  espaco_inexistente: {
-    label: 'O espaço não existe',
-    hint: 'Fui até o local e não há espaço nenhum.',
-    targets: ['space'],
-    severity: 'high',
-  },
 
   // --- Conduta ---
+  comportamento_suspeito: {
+    label: 'Comportamento suspeito',
+    hint: 'Algo na conversa ou no perfil não parece certo.',
+    targets: ['user'],
+    severity: 'normal',
+  },
   fraude: {
-    label: 'Fraude',
+    label: 'Tentativa de fraude',
     hint: 'Tentativa de enganar para obter dinheiro ou dados.',
-    targets: ['space', 'user', 'message'],
+    targets: ['space', 'user', 'message', 'review'],
     severity: 'critical',
   },
   golpe_pagamento: {
@@ -71,8 +85,8 @@ export const REPORT_REASONS = {
     severity: 'critical',
   },
   pagamento_fora_plataforma: {
-    label: 'Insistiu em pagar por fora',
-    hint: 'Pediu para fechar negócio fora da MyPlace.',
+    label: 'Pagamento fora da plataforma',
+    hint: 'Pediu para pagar ou fechar negócio fora da MyPlace.',
     targets: ['user', 'message'],
     severity: 'high',
   },
@@ -82,10 +96,22 @@ export const REPORT_REASONS = {
     targets: ['user', 'message'],
     severity: 'critical',
   },
+  conteudo_ofensivo: {
+    label: 'Conteúdo ofensivo',
+    hint: 'Xingamento, humilhação ou ataque pessoal.',
+    targets: ['review'],
+    severity: 'normal',
+  },
+  informacao_falsa: {
+    label: 'Informação falsa',
+    hint: 'Afirma algo que não aconteceu ou que não é verdade.',
+    targets: ['user', 'review'],
+    severity: 'normal',
+  },
   discurso_odio: {
     label: 'Discurso de ódio',
     hint: 'Ofensa por raça, gênero, religião, orientação ou deficiência.',
-    targets: ['space', 'user', 'message'],
+    targets: ['space', 'user', 'message', 'review'],
     severity: 'critical',
   },
   ameaca: {
@@ -104,14 +130,14 @@ export const REPORT_REASONS = {
   // --- Conteudo ---
   conteudo_inadequado: {
     label: 'Conteúdo inadequado',
-    hint: 'Texto ou imagem imprópria no anúncio ou na conversa.',
-    targets: ['space', 'user', 'message'],
+    hint: 'Texto ou imagem imprópria.',
+    targets: ['space', 'user', 'message', 'review'],
     severity: 'normal',
   },
   spam: {
     label: 'Spam',
     hint: 'Propaganda repetida ou mensagem em massa.',
-    targets: ['space', 'user', 'message'],
+    targets: ['space', 'user', 'message', 'review'],
     severity: 'low',
   },
   atividade_proibida: {
@@ -144,7 +170,7 @@ export const REPORT_REASONS = {
   outro: {
     label: 'Outro motivo',
     hint: 'Descreva o que aconteceu no campo abaixo.',
-    targets: ['space', 'user', 'message'],
+    targets: ['space', 'user', 'message', 'review'],
     severity: 'normal',
   },
 } as const satisfies Record<string, ReasonConfig>;
@@ -179,6 +205,8 @@ export const reportInputSchema = z
       .max(2000, 'Use no máximo 2000 caracteres.')
       .optional()
       .transform((v) => (v === '' ? undefined : v)),
+    /** Opcional: amarra a denuncia a uma reserva de quem denuncia (checado no servidor). */
+    bookingId: z.uuid('Reserva inválida.').optional(),
   })
   .refine((d) => isReasonValidForTarget(d.reason, d.targetType), {
     path: ['reason'],

@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 25/09/2026 · **Fases concluídas:** 1 a 6, 9 a 18 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma**
+> **Atualizado em:** 28/09/2026 · **Fases concluídas:** 1 a 6, 9 a 21 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém**
 
 Estados usados:
 
@@ -1277,6 +1277,108 @@ decide quanto).
 |------|--------|------------|
 | `scripts/verify-payments.ts` (seções 10-13, novas) | ✅ | 51 checagens novas (148 no total) contra Postgres real + testbed Asaas: checkout cobra as DUAS faturas (aluguel e caução, ids de cobrança diferentes), confirmação via webhook não ativa a reserva sozinha, idempotência na reentrega, liberação integral (estorno cheio, ledger soma zero, liberar de novo é recusado), retenção parcial via `resolveDepositAction` (quem não é admin é recusado, estorno só da parte devolvida, ledger credita o proprietário, auditoria gravada, fila de moderação mostra e depois reflete o novo estado), denúncia resolvida separadamente da caução (uma ação não bloqueia a outra), liberação automática por tempo (libera a elegível, não libera a "muito recente" nem a com denúncia aberta, idempotente numa 2ª rodada) |
 | `scripts/verify-schema.ts` (seção 13, nova) | ✅ | 10 checagens novas (61 no total): valor não-positivo, os dois nulos exigidos em "held", soma released+forfeited tem que bater com o total, cada `release_status` exige a combinação certa dos dois valores, uma caução por reserva, `provider_payment_id` único entre reservas diferentes. `released_non_negative`/`forfeited_non_negative` (as 2 CHECKs restantes da tabela) não têm teste próprio — são defesa-em-profundidade redundante: qualquer entrada que as violasse já teria violado uma das CHECKs de cima primeiro, então não são alcançáveis isoladamente |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos |
+
+---
+
+## Fase 21 — Confiança, perfil, reputação e verificação ✅ *(28/09/2026)*
+
+Pedido do usuário ("Parte 5"): uma camada completa de confiança em cima do
+que já existia — perfil público, reputação dos dois lados, verificações
+reais, denúncias, central de notificações com preferências — **evoluindo,
+não recriando**, e sem nada que finja funcionar. No meio da fase o usuário
+decidiu que **não haverá painel administrativo novo por enquanto**: a fila
+de moderação que já existe (`/admin/denuncias`) só passou a entender os
+tipos novos.
+
+### O que foi construído
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Perfil público `/perfil/[id]` | ✅ | nome público (nome de exibição ou só o primeiro nome — nunca o completo), foto, bio, "membro desde", sinais verificados, reputação **separada** como proprietário e como locatário (média, contagem e distribuição 5→1), espaços ativos, avaliações recebidas paginadas por papel, denunciar/bloquear. Nunca mostra CPF, telefone, e-mail, endereço, dado bancário ou financeiro. Conta suspensa/apagada ou id inválido → 404 limpo |
+| "Sobre o proprietário" + "Por que confiar neste anúncio?" | ✅ | página do espaço e tela de solicitar. Só sinais reais, cada um explicável ao tocar; sem avaliação aparece "Este proprietário ainda não recebeu avaliações." — ausência não vira sinal negativo |
+| "Sobre o interessado" | ✅ | em Solicitações, antes de aceitar: os mesmos sinais, com a reputação da pessoa **como locatária** |
+| Página da reserva `/reservas/[id]` | ✅ | para as duas partes e só para elas (id alheio = 404, sem revelar que existe). Resumo com os valores gravados no banco (aluguel + 3% para quem aluga, aluguel − 3% para quem anuncia), próximos passos por status, atalhos (conversa, anúncio, perfil da outra parte, relatar problema ligado à reserva). Depois de solicitar, a pessoa cai aqui com a confirmação "Solicitação enviada" |
+| Endereço exato após confirmação | ✅ | a copy prometia "endereço liberado após a confirmação", mas a funcionalidade **não existia**. Agora rua/número/complemento aparecem só com locação `active`/`past_due`, e os textos das telas foram corrigidos para dizer exatamente isso |
+| Avaliações bilaterais | ✅ | só de locação encerrada, uma por lado; quem recebeu vem da reserva (trigger), nunca do formulário; nota e texto imutáveis; apagar é bloqueado no banco (a moderação só oculta); texto com contato é recusado; auditoria; notificação para quem recebeu |
+| Média | ✅ | uma casa decimal, arredondada **uma vez** no banco (4,666… → 4,7) e exibida com vírgula. Antes eram duas casas + novo arredondamento na tela, que podia divergir do certo. Avaliação oculta não conta |
+| Editar perfil `/minha-conta/perfil` | ✅ | nome de exibição (2–40 caracteres, sem se passar por "MyPlace"/"suporte"/"oficial", sem contato), bio (até 500, sem contato), foto (recorte 512 px, sem metadado/GPS, pasta própria no Storage) |
+| E-mail verificado | ✅ | cópia fiel de `auth.users.email_confirmed_at`, mantida por trigger. Depende de "Confirm email" **ligado** no Supabase — `pnpm check:producao` confere |
+| Telefone verificado (SMS) | ⚙️ | Twilio Verify: código pronto e testado contra um dublê do contrato oficial. Sem as 3 credenciais, a tela diz que não está disponível e **nada é enviado**. O selo só vem de `approved` do provedor; trocar o número derruba; o mesmo número verificado não fica em duas contas — [SETUP.md §13](./SETUP.md#13-twilio-verify--verificação-de-telefone-por-sms-fase-21) |
+| Identidade verificada | ⬜ | só estrutura no banco (status + CHECK amarrando "verified" a um documento verificado). O selo **não aparece para ninguém** até existir provedor real |
+| Denúncias | ✅ | novo alvo **avaliação** (com evidência congelada), motivos da especificação agrupados por alvo, "relatar problema" ligado à reserva (base para decidir caução). Denúncia procedente de avaliação conta na reincidência de quem **escreveu** |
+| Central de notificações | ✅ | não lidas e lidas separadas, contador, "marcar todas como lidas", marcar uma sem abrir, tocar abre o destino e marca como lida, paginação das lidas. Eventos novos: avaliação disponível ao encerrar, avaliação recebida, anúncio publicado, Destaque/Turbo vencendo (cron diário existente), Premium alterado |
+| Preferências `/notificacoes/preferencias` | ✅ | por categoria, "na central" e "no celular". Reservas, pagamentos e conta são **essenciais**: travadas na tela, ignoradas no servidor e recusadas pelo banco (CHECK) |
+| Idempotência | ✅ | chave única por pessoa + evento no banco: webhook reentregue ou clique duplo não duplica aviso |
+| Bloqueio | ✅ | continua impedindo conversa e reserva nova; a locação **em andamento** segue valendo (pagamentos não quebram) |
+| Denúncia procedente pesa, sem ser publicada | ✅ | o antigo rótulo público "Conta em revisão" saiu (era dado de moderação). A regra por trás dele fica: com 3+ denúncias procedentes, a recomendação de visitar sobe de destaque no anúncio, com texto neutro — histórico longo não mascara denúncia confirmada |
+| Destaque/Turbo/Premium | ✅ preservados | nada mudou no funcionamento nem nos preços. Premium aparece discreto no perfil e no "Sobre o proprietário", explicado como benefício comercial — nunca entra em "Por que confiar" |
+
+### Achados corrigidos pelo caminho
+
+- **Vazamento pela API (RLS):** qualquer conta logada lia telefone e CPF de
+  qualquer perfil ativo pela API REST do Supabase, e quem denunciava lia a
+  evidência copiada. Corrigido com GRANT por coluna — detalhes em
+  [SEGURANCA.md §6](./SEGURANCA.md#6-sinais-de-confiança--a-defesa-que-realmente-funciona).
+- **"Espaços ativos" sempre 0 no perfil:** o Drizzle escreve `${profiles.id}`
+  sem o nome da tabela numa consulta de tabela única; dentro da subconsulta
+  isso virava o `id` do espaço. Corrigido escrevendo `profiles.id` por
+  extenso (com comentário explicando, nos dois lugares).
+- **Promessa sem funcionalidade:** o endereço "liberado após a confirmação"
+  (ver tabela acima).
+- **Stub local de `auth`:** sem `USAGE` para os papéis da API, o que fazia um
+  caminho legítimo (trocar o próprio telefone pela API) falhar só no teste
+  local. Migração `0023`, que não faz nada no Supabase.
+- **`supabase/setup.sql` parado na migração 0013:** as Fases 14 a 20 nunca
+  tinham sido incluídas no SQL de colar no painel. Regenerado com todas as
+  migrações, mais `supabase/atualizacao-0010.sql` com o que falta desde a
+  última confirmada no seu projeto (0009). Validado em bancos novos: o
+  `setup.sql` completo, o `pnpm db:migrate` e "0009 + atualização" produzem
+  o mesmo schema, com permissões (comparado com `pg_dump`), e os blocos já
+  publicados antes continuam com o mesmo hash — nada é reaplicado.
+- **Revisão visual no celular (390 px):** o cabeçalho de quem está logado
+  passava da largura da tela (o "Sair" ficava cortado; num celular de 360 px,
+  ~30 px a mais). No celular, nome e "Sair" saíram do cabeçalho — a aba
+  "Conta" da navegação inferior leva a `/minha-conta`, que ganhou "Sair da
+  conta". O cabeçalho também passou a usar o nome público (antes ignorava o
+  nome de exibição).
+- **Rótulos das características sem acento** ("Iluminacao", "Portao",
+  "Agua"…), visíveis em todo cartão e filtro desde a Fase 1. Migração `0024`
+  corrige só os que ainda estão com o texto original.
+
+### O que ficou fora, e por quê
+
+- **Painel administrativo novo** — decisão do usuário. A fila existente
+  mostra denúncias de avaliação com rótulo e evidência, mas **ocultar uma
+  avaliação não tem botão**: por enquanto é
+  `UPDATE reviews SET hidden_at = now(), hidden_reason = '…' WHERE id = '…'`
+  no SQL Editor (a média se recalcula sozinha).
+- **Verificação de identidade** — falta escolher o provedor (custo,
+  contrato e LGPD mudam muito entre eles).
+- **Taxa e tempo de resposta** — hoje não são medidos de forma confiável;
+  mostrar número inventado seria pior que não mostrar.
+- **"Promoções da plataforma" nas preferências** — a MyPlace não envia
+  marketing por notificação; um interruptor para algo que não existe seria
+  enfeite.
+- **Aviso de anúncio expirando** — anúncio não expira hoje.
+- **Solicitação pendente quando alguém bloqueia** — continua aberta (o
+  proprietário pode recusar); cancelar sozinha fica para depois.
+- **Estimativa de valor do espaço / score de investimento** — fora desta
+  etapa, por instrução explícita.
+- **Termos de Uso** — o texto sobre o endereço foi ajustado para refletir o
+  comportamento real; **precisa de revisão jurídica**, como o resto do
+  documento.
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `scripts/verify-confianca.ts` (novo, no `pnpm verify`) | ✅ | 158 checagens contra Postgres real + dublês: o fluxo completo de 22 passos pelas Server Actions reais (conta nova → anúncio → solicitação → aceite → pagamento → encerramento → avaliações dos dois lados → média refletida); tentativas de manipulação (avaliar sem ter alugado, antes de encerrar, duas vezes, nota 0/6/4,5/texto, se passar pela outra parte, contato no comentário, criar avaliação ou se marcar verificado direto pela API); arredondamento; privacidade do perfil; foto sem GPS; verificação por SMS com o dublê do Twilio (código errado, expirado, fixo, número já usado); denúncias; notificações; página da reserva (IDOR e endereço); bloqueio; RLS com os papéis reais do navegador |
+| `scripts/verify-schema.ts` (seção 14, nova) | ✅ | 38 checagens novas (99 no total): cada CHECK, trigger e índice único novo recusando dado inválido de verdade |
+| `scripts/verify-safety.ts` | ✅ | 77 checagens — sinais de confiança reescritos, incluindo "denúncia procedente domina o histórico" sem virar sinal público |
+| Demais scripts | ✅ | expectativas atualizadas para o nome público (e agora conferem que o nome completo **não** sai em e-mail nem mensagem); os dublês do DAL leem o nome do banco, como o DAL real |
+| `pnpm verify` completo (13 scripts) | ✅ | 951 checagens, 0 falhas |
+| `scripts/verify-integracoes.ts` (navegador real) | ✅ | 224 checagens, 0 falhas — inclusive o fluxo de solicitar que agora termina em `/reservas/{id}` |
 | `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos |
 
 ---
