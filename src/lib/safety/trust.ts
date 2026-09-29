@@ -31,6 +31,14 @@
  */
 import { formatRating, reviewCountLabel } from '@/lib/reviews/format';
 import { memberSinceLabel } from '@/lib/profiles/format';
+import {
+  RESPONSE_TIME_LABEL,
+  responseRateExplanation,
+  responseRatePercent,
+  responseTimeExplanation,
+  typicalResponseBucket,
+  type ResponseStats,
+} from '@/lib/bookings/response-format';
 
 /**
  * Verificacao de identidade: so estrutura nesta fase (coluna
@@ -59,9 +67,23 @@ export type TrustInput = {
    * antigo nivel "Conta em revisao", mantida sem publicar a moderacao).
    */
   underReview?: boolean;
+  /**
+   * Como a pessoa responde às solicitações como proprietária (Fase 22). Só
+   * vira sinal com dado suficiente (ver `response-format.ts`); abaixo disso
+   * não aparece nada.
+   */
+  responseStats?: ResponseStats | null;
 };
 
-export type TrustSignalKey = 'email' | 'phone' | 'identity' | 'member_since' | 'bookings' | 'rating';
+export type TrustSignalKey =
+  | 'email'
+  | 'phone'
+  | 'identity'
+  | 'member_since'
+  | 'bookings'
+  | 'rating'
+  | 'response_rate'
+  | 'response_time';
 
 export type TrustSignal = {
   key: TrustSignalKey;
@@ -70,7 +92,12 @@ export type TrustSignal = {
   explanation: string;
   /** Nome do icone lucide-react (ver components/safety/icon.tsx). */
   icon: string;
-  group: 'verification' | 'history';
+  /**
+   * `activity` (taxa e tempo de resposta) é comportamento, não credencial: a
+   * tela mostra à parte de "Por que confiar", porque pode ser um número baixo
+   * — e continua sendo informação real e útil para quem vai pedir o espaço.
+   */
+  group: 'verification' | 'history' | 'activity';
 };
 
 /** Texto das explicacoes — um lugar so, para perfil, anuncio e solicitacao dizerem o mesmo. */
@@ -86,7 +113,9 @@ export const TRUST_EXPLANATIONS = {
     'Aluguéis que chegaram ao fim dentro da MyPlace, contando os dois lados — como proprietário e como locatário.',
   rating:
     'Média das notas dadas por quem participou de uma locação concluída com esta pessoa. Só avalia quem alugou de verdade, uma vez por locação.',
-} as const satisfies Record<TrustSignalKey, string>;
+  // Taxa e tempo de resposta têm explicação montada com as contagens reais
+  // (`response-format.ts`), por isso não estão nesta lista fixa.
+} as const satisfies Record<Exclude<TrustSignalKey, 'response_rate' | 'response_time'>, string>;
 
 /**
  * Lista de sinais, na ordem em que devem aparecer: verificacoes primeiro,
@@ -144,6 +173,29 @@ export function buildTrustSignals(input: TrustInput): TrustSignal[] {
       icon: 'CircleCheckBig',
       group: 'history',
     });
+  }
+
+  if (input.responseStats) {
+    const taxa = responseRatePercent(input.responseStats);
+    if (taxa != null) {
+      signals.push({
+        key: 'response_rate',
+        label: `Responde ${taxa}% das solicitações`,
+        explanation: responseRateExplanation(input.responseStats),
+        icon: 'Reply',
+        group: 'activity',
+      });
+    }
+    const faixa = typicalResponseBucket(input.responseStats);
+    if (faixa) {
+      signals.push({
+        key: 'response_time',
+        label: `Costuma responder ${RESPONSE_TIME_LABEL[faixa]}`,
+        explanation: responseTimeExplanation(input.responseStats),
+        icon: 'Timer',
+        group: 'activity',
+      });
+    }
   }
 
   signals.push({

@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 28/09/2026 · **Fases concluídas:** 1 a 6, 9 a 21 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém**
+> **Atualizado em:** 29/09/2026 · **Fases concluídas:** 1 a 6, 9 a 22 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém**
 
 Estados usados:
 
@@ -1355,8 +1355,8 @@ tipos novos.
   no SQL Editor (a média se recalcula sozinha).
 - **Verificação de identidade** — falta escolher o provedor (custo,
   contrato e LGPD mudam muito entre eles).
-- **Taxa e tempo de resposta** — hoje não são medidos de forma confiável;
-  mostrar número inventado seria pior que não mostrar.
+- **Taxa e tempo de resposta** — ficaram para a Fase 22 (já feita, logo
+  abaixo), medidos só a partir das solicitações reais.
 - **"Promoções da plataforma" nas preferências** — a MyPlace não envia
   marketing por notificação; um interruptor para algo que não existe seria
   enfeite.
@@ -1380,6 +1380,55 @@ tipos novos.
 | `pnpm verify` completo (13 scripts) | ✅ | 951 checagens, 0 falhas |
 | `scripts/verify-integracoes.ts` (navegador real) | ✅ | 224 checagens, 0 falhas — inclusive o fluxo de solicitar que agora termina em `/reservas/{id}` |
 | `pnpm typecheck && pnpm lint && pnpm build` | ✅ | limpos |
+
+---
+
+## Fase 22 — Taxa e tempo de resposta do proprietário ✅ *(29/09/2026)*
+
+Pedido do usuário (item 3 das sugestões do fim da Fase 21). Quem vai pedir
+um espaço quer saber se vai ter resposta — e em quanto tempo. Os números
+saem das solicitações reais, e **nada aparece sem dado suficiente**.
+
+### Regras (em `src/lib/bookings/response-format.ts`)
+
+| Situação da solicitação | Entra na conta? |
+|-------------------------|-----------------|
+| Aceita ou recusada | ✅ respondida — inclui a recusa automática de quem pediu o mesmo espaço quando outro interessado foi aceito (para quem pediu, é uma resposta) |
+| Venceu sem resposta (7 dias, `booking.request_expiry_days`) | ✅ sem resposta — mesmo que ainda não tenha sido marcada `expired` |
+| Ainda dentro do prazo | ⬜ fica de fora |
+| Cancelada por quem pediu antes da resposta | ⬜ fica de fora — o proprietário não teve a chance inteira |
+| Mais antiga que 12 meses | ⬜ fica de fora — comportamento antigo não pesa para sempre |
+
+- **Taxa**: aparece a partir de **3** solicitações decididas, arredondada
+  **para baixo** (199 de 200 é 99% — nunca "100%" com pedido sem resposta)
+- **Tempo típico**: a **mediana**, a partir de **3** respostas, mostrada em
+  faixa ("em até 1 hora", "em poucas horas", "em até 1 dia", "em alguns
+  dias") — com 5 ou 10 respostas, um número exato fingiria uma precisão que
+  o dado não tem
+- A explicação de cada item (ao tocar) traz as contagens reais, ex.:
+  "respondeu 3 de 5 solicitações"
+
+### Onde aparece
+
+| Tela | O quê |
+|------|-------|
+| Anúncio (`/espacos/[slug]`) | bloco próprio **"Como responde às solicitações"**, separado de "Por que confiar neste anúncio?" — uma taxa baixa é informação real e útil, mas não é motivo de confiança |
+| Tela de solicitar, página da reserva (para quem aluga) | junto dos outros sinais do proprietário |
+| Perfil público | em "Verificações e histórico" |
+| Solicitações (para o próprio proprietário) | "Nos últimos 12 meses você respondeu X de Y (Z%)…" — ou quanto falta para o número aparecer, e o aviso de que pedido sem resposta vence e conta como não respondido |
+
+Só agregados saem da consulta (nenhuma solicitação, nome ou data
+individual). **Nenhuma mudança no banco** — o cálculo usa colunas que já
+existiam (`requested_at`, `responded_at`), então não há SQL novo para colar
+no Supabase por causa desta fase.
+
+### Verificação automatizada
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| `scripts/verify-confianca.ts` (seção 12, nova) | ✅ | 18 checagens (176 no total): faixas e arredondamento; sem dado nada aparece; um pedido para cada regra do que conta (respondido, recusa automática, vencido, vencido ainda não marcado, recente, cancelado por quem pediu, fora da janela) → 3 de 5 = 60%, mediana 2 h; recusar pela ação real passa a contar (4 de 6 = 66%); quem só aluga não ganha indicador; só agregados saem da consulta |
+| Revisão visual (390 px) | ✅ | anúncio, solicitar, perfil e Solicitações |
+| `pnpm verify` completo + navegador | ✅ | 969 checagens em 13 scripts + 224 em `verify-integracoes`, 0 falhas; `typecheck`, `lint` e `build` limpos |
 
 ---
 

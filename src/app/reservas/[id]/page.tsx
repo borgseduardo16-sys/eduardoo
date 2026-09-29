@@ -8,6 +8,7 @@ import { getBookingAddressForRenter, getBookingForParticipant, type BookingDetai
 import { findConversation } from '@/lib/messaging/queries';
 import { hasReviewedBooking } from '@/lib/reviews/queries';
 import { getRatingSummaries } from '@/lib/reviews/reputation';
+import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
 import { isUuid } from '@/lib/profiles/queries';
 import { displayNameOr } from '@/lib/profiles/format';
 import { signImagePaths } from '@/lib/storage/signed-urls';
@@ -67,13 +68,15 @@ export default async function ReservaPage({
   const outra = papel === 'renter' ? b.owner : b.renter;
   const kindAvaliacao = papel === 'renter' ? 'renter_to_space' : 'owner_to_renter';
 
-  const [urls, endereco, conversa, jaAvaliou, reputacao] = await Promise.all([
+  const [urls, endereco, conversa, jaAvaliou, reputacao, respostaDono] = await Promise.all([
     signImagePaths([b.spaceCoverPath, outra.avatarPath].filter(Boolean) as string[]),
     papel === 'renter' ? getBookingAddressForRenter(b.id, user.id) : Promise.resolve(null),
     findConversation(b.spaceId, b.renterId),
     hasReviewedBooking(b.id, user.id, kindAvaliacao),
     // Reputação da OUTRA parte no papel dela nesta reserva.
     getRatingSummaries([outra.id], papel === 'renter' ? 'renter_to_space' : 'owner_to_renter'),
+    // Como o proprietário responde — só interessa a quem está do lado de quem pede.
+    papel === 'renter' ? getOwnerResponseStats(outra.id) : Promise.resolve(null),
   ]);
 
   const status = BOOKING_STATUS_INFO[b.status as keyof typeof BOOKING_STATUS_INFO] ?? {
@@ -302,6 +305,7 @@ export default async function ReservaPage({
                 avatarUrl: outra.avatarPath ? (urls.get(outra.avatarPath) ?? null) : null,
               }}
               rating={reputacao.get(outra.id) ?? { average: null, count: 0 }}
+              responseStats={respostaDono}
             />
           ) : (
             <p className="text-[0.875rem] text-[var(--content-muted)]">

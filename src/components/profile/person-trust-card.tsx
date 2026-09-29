@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
 import { buildTrustSignals, shouldEmphasizeVisit } from '@/lib/safety/trust';
+import type { ResponseStats } from '@/lib/bookings/response-format';
 import { displayNameOr, memberSinceLabel } from '@/lib/profiles/format';
 import { UserAvatar } from '@/components/profile/user-avatar';
 import { TrustSignalList } from '@/components/safety/trust-badges';
@@ -41,12 +42,15 @@ export function PersonTrustCard({
   person,
   rating,
   role,
+  responseStats,
   compact = false,
   className,
 }: {
   person: TrustPerson;
   rating: { average: string | null; count: number };
   role: 'owner' | 'renter';
+  /** Só faz sentido para quem anuncia (Fase 22): como responde às solicitações. */
+  responseStats?: ResponseStats | null;
   compact?: boolean;
   className?: string;
 }) {
@@ -59,7 +63,12 @@ export function PersonTrustCard({
     identityVerified: person.identityVerified,
     completedBookings: person.completedBookingsCount,
     rating,
+    responseStats: role === 'owner' ? responseStats : null,
   }).filter((s) => s.key !== 'member_since' && s.key !== 'rating');
+  // Taxa/tempo de resposta ficam fora de "Por que confiar": podem ser baixos,
+  // e continuam sendo informação útil — só não são motivo de confiança.
+  const sinaisConfianca = sinais.filter((s) => s.group !== 'activity');
+  const sinaisResposta = sinais.filter((s) => s.group === 'activity');
 
   const semAvaliacao =
     role === 'owner'
@@ -157,9 +166,9 @@ export function PersonTrustCard({
         <h3 className="font-semibold">
           {role === 'owner' ? 'Por que confiar neste anúncio?' : 'Sinais de confiança'}
         </h3>
-        {sinais.length > 0 ? (
+        {sinaisConfianca.length > 0 ? (
           <>
-            <TrustSignalList signals={sinais} />
+            <TrustSignalList signals={sinaisConfianca} />
             <p className="text-[0.75rem] text-[var(--content-subtle)]">Toque em um item para ver o que ele significa.</p>
           </>
         ) : (
@@ -181,6 +190,13 @@ export function PersonTrustCard({
           </p>
         )}
       </div>
+
+      {sinaisResposta.length > 0 && (
+        <div className="border-t pt-5 space-y-3">
+          <h3 className="font-semibold">Como responde às solicitações</h3>
+          <TrustSignalList signals={sinaisResposta} />
+        </div>
+      )}
     </section>
   );
 }

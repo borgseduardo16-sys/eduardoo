@@ -99,10 +99,11 @@ const telCId = uuid();
 const avatarId = uuid();
 const prefId = uuid();
 const outroPrefId = uuid();
+const respId = uuid();
 
 const todos = [
   anaId, brunoId, donoId, locId, loc2Id, loc3Id, terceiroId, suspensoId,
-  telAId, telBId, telCId, avatarId, prefId, outroPrefId,
+  telAId, telBId, telCId, avatarId, prefId, outroPrefId, respId,
 ];
 
 type Papel = 'user' | 'owner' | 'admin';
@@ -221,6 +222,7 @@ async function seed() {
     [avatarId]: ['Alice Avatar Reis', 'user'],
     [prefId]: ['Paula Preferencia Luz', 'user'],
     [outroPrefId]: ['Pedro Outro Mota', 'user'],
+    [respId]: ['Rita Resposta Prado', 'owner'],
   };
   for (const [id, [nome, papel]] of Object.entries(nomes)) {
     await sql`UPDATE profiles SET full_name=${nome}, role=${papel} WHERE id=${id}`;
@@ -875,6 +877,82 @@ async function main() {
     comoNavegador('authenticated', telAId, (tx) => tx`SELECT * FROM phone_verifications`), 'permission denied');
   await recusa('logado não lê preferências pela API', () =>
     comoNavegador('authenticated', prefId, (tx) => tx`SELECT * FROM notification_preferences`), 'permission denied');
+
+  // =========================================================================
+  secao('12. Taxa e tempo de resposta do proprietário (§16, Fase 22)');
+  // =========================================================================
+
+  const { getOwnerResponseStats } = await import('../src/lib/bookings/response-stats');
+  const { responseTimeBucket, responseRatePercent, MIN_DECIDED_FOR_RATE } = await import('../src/lib/bookings/response-format');
+
+  // Regras puras: faixas e arredondamento.
+  expect('até 1 hora, limite incluso', responseTimeBucket(3600), 'hour');
+  expect('1 h e 1 s já é "poucas horas"', responseTimeBucket(3601), 'few_hours');
+  expect('6 horas ainda é "poucas horas"', responseTimeBucket(6 * 3600), 'few_hours');
+  expect('24 horas é "até 1 dia"', responseTimeBucket(24 * 3600), 'day');
+  expect('mais de 1 dia vira "alguns dias"', responseTimeBucket(24 * 3600 + 1), 'days');
+  expect('199 de 200 é 99% — nunca "100%" com pedido sem resposta',
+    responseRatePercent({ decided: 200, answered: 199, medianSeconds: 60 }), 99);
+  expect('abaixo do mínimo não existe taxa (nada é mostrado)',
+    responseRatePercent({ decided: MIN_DECIDED_FOR_RATE - 1, answered: MIN_DECIDED_FOR_RATE - 1, medianSeconds: 60 }), null);
+
+  // Banco: proprietária nova, sem nenhum pedido.
+  const espacoResp = await criarPublicado(respId, 'resp');
+  const semPedidos = await getOwnerResponseStats(respId);
+  expect('sem solicitações: nada a mostrar', [semPedidos.decided, responseRatePercent(semPedidos)], [0, null]);
+  assert('...e nenhum sinal de resposta aparece no perfil',
+    !buildTrustSignals({ createdAt: new Date(), emailVerified: false, phoneVerified: false, completedBookings: 0, responseStats: semPedidos })
+      .some((x) => x.group === 'activity'));
+
+  // Pedidos com horários controlados — um para cada regra do que conta.
+  async function pedidoResp(renterId: string, status: string, pedidoHaHoras: number, respostaEmMin: number | null, canceladoPor?: string) {
+    seq++;
+    const a = computeBookingAmounts(30000, fees);
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+        monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
+        total_charged_cents, owner_payout_cents, requested_at, responded_at, cancelled_by, cancelled_at, ended_at)
+      VALUES (${`MP-${tag}-${seq}`}, ${espacoResp.id}, ${renterId}, ${respId}, ${status}, CURRENT_DATE + 30,
+        ${a.monthlyRentCents}, ${a.renterFeeBps}, ${a.ownerFeeBps}, ${a.renterFeeCents}, ${a.ownerFeeCents},
+        ${a.totalChargedCents}, ${a.ownerPayoutCents},
+        now() - make_interval(hours => ${pedidoHaHoras}::int),
+        ${respostaEmMin == null ? null : sql`now() - make_interval(hours => ${pedidoHaHoras}::int) + make_interval(mins => ${respostaEmMin}::int)`},
+        ${canceladoPor ?? null}, ${canceladoPor ? sql`now()` : null}, ${status === 'ended' ? sql`now()` : null})
+      RETURNING id`;
+    return row!.id;
+  }
+  await pedidoResp(loc2Id, 'rejected', 50, 30);            // respondido em 30 min
+  await pedidoResp(loc3Id, 'ended', 400, 120);             // aceito em 2 h (a locação já acabou)
+  await pedidoResp(brunoId, 'rejected', 300, 180);         // recusa automática ("outro interessado"), 3 h
+  await pedidoResp(terceiroId, 'expired', 200, null);      // venceu sem resposta
+  await pedidoResp(locId, 'requested', 8 * 24, null);      // fora do prazo, ainda não marcado "expired"
+  const recente = await pedidoResp(anaId, 'requested', 1, null); // dentro do prazo: ainda não conta
+  await pedidoResp(telAId, 'cancelled', 30, null, telAId); // quem pediu desistiu antes da resposta: não conta
+  await pedidoResp(telBId, 'rejected', 400 * 24, 10);      // fora da janela de 12 meses: não conta
+
+  const apurado = await getOwnerResponseStats(respId);
+  expect('conta 3 respondidas e 2 sem resposta (recente, cancelado e antigo ficam de fora)',
+    [apurado.answered, apurado.decided], [3, 5]);
+  expect('taxa: 3 de 5 = 60%', responseRatePercent(apurado), 60);
+  expect('mediana de 30 min, 2 h e 3 h = 2 h', apurado.medianSeconds, 7200);
+  expect('só agregados saem da consulta (nenhum pedido, nome ou data)', Object.keys(apurado).sort(), ['answered', 'decided', 'medianSeconds']);
+
+  const sinaisResp = buildTrustSignals({
+    createdAt: new Date(), emailVerified: false, phoneVerified: false, completedBookings: 1, responseStats: apurado,
+  }).filter((x) => x.group === 'activity');
+  expect('sinais na tela', sinaisResp.map((x) => x.label), ['Responde 60% das solicitações', 'Costuma responder em poucas horas']);
+  assert('a explicação traz as contagens reais', sinaisResp[0]!.explanation.includes('respondeu 3 de 5 solicitações'), sinaisResp[0]!.explanation);
+
+  // Pelo caminho real: a proprietária recusa o pedido recente na tela.
+  entrarComo(respId, 'owner', 'Rita Resposta Prado');
+  const rRecusa = await respondToBookingRequestAction(undefined, fd({ bookingId: recente, decision: 'reject' }));
+  assert('recusar pela ação registra a hora da resposta', rRecusa.ok, JSON.stringify(rRecusa));
+  const depoisDaAcao = await getOwnerResponseStats(respId);
+  expect('...e ela passa a contar: 4 de 6 = 66%', [depoisDaAcao.answered, depoisDaAcao.decided, responseRatePercent(depoisDaAcao)], [4, 6, 66]);
+
+  // Quem só aluga não ganha "taxa de resposta" (nunca recebeu solicitação).
+  const deQuemAluga = await getOwnerResponseStats(loc2Id);
+  expect('locatário não tem indicador de resposta', responseRatePercent(deQuemAluga), null);
 }
 
 async function limpar() {

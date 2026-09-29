@@ -6,6 +6,13 @@ import { requireUser } from '@/lib/auth/dal';
 import { countOwnerPendingRequests, listOwnerBookingRequests, type BookingStatus } from '@/lib/bookings/queries';
 import { listReviewedBookingIds, parsePage } from '@/lib/reviews/queries';
 import { getRatingSummaries } from '@/lib/reviews/reputation';
+import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
+import {
+  MIN_DECIDED_FOR_RATE,
+  RESPONSE_TIME_LABEL,
+  responseRatePercent,
+  typicalResponseBucket,
+} from '@/lib/bookings/response-format';
 import { displayNameOr } from '@/lib/profiles/format';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
@@ -45,14 +52,17 @@ export default async function SolicitacoesPage({
   const ativo = FILTROS.find((f) => f.key === filtro) ?? FILTROS[0];
   const page = parsePage(pagina);
 
-  const [linhas, pendentesTotal] = await Promise.all([
+  const [linhas, pendentesTotal, minhasRespostas] = await Promise.all([
     listOwnerBookingRequests(user.id, ativo.status ? ([...ativo.status] as BookingStatus[]) : undefined, {
       limit: PAGE_SIZE + 1,
       offset: (page - 1) * PAGE_SIZE,
     }),
     countOwnerPendingRequests(user.id),
+    getOwnerResponseStats(user.id),
   ]);
   const solicitacoes = linhas.slice(0, PAGE_SIZE);
+  const minhaTaxa = responseRatePercent(minhasRespostas);
+  const minhaFaixa = typicalResponseBucket(minhasRespostas);
 
   const [urls, avaliadas, reputacoes] = await Promise.all([
     signImagePaths(
@@ -76,6 +86,16 @@ export default async function SolicitacoesPage({
             {pendentesTotal === 0
               ? 'Nenhuma solicitação aguardando resposta.'
               : `${pendentesTotal} ${pendentesTotal === 1 ? 'solicitação aguardando' : 'solicitações aguardando'} resposta.`}
+          </p>
+          {/* O mesmo número que quem vê o anúncio vê — dito aqui primeiro para quem anuncia. */}
+          <p className="text-[0.875rem] text-[var(--content-subtle)] leading-relaxed" data-testid="minha-taxa-resposta">
+            {minhaTaxa != null
+              ? `Nos últimos 12 meses você respondeu ${minhasRespostas.answered} de ${minhasRespostas.decided} solicitações (${minhaTaxa}%)` +
+                (minhaFaixa ? `, normalmente ${RESPONSE_TIME_LABEL[minhaFaixa]}` : '') +
+                '. Quem vê seus anúncios vê essa informação.'
+              : `Sua taxa de resposta aparece nos seus anúncios a partir de ${MIN_DECIDED_FOR_RATE} solicitações respondidas ou vencidas` +
+                (minhasRespostas.decided > 0 ? ` (até agora: ${minhasRespostas.decided}).` : '.')}{' '}
+            Pedido sem resposta vence sozinho e conta como não respondido.
           </p>
         </header>
 

@@ -10,6 +10,7 @@ import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { bookingStatusLabel } from '@/lib/bookings/format';
 import { listReviewsForSpace, parsePage } from '@/lib/reviews/queries';
 import { getReputation } from '@/lib/reviews/reputation';
+import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
 import { formatBRL } from '@/lib/money';
 import { serverEnv } from '@/lib/env';
 import type { SpaceTypeKey } from '@/lib/spaces/types';
@@ -86,11 +87,12 @@ export default async function EspacoPage({
   const isOwner = viewer?.id === space.ownerId;
   const paginaAvaliacoes = parsePage(sp.avaliacoes);
 
-  const [favorited, existingBooking, reviewsPage, ownerReputation] = await Promise.all([
+  const [favorited, existingBooking, reviewsPage, ownerReputation, ownerResponse] = await Promise.all([
     viewer ? isFavorited(viewer.id, space.id) : Promise.resolve(false),
     viewer && !isOwner ? getViewerActiveBookingForSpace(space.id, viewer.id) : Promise.resolve(null),
     listReviewsForSpace(space.id, { page: paginaAvaliacoes }),
     space.owner ? getReputation(space.owner.id) : Promise.resolve(null),
+    space.owner ? getOwnerResponseStats(space.owner.id) : Promise.resolve(null),
   ]);
 
   // Uma chamada só para assinar fotos do anúncio, foto do proprietário e de quem avaliou.
@@ -242,6 +244,7 @@ export default async function EspacoPage({
               avatarUrl: space.owner.avatarPath ? (urls.get(space.owner.avatarPath) ?? null) : null,
             }}
             rating={ownerReputation.asOwner}
+            responseStats={ownerResponse}
           />
         )}
 

@@ -5,6 +5,7 @@ import { getCurrentUser } from '@/lib/auth/dal';
 import { getPublicProfile } from '@/lib/profiles/queries';
 import { displayNameOr, memberSinceLabel } from '@/lib/profiles/format';
 import { getReputation } from '@/lib/reviews/reputation';
+import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
 import { listReviewsReceived, parsePage } from '@/lib/reviews/queries';
 import { listPublishedSpaces } from '@/lib/spaces/queries';
 import { listUserFavoriteIds } from '@/lib/favorites/queries';
@@ -64,7 +65,7 @@ export default async function PerfilPage({
 
   const isSelf = viewer?.id === profile.id;
   const nome = displayNameOr(profile.publicName);
-  const reputation = await getReputation(profile.id);
+  const [reputation, respostas] = await Promise.all([getReputation(profile.id), getOwnerResponseStats(profile.id)]);
 
   // Aba de avaliações: a que a pessoa pediu, ou a que tem mais a mostrar.
   const papelPadrao: Papel =
@@ -108,6 +109,8 @@ export default async function PerfilPage({
     identityVerified: profile.identityVerified,
     completedBookings: profile.completedBookingsCount,
     rating: reputation.overall,
+    // Só aparece para quem anuncia e já tem solicitações suficientes.
+    responseStats: respostas,
   });
 
   const href = (mudar: Partial<Record<keyof SearchParams, string | number | null>>) => {

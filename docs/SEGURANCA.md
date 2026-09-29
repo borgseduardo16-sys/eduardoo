@@ -349,6 +349,7 @@ Agora são só **sinais reais**, cada um com a explicação do que significa
 | ★ nota · N avaliações | média com uma casa, arredondada uma vez no banco | só com avaliação de locação encerrada |
 | N locações concluídas | contador mantido por trigger | só se > 0 |
 | Membro desde | data de criação da conta | sempre |
+| Responde X% das solicitações · Costuma responder em … (Fase 22) | solicitações reais dos últimos 12 meses (respondidas × vencidas; a mediana do tempo) | a partir de 3 solicitações decididas / 3 respostas; no anúncio, **à parte** de "Por que confiar", porque pode ser um número baixo |
 
 Premium, Destaque, Turbo e quantidade de anúncios **não** entram na lista:
 popularidade e plano pago não são prova de confiança. O selo Premium aparece

@@ -6,6 +6,7 @@ import { ArrowLeft, ImageOff, MapPin } from 'lucide-react';
 import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { getReputation } from '@/lib/reviews/reputation';
+import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
 import { requireUser } from '@/lib/auth/dal';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { settingInt } from '@/lib/settings';
@@ -34,7 +35,7 @@ export default async function SolicitarAluguelPage({
 
   const isOwner = space.ownerId === user.id;
 
-  const [urls, existing, renterFeeBps, ownerFeeBps, ownerReputation] = await Promise.all([
+  const [urls, existing, renterFeeBps, ownerFeeBps, ownerReputation, ownerResponse] = await Promise.all([
     signImagePaths(
       [...space.images.slice(0, 1).map((i) => i.thumbPath ?? i.storagePath), space.owner?.avatarPath].filter(
         Boolean,
@@ -44,6 +45,7 @@ export default async function SolicitarAluguelPage({
     settingInt('fees.renter_fee_bps', 300),
     settingInt('fees.owner_fee_bps', 300),
     space.owner ? getReputation(space.owner.id) : Promise.resolve(null),
+    space.owner ? getOwnerResponseStats(space.owner.id) : Promise.resolve(null),
   ]);
 
   const capa = space.images[0];
@@ -136,6 +138,7 @@ export default async function SolicitarAluguelPage({
                     avatarUrl: space.owner.avatarPath ? (urls.get(space.owner.avatarPath) ?? null) : null,
                   }}
                   rating={ownerReputation.asOwner}
+                  responseStats={ownerResponse}
                 />
               </section>
             )}
