@@ -142,7 +142,8 @@ estiver registrada em `drizzle.__drizzle_migrations`. Projeto novo recebe tudo;
 projeto que já tem parte do schema recebe apenas o que falta; rodar duas vezes
 seguidas não faz nada na segunda.
 
-Ao terminar, a saída mostra o que foi feito:
+Ao terminar, a saída mostra o que foi feito (exemplo da época em que a 0009
+era a última migração):
 
 ```
 NOTICE:  Migracao 8 (0008_late_zeigeist) ja aplicada — pulando.
@@ -161,7 +162,7 @@ O arquivo também mantém a tabela de controle do Drizzle em dia, então um
 Confira o resultado com:
 
 ```sql
-SELECT count(*) FROM pg_tables WHERE schemaname = 'public';  -- 22
+SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 25 (uma por migração)
 SELECT key, value FROM platform_settings ORDER BY key;        -- taxas 3%+3%
 SELECT PostGIS_Version();                                     -- extensão ativa
 ```
@@ -178,8 +179,8 @@ nunca sai da sua máquina:
 cp .env.example .env.local     # preencha com os valores acima
 pnpm install
 pnpm db:migrate
-pnpm tsx scripts/verify-schema.ts   # 29 passaram
-pnpm tsx scripts/verify-safety.ts   # 72 passaram
+pnpm tsx scripts/verify-schema.ts   # 99 passaram
+pnpm tsx scripts/verify-safety.ts   # 77 passaram
 pnpm dev
 ```
 

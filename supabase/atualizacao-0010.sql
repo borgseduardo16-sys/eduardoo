@@ -1351,6 +1351,6 @@ $mp_resumo$;
 
 -- Confira o resultado com:
 --
---   SELECT count(*) FROM pg_tables WHERE schemaname = 'public';   -- 22
+--   SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 25
 --   SELECT key, value FROM platform_settings ORDER BY key;        -- taxas 3%+3%
 --   SELECT PostGIS_Version();                                     -- extensao ativa

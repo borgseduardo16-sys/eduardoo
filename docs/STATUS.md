@@ -1422,6 +1422,26 @@ individual). **Nenhuma mudança no banco** — o cálculo usa colunas que já
 existiam (`requested_at`, `responded_at`), então não há SQL novo para colar
 no Supabase por causa desta fase.
 
+### Ajuste no SQL de colar no Supabase
+
+A linha de conferência no fim de `supabase/setup.sql` e de
+`supabase/atualizacao-0010.sql` mandava contar as tabelas de `public` e
+esperar **22**, número de uma fase antiga. Hoje o app tem 30 tabelas, e essa
+contagem ainda muda conforme o schema do PostGIS: localmente ele cria
+`spatial_ref_sys` em `public`, no Supabase não. Agora a linha conta as
+migrações registradas em `drizzle.__drizzle_migrations` (**25**), número que
+o gerador escreve sozinho a cada migração nova. Só o comentário mudou: os
+blocos e os hashes são os mesmos, então quem já colou o arquivo não precisa
+colar de novo por causa disso. O SETUP.md §1.6 recebeu a mesma correção,
+e também as contagens do Caminho B (99 e 77 checagens, eram 29 e 72).
+
+Como o visualizador de arquivos da conversa só carrega umas 200 linhas por
+vez, copiar o `atualizacao-0010.sql` por ele cortava o SQL. Para colar no
+painel, foi publicada uma página privada com um botão que copia as 1.357
+linhas de uma vez. O texto copiado foi conferido no Chromium: é idêntico ao
+arquivo nos três caminhos (API de área de transferência, `execCommand` e
+Ctrl+C na caixa já selecionada).
+
 ### Verificação automatizada
 
 | Item | Estado | Observação |
