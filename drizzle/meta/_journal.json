@@ -204,6 +204,13 @@
       "when": 1790740684524,
       "tag": "0028_limite_alertas",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790777551398,
+      "tag": "0029_inicio_contagem_visualizacoes",
+      "breakpoints": true
     }
   ]
 }

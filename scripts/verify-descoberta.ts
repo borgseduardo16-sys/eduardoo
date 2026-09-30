@@ -73,9 +73,14 @@ const donoIaFalhaId = uuid();
 const donoIaLimiteId = uuid();
 const donoIaIntervaloId = uuid();
 const donoIaTetoId = uuid();
+const donoStatsId = uuid();
+const donoStatsOutroId = uuid();
+const donoStatsVazioId = uuid();
+const visitanteId = uuid();
 const todos = [
   donoId, locatarioId, outroId, favAId, favBId, esperaId, bloqueadoId, alertaAId, alertaBId, alertaPremiumId,
   donoIaId, donoIaFalhaId, donoIaLimiteId, donoIaIntervaloId, donoIaTetoId,
+  donoStatsId, donoStatsOutroId, donoStatsVazioId, visitanteId,
 ];
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string };
@@ -91,13 +96,14 @@ function diasAFrente(n: number): string {
 }
 
 let seq = 0;
-async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairro?: string; fotos?: number; cidade?: string; areaM2?: number | null }): Promise<{ id: string; slug: string }> {
+async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairro?: string; fotos?: number; cidade?: string; areaM2?: number | null; ownerId?: string }): Promise<{ id: string; slug: string }> {
   seq++;
   const slug = `${tag}-${seq}`;
+  const dono = opts?.ownerId ?? donoId;
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO spaces (owner_id, slug, type, title, description, district, city, state,
       available_from, price_monthly_cents, size_m2, draft_step, location, approx_location)
-    VALUES (${donoId}, ${slug}, ${opts?.tipo ?? 'garagem'}, ${`Garagem de teste ${slug}`},
+    VALUES (${dono}, ${slug}, ${opts?.tipo ?? 'garagem'}, ${`Garagem de teste ${slug}`},
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
       ${opts?.bairro ?? 'Centro'}, ${opts?.cidade ?? cidade}, 'ES', CURRENT_DATE, ${opts?.precoCents ?? 40000},
       ${opts?.areaM2 === undefined ? 20 : opts.areaM2}, 8,
@@ -106,7 +112,7 @@ async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairr
     RETURNING id`;
   const id = row!.id;
   for (let n = 0; n < (opts?.fotos ?? 3); n++) {
-    await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${id}, ${`${donoId}/${id}/f${n}.jpg`}, ${n})`;
+    await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${id}, ${`${dono}/${id}/f${n}.jpg`}, ${n})`;
   }
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return { id, slug };
@@ -141,9 +147,11 @@ async function limpar() {
   await sql`DELETE FROM favorites WHERE user_id IN ${sql(todos)}`;
   await sql`DELETE FROM user_blocks WHERE blocker_id IN ${sql(todos)} OR blocked_id IN ${sql(todos)}`;
   await sql`DELETE FROM conversations WHERE renter_id IN ${sql(todos)} OR owner_id IN ${sql(todos)}`;
-  await sql`DELETE FROM subscriptions WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id=${donoId})`;
-  await sql`DELETE FROM bookings WHERE owner_id=${donoId}`;
-  await sql`DELETE FROM space_availability_blocks WHERE space_id IN (SELECT id FROM spaces WHERE owner_id=${donoId})`;
+  await sql`DELETE FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id IN ${sql(todos)})`;
+  await sql`DELETE FROM subscriptions WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id IN ${sql(todos)})`;
+  await sql`DELETE FROM bookings WHERE owner_id IN ${sql(todos)}`;
+  await sql`DELETE FROM promotions WHERE owner_id IN ${sql(todos)}`;
+  await sql`DELETE FROM space_availability_blocks WHERE space_id IN (SELECT id FROM spaces WHERE owner_id IN ${sql(todos)})`;
   // Apagar o espaco leva o historico de preco em cascata (unica saida permitida).
   await sql`DELETE FROM spaces WHERE owner_id IN ${sql(todos)}`;
   // audit_logs é append-only de verdade (trigger): só o teste, na própria
@@ -1498,6 +1506,287 @@ async function main() {
     if (baseAntes9 === undefined) delete process.env.ANTHROPIC_BASE_URL;
     else process.env.ANTHROPIC_BASE_URL = baseAntes9;
     await tb9.close();
+  }
+
+  // =========================================================================
+  secao('10. Desempenho: contagem honesta, números do banco, relatório mensal e isolamento');
+  // =========================================================================
+  const { recordSpaceEvent, isLikelyBot } = await import('../src/lib/analytics/track');
+  const {
+    getOwnerPerformance, getOwnerPromotionComparisons, getOwnerMonthlyHistory, ownerFirstPublishedMonth,
+    ownerHasAnyActivity, viewsCountingSince,
+  } = await import('../src/lib/analytics/queries');
+  const {
+    resolvePeriod, resolveMonthPeriod, historyMonths, toViewBuckets, addDaysIso, previousMonth, monthRange,
+  } = await import('../src/lib/analytics/period');
+  const { runMonthlyReports, monthlyReportBody } = await import('../src/lib/analytics/monthly-report');
+  const { computeBookingAmounts } = await import('../src/lib/money');
+  const { POST: postEstatisticas } = await import('../src/app/api/estatisticas/route');
+  const { NextRequest } = await import('next/server');
+
+  const hoje10 = todayInSaoPaulo();
+  const d = (n: number) => addDaysIso(hoje10, -n);
+  const [{ v: desdeAntes10 } = { v: null }] = await sql<{ v: string | null }[]>`
+    SELECT value #>> '{}' AS v FROM platform_settings WHERE key='analytics.views_counting_since'`;
+  try {
+    // Contagem "começou" há 15 dias (no banco de verdade é a data da migração).
+    await sql`INSERT INTO platform_settings (key, value) VALUES ('analytics.views_counting_since', to_jsonb(${d(15)}::text))
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+    expect('início da contagem vem do banco', await viewsCountingSince(), d(15));
+
+    await sql`UPDATE profiles SET role='owner', full_name='Dona Estatística' WHERE id IN (${donoStatsId}, ${donoStatsOutroId}, ${donoStatsVazioId})`;
+    const s1 = await criarPublicado({ ownerId: donoStatsId });
+    const s2 = await criarPublicado({ ownerId: donoStatsId });
+    const s3 = await criarPublicado({ ownerId: donoStatsOutroId });
+    const s4 = await criarPublicado({ ownerId: donoStatsVazioId });
+    await sql`UPDATE spaces SET published_at = now() - interval '40 days' WHERE id IN (${s1.id}, ${s3.id}, ${s4.id})`;
+    await sql`UPDATE spaces SET published_at = now() - interval '5 days' WHERE id = ${s2.id}`;
+    const rascunho = await criarPublicado({ ownerId: donoStatsId });
+    await sql`UPDATE spaces SET status='draft', published_at=NULL WHERE id=${rascunho.id}`;
+
+    // ---- 10a. Contagem de visualização/compartilhamento ----
+    const UA = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36';
+    assert('robô (User-Agent de crawler) não conta', isLikelyBot('Googlebot/2.1 (+http://www.google.com/bot.html)'));
+    assert('pré-visualizador de link (WhatsApp) não conta', isLikelyBot('WhatsApp/2.23.20.0'));
+    assert('navegador sem User-Agent não conta', isLikelyBot(null));
+    assert('navegador comum conta', !isLikelyBot(UA));
+
+    expect('robô: não conta', (await recordSpaceEvent(s2.id, 'view', { ip: '10.0.0.1', userAgent: 'curl/8.0', viewerId: null })).reason, 'robo');
+    expect('o próprio dono olhando: não conta', (await recordSpaceEvent(s2.id, 'view', { ip: '10.0.0.2', userAgent: UA, viewerId: donoStatsId })).reason, 'dono');
+    expect('visitante logado: conta', (await recordSpaceEvent(s2.id, 'view', { ip: '10.0.0.3', userAgent: UA, viewerId: visitanteId })).counted, true);
+    expect('mesmo visitante de novo em 30 min: não reconta', (await recordSpaceEvent(s2.id, 'view', { ip: '10.0.0.4', userAgent: UA, viewerId: visitanteId })).reason, 'repetido');
+    expect('anônimo (por IP): conta', (await recordSpaceEvent(s2.id, 'view', { ip: '10.0.0.5', userAgent: UA, viewerId: null })).counted, true);
+    expect('mesmo IP de novo: não reconta', (await recordSpaceEvent(s2.id, 'view', { ip: '10.0.0.5', userAgent: UA, viewerId: null })).reason, 'repetido');
+    expect('outro IP: conta', (await recordSpaceEvent(s2.id, 'view', { ip: '10.0.0.6', userAgent: UA, viewerId: null })).counted, true);
+    expect('compartilhamento: conta', (await recordSpaceEvent(s2.id, 'share', { ip: '10.0.0.3', userAgent: UA, viewerId: visitanteId })).counted, true);
+    expect('segundo compartilhamento da mesma pessoa: conta (limite é 10/h)', (await recordSpaceEvent(s2.id, 'share', { ip: '10.0.0.3', userAgent: UA, viewerId: visitanteId })).counted, true);
+    expect('rascunho (não público): não conta', (await recordSpaceEvent(rascunho.id, 'view', { ip: '10.0.0.7', userAgent: UA, viewerId: null })).reason, 'indisponivel');
+    expect('anúncio inexistente: não conta', (await recordSpaceEvent(uuid(), 'view', { ip: '10.0.0.8', userAgent: UA, viewerId: null })).reason, 'indisponivel');
+    const [contS2] = await sql<{ views: number; shares: number }[]>`
+      SELECT views, shares FROM space_daily_stats WHERE space_id=${s2.id} AND day=${hoje10}::date`;
+    expect('contador do dia no banco: 3 visualizações e 2 compartilhamentos', [contS2?.views, contS2?.shares], [3, 2]);
+    const colunas = (await sql<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='space_daily_stats' ORDER BY column_name`)
+      .map((c) => c.column_name);
+    expect('space_daily_stats só guarda contadores (sem pessoa, IP ou horário)', colunas, ['day', 'shares', 'space_id', 'views']);
+
+    // ---- 10b. Rota /api/estatisticas ----
+    const chamar = async (corpo: string, headers: Record<string, string>) =>
+      postEstatisticas(new NextRequest('http://localhost/api/estatisticas', {
+        method: 'POST', body: corpo, headers: { 'content-type': 'application/json', 'user-agent': UA, ...headers },
+      }));
+    const contarS2 = async () => (await sql<{ views: number }[]>`
+      SELECT COALESCE(sum(views), 0)::int AS views FROM space_daily_stats WHERE space_id=${s2.id}`)[0]!.views;
+    const antesRota = await contarS2();
+    const rCross = await chamar(JSON.stringify({ spaceId: s2.id, evento: 'visualizacao' }), { 'sec-fetch-site': 'cross-site', 'x-forwarded-for': '10.1.0.1' });
+    expect('outro site chamando a rota: 204 e não conta', [rCross.status, await contarS2()], [204, antesRota]);
+    const rLixo = await chamar('{"spaceId":"nao-e-uuid","evento":"visualizacao"}', { 'sec-fetch-site': 'same-origin', 'x-forwarded-for': '10.1.0.2' });
+    expect('corpo inválido: 204 e não conta', [rLixo.status, await contarS2()], [204, antesRota]);
+    const rGrande = await chamar(JSON.stringify({ spaceId: s2.id, evento: 'visualizacao', x: 'a'.repeat(600) }), { 'sec-fetch-site': 'same-origin', 'x-forwarded-for': '10.1.0.3' });
+    expect('corpo grande demais: 204 e não conta', [rGrande.status, await contarS2()], [204, antesRota]);
+    const rOk = await chamar(JSON.stringify({ spaceId: s2.id, evento: 'visualizacao' }), { 'sec-fetch-site': 'same-origin', 'x-forwarded-for': '10.1.0.4' });
+    expect('visita do próprio site: 204 e conta 1', [rOk.status, await contarS2()], [204, antesRota + 1]);
+    expect('resposta não diz nada (sem corpo)', await rOk.text(), '');
+
+    // ---- 10c. Números do painel a partir do banco ----
+    const fees10 = (await sql<{ r: number; o: number }[]>`
+      SELECT (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.renter_fee_bps') AS r,
+             (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.owner_fee_bps') AS o`)[0]!;
+    const valores = computeBookingAmounts(30000, { renterFeeBps: Number(fees10.r ?? 300), ownerFeeBps: Number(fees10.o ?? 300) });
+    const reserva = async (spaceId: string, renterId: string, status: string, extra: { pedido: string; ativada?: string; inicio: string; encerrada?: string }) => {
+      seq++;
+      const [row] = await sql<{ id: string }[]>`
+        INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+          monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
+          total_charged_cents, owner_payout_cents, requested_at, activated_at, ended_at)
+        VALUES (${`MP-${tag}-${seq}`}, ${spaceId}, ${renterId}, ${donoStatsId}, ${status}, ${extra.inicio}::date,
+          ${valores.monthlyRentCents}, ${valores.renterFeeBps}, ${valores.ownerFeeBps}, ${valores.renterFeeCents}, ${valores.ownerFeeCents},
+          ${valores.totalChargedCents}, ${valores.ownerPayoutCents}, ${sql.unsafe(extra.pedido)},
+          ${extra.ativada ? sql.unsafe(extra.ativada) : null}, ${extra.encerrada ? sql.unsafe(extra.encerrada) : null})
+        RETURNING id`;
+      return row!.id;
+    };
+    const b1 = await reserva(s1.id, locatarioId, 'ended', {
+      pedido: "now() - interval '20 days'", ativada: "now() - interval '18 days'", inicio: d(18), encerrada: "now() - interval '8 days'",
+    });
+    await reserva(s1.id, outroId, 'rejected', { pedido: "now() - interval '5 days'", inicio: d(-3) });
+    await reserva(s1.id, favAId, 'expired', { pedido: "now() - interval '40 days'", inicio: d(35) });
+    const pagamento = async (status: string, pagoHa: number | null) => {
+      seq++;
+      await sql`INSERT INTO payments (booking_id, provider, provider_payment_id, status, method, amount_cents, due_date, paid_at)
+        VALUES (${b1}, 'asaas', ${`pay_${tag}_${seq}`}, ${status}, 'pix', ${valores.totalChargedCents}, CURRENT_DATE,
+          ${pagoHa === null ? null : sql`now() - make_interval(days => ${pagoHa})`})`;
+    };
+    await pagamento('received', 18);   // conta
+    await pagamento('pending', null);   // não conta: não foi pago
+    await pagamento('refunded', 10);    // não conta: estornado
+    await pagamento('confirmed', 45);   // fora dos 30 dias, dentro dos 3 meses
+
+    await sql`INSERT INTO favorites (user_id, space_id) VALUES (${favAId}, ${s1.id}), (${favBId}, ${s1.id}), (${outroId}, ${s3.id})`;
+    await sql`INSERT INTO favorites (user_id, space_id, created_at) VALUES (${esperaId}, ${s1.id}, now() - interval '40 days')`;
+    await sql`INSERT INTO space_daily_stats (space_id, day, views, shares) VALUES
+      (${s1.id}, ${d(10)}::date, 5, 0), (${s1.id}, ${d(3)}::date, 2, 1), (${s3.id}, ${d(2)}::date, 9, 0)`;
+
+    const p30 = resolvePeriod({ periodo: '30d' }, { today: hoje10, premium: false }).period;
+    const perf = await getOwnerPerformance(donoStatsId, p30, hoje10);
+    const m1 = perf.spaces.find((x) => x.spaceId === s1.id);
+    const m2 = perf.spaces.find((x) => x.spaceId === s2.id);
+    expect('só os anúncios publicados do dono aparecem (sem rascunho, sem o de outro dono)',
+      perf.spaces.map((x) => x.spaceId).sort(), [s1.id, s2.id].sort());
+    expect('anúncio 1 — visualizações, favoritos no período, salvos agora, solicitações',
+      [m1?.views, m1?.shares, m1?.favoritesNew, m1?.favoritesNow, m1?.requests], [7, 1, 2, 3, 2]);
+    expect('anúncio 1 — reserva iniciada (pagamento confirmado) e locação encerrada são contas separadas',
+      [m1?.reservationsStarted, m1?.rentalsEnded], [1, 1]);
+    expect('receita: só pagamento confirmado no período, parte do dono (pendente e estornado fora)',
+      m1?.revenueCents, valores.ownerPayoutCents);
+    expect('ocupação real: 10 dias alugado de 30 analisados → 33%',
+      m1?.occupancy, { percent: 33, occupiedDays: 10, analyzedDays: 30 });
+    expect('anúncio com menos de 14 dias no ar: ocupação não é mostrada', m2?.occupancy ?? null, null);
+    expect('anúncio 2 — visualizações e compartilhamentos contados de verdade', [m2?.views, m2?.shares], [4, 2]);
+    const antesDoS2 = await getOwnerPerformance(donoStatsId, { from: d(20), to: d(10) }, hoje10);
+    expect('período que acabou antes de o anúncio 2 ser publicado não lista o anúncio 2',
+      antesDoS2.spaces.map((x) => x.spaceId), [s1.id]);
+    expect('totais somam os anúncios', [perf.totals.views, perf.totals.shares, perf.totals.requests, perf.totals.revenueCents],
+      [11, 3, 2, valores.ownerPayoutCents]);
+    expect('gráfico: um ponto por dia do período', perf.viewsByDay.length, 30);
+    expect('dias antes do início da contagem são "sem dado", não zero',
+      perf.viewsByDay.filter((x) => x.views === null).length, 14);
+    expect('dia com visitas mostra o número do banco', perf.viewsByDay.find((x) => x.day === d(10))?.views, 5);
+    expect('dia sem visita (depois do início) é zero', perf.viewsByDay.find((x) => x.day === d(4))?.views, 0);
+    expect('soma do gráfico bate com o total', perf.viewsByDay.reduce((a, x) => a + (x.views ?? 0), 0), perf.totals.views);
+
+    // Visita "antiga" gravada antes do início da contagem não infla o total.
+    await sql`INSERT INTO space_daily_stats (space_id, day, views) VALUES (${s1.id}, ${d(20)}::date, 50)`;
+    const perfAntiga = await getOwnerPerformance(donoStatsId, p30, hoje10);
+    expect('linha anterior ao início da contagem fica fora do total', perfAntiga.totals.views, 11);
+    await sql`DELETE FROM space_daily_stats WHERE space_id=${s1.id} AND day=${d(20)}::date`;
+
+    const p3m = resolvePeriod({ periodo: '3m' }, { today: hoje10, premium: true }).period;
+    const perf3m = await getOwnerPerformance(donoStatsId, p3m, hoje10);
+    const m1b = perf3m.spaces.find((x) => x.spaceId === s1.id);
+    expect('3 meses: pedido de 40 dias atrás e pagamento de 45 dias atrás entram',
+      [m1b?.requests, m1b?.favoritesNew, m1b?.revenueCents], [3, 3, valores.ownerPayoutCents * 2]);
+    expect('3 meses: ocupação sobre os dias em que o anúncio estava no ar (41)',
+      m1b?.occupancy, { percent: 24, occupiedDays: 10, analyzedDays: 41 });
+    expect('3 meses por semana no gráfico (13 barras)', toViewBuckets(perf3m.viewsByDay).length, 13);
+    assert('semana toda antes da contagem continua "sem dado"', toViewBuckets(perf3m.viewsByDay)[0]!.value === null);
+
+    // ---- 10d. Período: gratuito x Premium, datas inválidas ----
+    const livre3m = resolvePeriod({ periodo: '3m' }, { today: hoje10, premium: false });
+    expect('gratuito pedindo 3 meses: cai em 30 dias e avisa', [livre3m.period.key, livre3m.blockedPremium], ['30d', true]);
+    const livreCustom = resolvePeriod({ periodo: 'custom', de: d(10), ate: d(1) }, { today: hoje10, premium: false });
+    expect('gratuito pedindo personalizado: cai em 30 dias e avisa', [livreCustom.period.key, livreCustom.blockedPremium], ['30d', true]);
+    const premCustom = resolvePeriod({ periodo: 'custom', de: d(10), ate: d(1) }, { today: hoje10, premium: true });
+    expect('Premium com período personalizado válido', [premCustom.period.from, premCustom.period.to, premCustom.period.days], [d(10), d(1), 10]);
+    expect('personalizado invertido: 30 dias', resolvePeriod({ periodo: 'custom', de: d(1), ate: d(10) }, { today: hoje10, premium: true }).period.key, '30d');
+    expect('personalizado no futuro: 30 dias', resolvePeriod({ periodo: 'custom', de: d(1), ate: d(-5) }, { today: hoje10, premium: true }).period.key, '30d');
+    expect('personalizado com data inexistente: 30 dias', resolvePeriod({ periodo: 'custom', de: '2026-02-30', ate: d(1) }, { today: hoje10, premium: true }).period.key, '30d');
+    expect('período desconhecido na URL: 30 dias', resolvePeriod({ periodo: "'; DROP TABLE x;--" }, { today: hoje10, premium: true }).period.key, '30d');
+
+    const primeiro = await ownerFirstPublishedMonth(donoStatsId);
+    expect('primeiro mês com anúncio no ar', primeiro, d(40).slice(0, 7));
+    const atual = hoje10.slice(0, 7);
+    const anterior = previousMonth(hoje10);
+    const retrasado = previousMonth(`${anterior}-15`);
+    expect('relatório do mês passado: gratuito pode', resolveMonthPeriod(anterior, { today: hoje10, premium: false, firstMonth: '2020-01' }).period?.key, 'month');
+    expect('relatório de 2 meses atrás: só Premium', resolveMonthPeriod(retrasado, { today: hoje10, premium: false, firstMonth: '2020-01' }).blockedPremium, true);
+    expect('Premium vê mês antigo', resolveMonthPeriod(retrasado, { today: hoje10, premium: true, firstMonth: '2020-01' }).period?.from, `${retrasado}-01`);
+    expect('mês antes do primeiro anúncio: não existe relatório', resolveMonthPeriod('2019-12', { today: hoje10, premium: true, firstMonth: '2020-01' }).period, null);
+    expect('mês no futuro: não existe relatório', resolveMonthPeriod('2099-01', { today: hoje10, premium: true, firstMonth: '2020-01' }).period, null);
+    expect('mês corrente vai só até hoje', resolveMonthPeriod(atual, { today: hoje10, premium: false, firstMonth: '2020-01' }).period?.to, hoje10);
+    expect('histórico gratuito: mês passado e atual', historyMonths({ today: hoje10, premium: false, firstMonth: '2020-01' }), { first: anterior, last: atual });
+    expect('histórico Premium: desde o primeiro anúncio', historyMonths({ today: hoje10, premium: true, firstMonth: '2020-01' }), { first: '2020-01', last: atual });
+    expect('sem anúncio publicado: sem histórico', historyMonths({ today: hoje10, premium: true, firstMonth: null }), null);
+
+    // ---- 10e. Histórico mensal bate com o painel filtrado no mês ----
+    const historico = await getOwnerMonthlyHistory(donoStatsId, { first: anterior, last: atual }, hoje10);
+    expect('histórico traz um item por mês, do mais recente ao mais antigo', historico.map((h) => h.month), [atual, anterior]);
+    for (const h of historico) {
+      const faixa = monthRange(h.month)!;
+      const doMes = await getOwnerPerformance(donoStatsId, { from: faixa.from, to: faixa.to < hoje10 ? faixa.to : hoje10 }, hoje10);
+      expect(`${h.month}: histórico = painel filtrado no mês`,
+        [h.views ?? 0, h.favoritesNew, h.requests, h.reservationsStarted, h.rentalsEnded, h.revenueCents],
+        [doMes.totals.views, doMes.totals.favoritesNew, doMes.totals.requests, doMes.totals.reservationsStarted, doMes.totals.rentalsEnded, doMes.totals.revenueCents]);
+    }
+    const antigos = await getOwnerMonthlyHistory(donoStatsId, { first: retrasado, last: retrasado }, hoje10);
+    expect('mês inteiro antes da contagem: visualizações "sem dado" (null), não zero', antigos[0]?.views, null);
+
+    // ---- 10f. Destaque/Turbo: antes × durante, só com dado suficiente ----
+    await sql`INSERT INTO promotions (space_id, owner_id, type, status, source, started_at, expires_at)
+      VALUES (${s1.id}, ${donoStatsId}, 'destaque', 'active', 'purchase', now() - interval '6 days', now() + interval '1 day')`;
+    await sql`INSERT INTO promotions (space_id, owner_id, type, status, source, started_at, expires_at)
+      VALUES (${s2.id}, ${donoStatsId}, 'turbo', 'expired', 'purchase', now() - interval '2 days', now() - interval '1 day')`;
+    const promo = await getOwnerPromotionComparisons(donoStatsId, p30, hoje10);
+    expect('duas promoções no período, só uma comparável (a outra tem 1 dia)', [promo.promotionsInPeriod, promo.comparisons.length], [2, 1]);
+    expect('comparação: visualizações por dia durante (6 dias) e nos 6 dias antes',
+      [promo.comparisons[0]?.daysDuring, promo.comparisons[0]?.viewsPerDayDuring, promo.comparisons[0]?.viewsPerDayBefore], [6, 0.3, 0.8]);
+    await sql`UPDATE platform_settings SET value = to_jsonb(${d(8)}::text) WHERE key='analytics.views_counting_since'`;
+    const promoSemBase = await getOwnerPromotionComparisons(donoStatsId, p30, hoje10);
+    expect('sem os dias "antes" já contados, não há comparação (nada inventado)', promoSemBase.comparisons.length, 0);
+    await sql`UPDATE platform_settings SET value = to_jsonb(${d(15)}::text) WHERE key='analytics.views_counting_since'`;
+
+    // ---- 10g. Isolamento entre proprietários (IDOR na camada de dados) ----
+    const perfOutro = await getOwnerPerformance(donoStatsOutroId, p30, hoje10);
+    expect('outro dono vê só o próprio anúncio', perfOutro.spaces.map((x) => x.spaceId), [s3.id]);
+    expect('e só os números dele', [perfOutro.totals.views, perfOutro.totals.requests, perfOutro.totals.revenueCents], [9, 0, 0]);
+    expect('comparações de promoção do outro dono: nenhuma', (await getOwnerPromotionComparisons(donoStatsOutroId, p30, hoje10)).promotionsInPeriod, 0);
+    const histOutro = await getOwnerMonthlyHistory(donoStatsOutroId, { first: atual, last: atual }, hoje10);
+    expect('histórico do outro dono não mistura receita/pedidos', [histOutro[0]?.requests, histOutro[0]?.revenueCents], [0, 0]);
+    let navegadorLeuStats = true;
+    try {
+      await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('request.jwt.claim.sub', ${donoStatsId}, true)`;
+        await tx`SELECT count(*) FROM space_daily_stats`;
+      });
+    } catch {
+      navegadorLeuStats = false;
+    }
+    assert('pela API do navegador, nem o dono lê space_daily_stats direto', !navegadorLeuStats);
+    let navegadorEscreveuStats = true;
+    try {
+      await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('request.jwt.claim.sub', ${visitanteId}, true)`;
+        await tx`INSERT INTO space_daily_stats (space_id, day, views) VALUES (${s1.id}, ${d(1)}::date, 1000)`;
+      });
+    } catch {
+      navegadorEscreveuStats = false;
+    }
+    assert('pela API do navegador, ninguém infla o contador direto', !navegadorEscreveuStats);
+    expect('dono sem nenhum movimento', await ownerHasAnyActivity(donoStatsVazioId), false);
+    expect('dono com movimento', await ownerHasAnyActivity(donoStatsId), true);
+
+    // ---- 10h. Relatório mensal (aviso pelo cron) ----
+    const [ano, mesNum] = atual.split('-').map(Number) as [number, number];
+    const proximoMes = new Date(Date.UTC(ano, mesNum, 3, 15, 0, 0)); // dia 3 do mês seguinte, 12h em SP
+    const soTeste = { onlyOwners: [donoStatsId, donoStatsOutroId, donoStatsVazioId] };
+    const r1 = await runMonthlyReports(proximoMes, soTeste);
+    expect('relatório do mês para quem teve movimento (2 donos; o sem movimento fica sem aviso)', r1.reports, 2);
+    const [aviso] = await sql<{ title: string; body: string; link_path: string; dedupe_key: string }[]>`
+      SELECT title, body, link_path, dedupe_key FROM notifications WHERE user_id=${donoStatsId} AND type='monthly_report'`;
+    const [linhaMes] = await getOwnerMonthlyHistory(donoStatsId, { first: atual, last: atual }, hoje10);
+    expect('texto do aviso sai dos números do banco', aviso?.body, linhaMes ? monthlyReportBody(linhaMes) : null);
+    expect('aviso leva ao relatório do mês', aviso?.link_path, `/meus-espacos/desempenho?mes=${atual}`);
+    expect('sem movimento: nenhum aviso', await contarNotificacoes(donoStatsVazioId, 'monthly_report'), 0);
+    const r2 = await runMonthlyReports(proximoMes, soTeste);
+    expect('rodar o cron de novo não duplica', [r2.reports, await contarNotificacoes(donoStatsId, 'monthly_report')], [0, 1]);
+    const r3 = await runMonthlyReports(new Date(Date.UTC(ano, mesNum, 12, 15, 0, 0)), soTeste);
+    expect('depois do dia 7 não manda relatório atrasado', r3.skipped, 'fora_da_janela');
+    expect('relatório de zeros não vira aviso', monthlyReportBody({
+      month: atual, views: 0, viewsCountedFrom: null, favoritesNew: 0, requests: 0, reservationsStarted: 0, rentalsEnded: 0, revenueCents: 0,
+    }), null);
+    const texto = monthlyReportBody({
+      month: '2026-09', views: 248, viewsCountedFrom: null, favoritesNew: 31, requests: 12, reservationsStarted: 5, rentalsEnded: 0, revenueCents: 123456,
+    });
+    expect('texto do relatório', texto, 'Em setembro: 248 visualizações, 31 favoritos, 12 solicitações, 5 reservas iniciadas e R$ 1.234,56 de receita confirmada.');
+    assert('sem dado de quem viu no aviso', !/(visitante|ip|cpf|@)/i.test(aviso?.body ?? ''), aviso?.body ?? '');
+  } finally {
+    if (desdeAntes10 === null || desdeAntes10 === undefined) {
+      await sql`DELETE FROM platform_settings WHERE key='analytics.views_counting_since'`;
+    } else {
+      await sql`UPDATE platform_settings SET value = to_jsonb(${desdeAntes10}::text) WHERE key='analytics.views_counting_since'`;
+    }
   }
 
   // =========================================================================

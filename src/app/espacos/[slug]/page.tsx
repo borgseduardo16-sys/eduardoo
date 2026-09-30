@@ -36,6 +36,7 @@ import { StartConversationButton } from '@/components/messaging/start-conversati
 import { WaitlistPanel } from '@/components/waitlist/waitlist-panel';
 import { PriceHistory } from '@/components/espacos/price-history';
 import { PublicAvailability } from '@/components/calendar/public-availability';
+import { ViewTracker } from '@/components/analytics/track';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
@@ -130,6 +131,8 @@ export default async function EspacoPage({
       <SiteHeader />
 
       <main id="conteudo" className="mx-auto max-w-2xl px-4 sm:px-6 py-6 sm:py-10 space-y-8">
+        {/* Conta a visualização (só um contador do dia; o dono não conta). */}
+        <ViewTracker spaceId={space.id} />
         {/*
           No celular a volta é só a seta (o nome continua para leitor de tela):
           com o texto, a linha passava da largura da tela abaixo de ~430 px.

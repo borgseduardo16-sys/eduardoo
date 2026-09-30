@@ -116,9 +116,10 @@ const DIGEST_MIN_WINDOW_HOURS = 24 * 3;
  * nada") não ajuda ninguém e é exatamente o tipo de ruído que a Fase 18
  * existe para evitar.
  *
- * "Visualizações" do pedido original ficam de fora: não há rastreamento de
- * visualização nesta base (ver docs/STATUS.md) — inventar um número aqui
- * seria dado de mentira, o que a regra 3 do projeto proíbe.
+ * Visualizações ficam de fora deste resumo de propósito: desde a Fase 23
+ * elas são contadas (src/lib/analytics/track.ts), mas visita sozinha não
+ * pede nenhuma ação do proprietário — aparecem no painel de desempenho e no
+ * relatório mensal (src/lib/analytics/monthly-report.ts), não aqui.
  */
 export async function runOwnerActivityDigests(): Promise<{ sent: number }> {
   const donos = await db

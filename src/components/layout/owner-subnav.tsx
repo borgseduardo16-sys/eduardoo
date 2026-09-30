@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
+import { KeepCurrentVisible } from './keep-current-visible';
 
 const ITENS = [
   { key: 'espacos', href: '/meus-espacos', label: 'Meus espaços' },
   { key: 'solicitacoes', href: '/meus-espacos/solicitacoes', label: 'Solicitações' },
   { key: 'promocoes', href: '/meus-espacos/promocoes', label: 'Promoções' },
+  { key: 'desempenho', href: '/meus-espacos/desempenho', label: 'Desempenho' },
   { key: 'financeiro', href: '/meus-espacos/financeiro', label: 'Financeiro' },
 ] as const;
 
@@ -53,6 +55,7 @@ export function OwnerSubnav({
           </Link>
         );
       })}
+      <KeepCurrentVisible />
     </nav>
   );
 }

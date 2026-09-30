@@ -6,6 +6,7 @@ import { runDepositAutoRelease } from '@/lib/payments/deposits';
 import { runPriceDropCatchUp } from '@/lib/notifications/space-alerts';
 import { runWaitlistSweep } from '@/lib/waitlist/notify';
 import { runSavedSearchDigest } from '@/lib/alerts/matching';
+import { runMonthlyReports } from '@/lib/analytics/monthly-report';
 
 /**
  * GET /api/cron/notificacoes
@@ -48,18 +49,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'token invalido' }, { status: 401 });
   }
 
-  const [vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera, alertas] = await Promise.all([
+  const [vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera, alertas, relatorios] = await Promise.all([
     runRentDueReminders(),
     runOwnerActivityDigests(),
     runDepositAutoRelease(),
     runPromotionExpiringReminders(),
     // Fase 23: quedas de preço que ficaram para depois da janela mínima, a
-    // rede de segurança da lista de espera e o resumo dos alertas de busca
-    // (o que chegou dentro do intervalo mínimo e ficou na fila).
+    // rede de segurança da lista de espera, o resumo dos alertas de busca
+    // (o que chegou dentro do intervalo mínimo e ficou na fila) e o aviso do
+    // relatório mensal do proprietário (só nos primeiros dias do mês).
     runPriceDropCatchUp(),
     runWaitlistSweep(),
     runSavedSearchDigest(),
+    runMonthlyReports(),
   ]);
 
-  return NextResponse.json({ ok: true, vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera, alertas });
+  return NextResponse.json({ ok: true, vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera, alertas, relatorios });
 }
