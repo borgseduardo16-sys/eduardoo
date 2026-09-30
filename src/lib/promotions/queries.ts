@@ -264,6 +264,16 @@ export async function listFeaturedSpaces(limit?: number): Promise<FeaturedSpace[
       )`,
       promotionType: promotions.type,
       startedAt: promotions.startedAt,
+      featureKeys: sql<string[]>`(
+        SELECT COALESCE(array_agg(sf3.feature_key ORDER BY sf3.feature_key), '{}')
+        FROM space_features sf3 WHERE sf3.space_id = spaces.id
+      )`,
+      sizeM2: spaces.sizeM2,
+      availableFrom: spaces.availableFrom,
+      blockedUntil: sql<string | null>`(
+        SELECT max(b.ends_on)::text FROM space_availability_blocks b
+        WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE
+      )`,
     })
     .from(promotions)
     .innerJoin(spaces, eq(spaces.id, promotions.spaceId))

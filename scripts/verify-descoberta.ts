@@ -969,6 +969,75 @@ async function main() {
   void depositoLonge;
 
   // =========================================================================
+  secao('7. Compatibilidade: dados reais, pesos fixos, explicação, sem inflar');
+  // =========================================================================
+
+  const { computeMatch, earliestStartFrom, MATCH_WEIGHTS } = await import('../src/lib/search/match');
+  const rotulos = new Map([['coberto', 'Coberto'], ['portao', 'Portão'], ['camera', 'Câmera de segurança'], ['acesso_moto', 'Acesso para moto']]);
+  const espacoBase = {
+    type: 'garagem', district: 'Centro', city: 'Colatina', priceMonthlyCents: 25000,
+    featureKeys: ['coberto', 'portao'], sizeM2: '30.00', distanceMeters: null, earliestStart: '2026-09-30',
+  };
+  const semCriterio = {
+    types: [], vehicle: null, location: null, priceMinCents: null, priceMaxCents: null,
+    featureKeys: [], sizeMinM2: null, startBy: null,
+  } as Parameters<typeof computeMatch>[1];
+
+  expect('pesos documentados (localização 30, tipo 20, preço 20, características 20, disponibilidade 10, veículo 10, tamanho 10)',
+    MATCH_WEIGHTS, { localizacao: 30, tipo: 20, preco: 20, caracteristicas: 20, disponibilidade: 10, veiculo: 10, tamanho: 10 });
+  expect('um critério só: o número não aparece', computeMatch(espacoBase, { ...semCriterio, types: ['garagem'] }, rotulos), null);
+  const tudo = computeMatch(espacoBase, {
+    ...semCriterio, types: ['garagem'], location: { kind: 'district', district: 'centro', city: 'colatina' },
+    priceMaxCents: 30000, featureKeys: ['coberto', 'portao'], startBy: '2026-10-01',
+  }, rotulos)!;
+  expect('tudo que foi informado bate → 100%, com um item por critério', [tudo.percent, tudo.items.every((i) => i.status === 'sim'), tudo.items.length], [100, true, 6]);
+  const meia = computeMatch(espacoBase, {
+    ...semCriterio, types: ['garagem'], priceMaxCents: 30000, featureKeys: ['coberto', 'camera'],
+  }, rotulos)!;
+  expect('metade das características: 20 + 20 + 10 de 60 → 83% (proporcional)', meia.percent, 83);
+  assert('explicação diz o que falta sem afirmar que não tem ("Não consta no anúncio")',
+    meia.items.some((i) => i.status === 'nao' && i.text === 'Não consta no anúncio: câmera de segurança'));
+  const doisTercos = computeMatch(espacoBase, { ...semCriterio, types: ['vaga_moto'], priceMaxCents: 30000, featureKeys: ['coberto'] }, rotulos)!;
+  expect('arredonda para baixo: 40 de 60 = 66,7% aparece como 66%', doisTercos.percent, 66);
+  const matchMoto = computeMatch(espacoBase, { ...semCriterio, types: ['garagem'], vehicle: 'moto' }, rotulos)!;
+  expect('moto sem sinal no anúncio (nem vaga de moto, nem "acesso para moto") → não conta como atendido',
+    [matchMoto.percent, matchMoto.items.map((i) => i.text)], [66, ['É do tipo que você procura (garagem)', 'Não consta no anúncio que aceita moto']]);
+  const motoOk = computeMatch({ ...espacoBase, featureKeys: ['acesso_moto'] }, { ...semCriterio, types: ['garagem'], vehicle: 'moto' }, rotulos)!;
+  expect('com "acesso para moto" marcado → "Serve para moto"', [motoOk.percent, motoOk.items[1]?.text], [100, 'Serve para moto']);
+  const longe = computeMatch({ ...espacoBase, distanceMeters: 11_000 }, {
+    ...semCriterio, types: ['garagem'], location: { kind: 'point', radiusMeters: null },
+  }, rotulos)!;
+  expect('busca por ponto sem raio: 11 km vale metade da localização (15 de 30) → 70%, marcado "em parte"',
+    [longe.percent, longe.items[0]?.status], [70, 'parcial']);
+  const semArea = computeMatch({ ...espacoBase, sizeM2: null }, { ...semCriterio, types: ['garagem'], sizeMinM2: 20 }, rotulos)!;
+  expect('área pedida e o anúncio não informa → não atendido, dito como "não informa"',
+    [semArea.percent, semArea.items[1]?.text], [66, 'O anúncio não informa a área']);
+  const quase = computeMatch({ ...espacoBase, distanceMeters: 2_000.0000001 }, {
+    ...semCriterio, types: ['garagem'], location: { kind: 'point', radiusMeters: null },
+  }, rotulos)!;
+  expect('100% só com TUDO atendido: um resíduo de distância nunca vira 100%', quase.percent, 99);
+  assert('a explicação não expõe pesos nem fórmula',
+    [tudo, meia, matchMoto, longe].every((m) => m.items.every((i) => !/ponto|peso|%/.test(i.text))));
+  expect('início possível: depois do último bloqueio', earliestStartFrom('2026-10-01', '2026-10-20', '2026-09-30'), '2026-10-21');
+  expect('início possível: "disponível a partir de" no futuro', earliestStartFrom('2026-11-01', null, '2026-09-30'), '2026-11-01');
+
+  // Dados reais do banco → mesma conta.
+  const cidade7 = `Cidade7 ${tag}`;
+  const comMoto = await criarPublicado({ cidade: cidade7, bairro: 'Centro', tipo: 'garagem', precoCents: 20000 });
+  const semMoto = await criarPublicado({ cidade: cidade7, bairro: 'Centro', tipo: 'garagem', precoCents: 21000 });
+  await sql`INSERT INTO space_features (space_id, feature_key) VALUES
+    (${comMoto.id}, 'coberto'), (${comMoto.id}, 'acesso_moto'), (${semMoto.id}, 'coberto')`;
+  const reais = await listPublishedSpaces({ cityFilter: cidade7, districtFilter: 'Centro', type: 'garagem', featureKeys: ['coberto'], limit: 60 });
+  const criteriosReais = {
+    ...semCriterio, types: ['garagem' as const], vehicle: 'moto' as const,
+    location: { kind: 'district' as const, district: 'Centro', city: cidade7 }, featureKeys: ['coberto'],
+  };
+  const porId = new Map(reais.map((r) => [r.id, computeMatch(
+    { ...r, earliestStart: earliestStartFrom(r.availableFrom, r.blockedUntil, todayInSaoPaulo()) }, criteriosReais, rotulos)?.percent]));
+  expect('do banco: a garagem que marcou "acesso para moto" 100%, a que não marcou 87% (70 de 80 = 87,5, para baixo) — as duas continuam na lista',
+    [porId.get(comMoto.id), porId.get(semMoto.id), reais.length], [100, 87, 2]);
+
+  // =========================================================================
   await limpar();
   console.log(`\n\x1b[1mResultado:\x1b[0m ${failed === 0 ? '\x1b[32m' : '\x1b[31m'}${passed} passaram, ${failed} falharam\x1b[0m`);
   if (failed > 0) {

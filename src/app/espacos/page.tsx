@@ -7,8 +7,9 @@ import { getCurrentUser } from '@/lib/auth/dal';
 import { buildNeedSearchUrl } from '@/lib/search/need/to-url';
 import { todayInSaoPaulo } from '@/lib/search/need/interpret';
 import {
-  needSummaryFromParams, parseSizeParam, parseStartParam, parseTypesParam,
+  needSummaryFromParams, parseSizeParam, parseStartParam, parseTypesParam, parseVehicleParam,
 } from '@/lib/search/need/params';
+import { computeMatch, earliestStartFrom, type MatchCriteria, type MatchResult } from '@/lib/search/match';
 import {
   listPublishedSpaces, listFeaturesForType, listAllActiveFeatures, effectiveSort,
   type SearchSort,
@@ -19,7 +20,7 @@ import { matchSpaceTypeKeyword } from '@/lib/spaces/keywords';
 import { listUserFavoriteIds } from '@/lib/favorites/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { parseBRLToCents, InvalidAmountError } from '@/lib/money';
-import { SPACE_TYPES, spaceTypeLabel, spaceTypeOptions, type SpaceTypeKey } from '@/lib/spaces/types';
+import { SPACE_TYPES, spaceTypeLabel, spaceTypeOptions, spaceTypePlural, type SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SearchBar } from '@/components/search/search-bar';
@@ -175,7 +176,7 @@ export default async function EspacosPage({
         }),
         tipo ? listFeaturesForType(tipo) : listAllActiveFeatures(),
         buscarRecomendados
-          ? listPublishedSpaces({ ...contextoCompatibilidade, relaxTypeAndFeatures: true, sort: 'compatibility', limit: 6 })
+          ? listPublishedSpaces({ ...contextoCompatibilidade, relaxTypeAndFeatures: true, sort: 'compatibility', limit: 12 })
           : Promise.resolve([]),
       ]);
 
@@ -188,8 +189,51 @@ export default async function EspacosPage({
    * (poucos resultados, todos tambem os mais compativeis) duplicaria o
    * MESMO card nas duas secoes ao mesmo tempo, o que e ruido, nao recomendacao.
    */
+  // ---- Compatibilidade (Fase 23): só com o que a pessoa informou nesta
+  // busca, e nunca muda quem aparece na lista principal. Na lista principal
+  // aparece só na busca por necessidade — nos filtros comuns todo resultado
+  // já cumpre todos os filtros, e "100% compatível" em cada card seria ruído.
+  // Em "Recomendados" (tipo e características viram só pontuação) aparece
+  // sempre, porque ali o número de fato varia e explica a ordem.
+  const criterios: MatchCriteria = {
+    types: tipo ? [tipo] : tipos,
+    vehicle: parseVehicleParam(sp.veiculo),
+    location: resolucao.districtFilter
+      ? { kind: 'district', district: resolucao.districtFilter, city: resolucao.cityFilter }
+      : resolucao.cityFilter
+        ? { kind: 'city', city: resolucao.cityFilter }
+        : resolucao.point
+          ? { kind: 'point', radiusMeters: raioMeters && Number.isFinite(raioMeters) ? raioMeters : null }
+          : null,
+    priceMinCents: precoMinCents,
+    priceMaxCents: precoMaxCents,
+    featureKeys,
+    sizeMinM2: areaMinM2,
+    startBy: disponivelAgora ? hoje : inicio,
+  };
+  const rotulosCaracteristica = new Map((await listAllActiveFeatures()).map((f) => [f.key, f.label]));
+  const compatibilidade = new Map<string, MatchResult | null>();
+  for (const r of [...resultados, ...recomendadosBrutos]) {
+    if (compatibilidade.has(r.id)) continue;
+    compatibilidade.set(r.id, computeMatch(
+      { ...r, earliestStart: earliestStartFrom(r.availableFrom, r.blockedUntil, hoje) },
+      criterios,
+      rotulosCaracteristica,
+    ));
+  }
+
+  /*
+   * Recomendados: a mesma compatibilidade que aparece no card decide a
+   * ordem (estável: empate mantém a ordem do banco) — o número mostrado e a
+   * posição nunca se contradizem. Promoção não entra aqui.
+   */
   const idsResultados = new Set(resultados.map((r) => r.id));
-  const recomendados = recomendadosBrutos.filter((r) => !idsResultados.has(r.id));
+  const recomendados = recomendadosBrutos
+    .filter((r) => !idsResultados.has(r.id))
+    .map((r, i) => ({ r, i, p: compatibilidade.get(r.id)?.percent ?? -1 }))
+    .sort((a, b) => b.p - a.p || a.i - b.i)
+    .slice(0, 6)
+    .map(({ r }) => r);
   const mostrarRecomendados = buscarRecomendados && recomendados.length > 0;
 
   const [urls, favoritosIds] = await Promise.all([
@@ -212,10 +256,7 @@ export default async function EspacosPage({
   const opcoesDeTipo = spaceTypeOptions();
 
   const resumoNecessidade = sp.busca
-    ? needSummaryFromParams(sp, {
-        today: hoje,
-        featureLabels: new Map((await listAllActiveFeatures()).map((f) => [f.key, f.label])),
-      })
+    ? needSummaryFromParams(sp, { today: hoje, featureLabels: rotulosCaracteristica })
     : null;
 
   // ---- Cabecalho: o que estamos mostrando, em uma frase.
@@ -224,7 +265,7 @@ export default async function EspacosPage({
     tituloLocal = resolucao.source === 'gps' ? 'perto de você' : `em ${resolucao.label}`;
   }
   const titulo = [
-    tipo ? `${spaceTypeLabel(tipo)}s` : 'Espaços',
+    tipo ? spaceTypePlural(tipo) : 'Espaços',
     tituloLocal,
   ].filter(Boolean).join(' ');
 
@@ -291,6 +332,7 @@ export default async function EspacosPage({
                   coverUrl={r.coverPath ? (urls.get(r.coverPath) ?? null) : null}
                   favorited={favoritosIds.has(r.id)}
                   loggedIn={Boolean(viewer)}
+                  match={compatibilidade.get(r.id)}
                 />
               ))}
             </ul>
@@ -375,6 +417,7 @@ export default async function EspacosPage({
                         coverUrl={r.coverPath ? (urls.get(r.coverPath) ?? null) : null}
                         favorited={favoritosIds.has(r.id)}
                         loggedIn={Boolean(viewer)}
+                        match={sp.busca ? compatibilidade.get(r.id) : null}
                       />
                     ))}
                   </ul>

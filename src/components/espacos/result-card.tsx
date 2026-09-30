@@ -7,7 +7,9 @@ import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { PromotionBadge } from '@/components/promotions/promotion-badge';
 import type { PublicSpace } from '@/lib/spaces/queries';
+import type { MatchResult } from '@/lib/search/match';
 import { formatRating } from '@/lib/reviews/format';
+import { MatchDetails } from './match-details';
 
 /**
  * Card de resultado da busca.
@@ -24,11 +26,14 @@ export function ResultCard({
   coverUrl,
   favorited,
   loggedIn,
+  match,
 }: {
   space: PublicSpace;
   coverUrl: string | null;
   favorited: boolean;
   loggedIn: boolean;
+  /** Compatibilidade com a busca atual (Fase 23). Ausente = não há critério suficiente. */
+  match?: MatchResult | null;
 }) {
   return (
     <li data-testid="resultado-card" data-space-id={space.id}>
@@ -111,6 +116,7 @@ export function ResultCard({
           </p>
         </div>
       </Link>
+      {match && <MatchDetails match={match} />}
     </li>
   );
 }

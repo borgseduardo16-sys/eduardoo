@@ -173,6 +173,25 @@ export function spaceTypeLabel(type: SpaceTypeKey): string {
   return SPACE_TYPE_CONFIG[type].label;
 }
 
+/** Plural para títulos ("Garagens em Colatina"). Somar "s" dava "Garagems" e "Galpãos". */
+const PLURAL: Record<SpaceTypeKey, string> = {
+  vaga_carro: 'Vagas de carro',
+  vaga_moto: 'Vagas de moto',
+  garagem: 'Garagens',
+  deposito: 'Depósitos',
+  galpao: 'Galpões',
+  sala: 'Salas',
+  escritorio: 'Escritórios',
+  loja: 'Lojas',
+  terreno: 'Terrenos',
+  quarto: 'Quartos',
+  outro: 'Outros espaços',
+};
+
+export function spaceTypePlural(type: SpaceTypeKey): string {
+  return PLURAL[type];
+}
+
 /** Medida obrigatoria para este tipo? Usado na validacao do servidor. */
 export function requiresMeasurement(type: SpaceTypeKey, field: MeasurementField): boolean {
   return (SPACE_TYPE_CONFIG[type].requiredMeasurements as readonly string[]).includes(field);

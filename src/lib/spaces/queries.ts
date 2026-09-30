@@ -92,6 +92,12 @@ export type PublicSpace = {
    */
   ratingAvg: string | null;
   ratingCount: number;
+  /** TODAS as características marcadas (a compatibilidade precisa de todas, não só das 3 do card). */
+  featureKeys: string[];
+  sizeM2: string | null;
+  availableFrom: string | null;
+  /** Último dia de bloqueio ativo do calendário daqui para frente; null = nenhum. */
+  blockedUntil: string | null;
 };
 
 export type SearchSort = 'distance' | 'price_asc' | 'price_desc' | 'recent' | 'compatibility';
@@ -361,6 +367,16 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
         SELECT p.type::text FROM promotions p
         WHERE p.space_id = spaces.id AND p.status = 'active'
         LIMIT 1
+      )`,
+      featureKeys: sql<string[]>`(
+        SELECT COALESCE(array_agg(sf3.feature_key ORDER BY sf3.feature_key), '{}')
+        FROM space_features sf3 WHERE sf3.space_id = spaces.id
+      )`,
+      sizeM2: spaces.sizeM2,
+      availableFrom: spaces.availableFrom,
+      blockedUntil: sql<string | null>`(
+        SELECT max(b.ends_on)::text FROM space_availability_blocks b
+        WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE
       )`,
     })
     .from(spaces)
