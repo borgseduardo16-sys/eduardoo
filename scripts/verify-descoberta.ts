@@ -68,7 +68,15 @@ const bloqueadoId = uuid();
 const alertaAId = uuid();
 const alertaBId = uuid();
 const alertaPremiumId = uuid();
-const todos = [donoId, locatarioId, outroId, favAId, favBId, esperaId, bloqueadoId, alertaAId, alertaBId, alertaPremiumId];
+const donoIaId = uuid();
+const donoIaFalhaId = uuid();
+const donoIaLimiteId = uuid();
+const donoIaIntervaloId = uuid();
+const donoIaTetoId = uuid();
+const todos = [
+  donoId, locatarioId, outroId, favAId, favBId, esperaId, bloqueadoId, alertaAId, alertaBId, alertaPremiumId,
+  donoIaId, donoIaFalhaId, donoIaLimiteId, donoIaIntervaloId, donoIaTetoId,
+];
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string };
 let identidade: Identidade = { id: '', role: 'user', fullName: '' };
@@ -137,7 +145,7 @@ async function limpar() {
   await sql`DELETE FROM bookings WHERE owner_id=${donoId}`;
   await sql`DELETE FROM space_availability_blocks WHERE space_id IN (SELECT id FROM spaces WHERE owner_id=${donoId})`;
   // Apagar o espaco leva o historico de preco em cascata (unica saida permitida).
-  await sql`DELETE FROM spaces WHERE owner_id=${donoId}`;
+  await sql`DELETE FROM spaces WHERE owner_id IN ${sql(todos)}`;
   // audit_logs é append-only de verdade (trigger): só o teste, na própria
   // limpeza, desliga a trava por um instante — mesmo padrão de verify-bookings.ts.
   await sql.begin(async (tx) => {
@@ -1280,6 +1288,217 @@ async function main() {
   await publicar(nova4);
   const [{ n: matchesNova4 }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM saved_search_matches WHERE space_id=${nova4}`;
   expect('alerta pausado e pessoa bloqueada pelo dono: o anúncio novo não entra em alerta nenhum', matchesNova4, 0);
+
+  // =========================================================================
+  secao('9. IA para melhorar anúncio: não inventa, só sugere, o dono aceita, limites');
+  // =========================================================================
+
+  const { guardListingSuggestion } = await import('../src/lib/listing-ai/guard');
+  const { requestListingSuggestionAction, applyListingSuggestionAction, dismissListingSuggestionAction } =
+    await import('../src/lib/listing-ai/actions');
+  const { getListingAiUsage } = await import('../src/lib/listing-ai/queries');
+
+  // ---- 9a. Guarda de fatos (puro)
+  const fatos9 = {
+    featureKeys: ['coberto', 'portao'],
+    featureLabels: new Map([['coberto', 'Coberto'], ['portao', 'Portão'], ['camera', 'Câmera de segurança'], ['banheiro', 'Banheiro'], ['acesso_24h', 'Acesso 24 horas'], ['portaria', 'Portaria / vigilância']]),
+    sizeM2: 18, ceilingHeightM: null, photoCount: 3,
+    ownerText: 'Garagem coberta perto do centro. Tem portão eletrônico. Proibido guardar produtos inflamáveis.',
+    district: 'Centro', city: 'Colatina',
+  };
+  const atual9 = { title: 'Garagem coberta', description: 'Garagem coberta perto do centro. Tem portão eletrônico.' };
+  const inventada9 = {
+    titulo: 'Garagem coberta com câmeras no Centro',
+    descricao: 'Garagem coberta de 18 m² no Centro de Colatina, com portão eletrônico.\n\n'
+      + 'Espaço monitorado por câmeras 24 horas e muito seguro. Fica perto do shopping e a 5 minutos da rodoviária.\n\n'
+      + 'Disponível imediatamente por apenas R$ 250. Tem banheiro e internet. Não possui alarme. '
+      + 'Proibido guardar produtos inflamáveis. Não é permitido fumar. Área de 30 m² com pé-direito de 3 m.',
+    faltando: [
+      { campo: 'metragem' as const, texto: 'Informe a metragem.' },
+      { campo: 'seguranca' as const, texto: 'Considere informar se o espaço possui câmeras.' },
+    ],
+    dicas: ['Comece pela cobertura e pelo portão.', 'Destaque que o espaço é vigiado.'],
+  };
+  const guardada = guardListingSuggestion(inventada9, fatos9, atual9);
+  expect('só sobra o que é fato do anúncio (18 m², Centro/Colatina, portão, a regra que o dono escreveu)',
+    guardada.content.description, 'Garagem coberta de 18 m² no Centro de Colatina, com portão eletrônico.\n\nProibido guardar produtos inflamáveis.');
+  expect('título com "câmeras" (o anúncio não tem câmera) é descartado inteiro', guardada.content.title, null);
+  const removidos9 = guardada.removed.join(' | ');
+  assert('cada invenção sai com o motivo: câmera, 24 h, segurança, lugar, preço, disponibilidade, banheiro, internet, negação, regra nova, metragem, altura',
+    ['câmera de segurança', 'acesso 24 horas', 'segurança sem', 'shopping', 'preço', 'disponibilidade', 'banheiro', 'internet',
+      'que não há "alarme"', 'fumar', '30 m²', 'altura'].every((t) => removidos9.includes(t)), removidos9);
+  expect('"o que falta" não pede o que o anúncio já tem (metragem) e mantém a pergunta sobre câmeras',
+    guardada.content.missingInfo.map((m) => m.field), ['seguranca']);
+  expect('dica que afirma vigilância sai; dica de organização fica', guardada.content.tips, ['Comece pela cobertura e pelo portão.']);
+  const honesta = guardListingSuggestion({
+    titulo: 'Garagem coberta com portão no Centro',
+    descricao: 'Garagem coberta de 18 m², no Centro.\n\nTem portão eletrônico. Proibido guardar produtos inflamáveis.',
+    faltando: [], dicas: [],
+  }, fatos9, atual9);
+  expect('sugestão honesta passa inteira', [honesta.content.title, honesta.removed.length], ['Garagem coberta com portão no Centro', 0]);
+
+  // ---- 9b. Pedido de verdade (dublê HTTP da API), aceitar por campo, limites
+  async function espacoDe(ownerId: string, titulo: string, descricao: string) {
+    seq++;
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO spaces (owner_id, slug, type, title, description, street, number, complement, district, city, state,
+        available_from, price_monthly_cents, size_m2, draft_step, location, approx_location, rules_text)
+      VALUES (${ownerId}, ${`${tag}-ia-${seq}`}, 'garagem', ${titulo}, ${descricao},
+        'Rua Secreta', 'NumeroSecreto', 'ComplementoSecreto', 'Centro', ${cidade}, 'ES', CURRENT_DATE, 43210, 18, 8,
+        ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326), ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326),
+        'Proibido guardar produtos inflamáveis.')
+      RETURNING id`;
+    await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${row!.id}, 'coberto'), (${row!.id}, 'portao')`;
+    return row!.id;
+  }
+  async function pedir(ownerId: string, spaceId: string) {
+    entrarComo(ownerId, 'owner');
+    const fd = new FormData();
+    fd.set('spaceId', spaceId);
+    return requestListingSuggestionAction(undefined, fd);
+  }
+  async function usar(ownerId: string, suggestionId: string, field: string, extra?: Record<string, string>) {
+    entrarComo(ownerId, 'owner');
+    const fd = new FormData();
+    fd.set('suggestionId', suggestionId);
+    fd.set('field', field);
+    for (const [k, v] of Object.entries(extra ?? {})) fd.set(k, v);
+    return applyListingSuggestionAction(undefined, fd);
+  }
+  const sugestoesDe = (spaceId: string) => sql<{ id: string; status: string; suggestion: { title: string | null; description: string | null } | null; removed_claims: string[] | null; applied_fields: string[] }[]>`
+    SELECT id, status::text, suggestion, removed_claims, applied_fields FROM listing_suggestions WHERE space_id=${spaceId} ORDER BY created_at`;
+
+  const descricaoOriginal = 'Garagem coberta perto do centro. Tem portão eletrônico.';
+  const espacoIa = await espacoDe(donoIaId, 'Garagem coberta', descricaoOriginal);
+
+  const chaveAntes9 = process.env.ANTHROPIC_API_KEY;
+  const baseAntes9 = process.env.ANTHROPIC_BASE_URL;
+  delete process.env.ANTHROPIC_API_KEY;
+  const semChave = await pedir(donoIaId, espacoIa);
+  expect('sem a chave configurada: recusa clara e nenhuma sugestão inventada',
+    [semChave.ok, /ainda não estão disponíveis/.test(semChave.message ?? ''), (await sugestoesDe(espacoIa)).length], [false, true, 0]);
+
+  const tb9 = await startTestbed();
+  process.env.ANTHROPIC_API_KEY = tb9.anthropicApiKey;
+  process.env.ANTHROPIC_BASE_URL = tb9.url;
+  const [{ calls: listingAntes }] = await sql<{ calls: number }[]>`
+    SELECT COALESCE((SELECT calls FROM ai_usage_counters
+      WHERE day = (now() AT TIME ZONE 'America/Sao_Paulo')::date AND feature = 'listing'), 0)::int AS calls`;
+  try {
+    tb9.anthropicQueue.push({ text: JSON.stringify(inventada9) });
+    const r9 = await pedir(donoIaId, espacoIa);
+    assert('pedido de sugestões respondido', r9.ok, JSON.stringify(r9));
+    const [sug9] = await sugestoesDe(espacoIa);
+    expect('guardada já filtrada: sem o título com câmeras e sem as frases inventadas',
+      [sug9?.status, sug9?.suggestion?.title, sug9?.suggestion?.description?.includes('câmeras'), (sug9?.removed_claims?.length ?? 0) > 5],
+      ['ready', null, false, true]);
+    const [{ title: tituloAntes, description: descricaoAntes }] = await sql<{ title: string; description: string }[]>`SELECT title, description FROM spaces WHERE id=${espacoIa}`;
+    expect('pedir sugestões NÃO muda o anúncio', [tituloAntes, descricaoAntes], ['Garagem coberta', descricaoOriginal]);
+
+    const pedido9 = tb9.anthropicRequests.at(-1)!;
+    const corpo9 = JSON.stringify(pedido9.body);
+    expect('pedido: Opus 5.5, reserva automática em caso de recusa, esforço baixo, saída estruturada, sem ferramentas',
+      [pedido9.body.model, pedido9.body.fallbacks, (pedido9.body.output_config as { effort?: string })?.effort,
+        (pedido9.body.output_config as { format?: { type?: string } })?.format?.type, 'tools' in pedido9.body,
+        String(pedido9.headers['anthropic-beta'] ?? '').includes('server-side-fallback-2026-07-01')],
+      ['claude-opus-5-5', 'default', 'low', 'json_schema', false, true]);
+    // A cidade de teste leva um número (data/hora) — tirada antes de procurar o preço no texto.
+    const semCidade9 = corpo9.replaceAll(cidade, '');
+    const privacidade9 = {
+      conteudo: corpo9.includes('Garagem coberta perto do centro') && corpo9.includes('Proibido guardar produtos inflamáveis'),
+      rua: !corpo9.includes('Rua Secreta'),
+      numero: !corpo9.includes('NumeroSecreto'),
+      complemento: !corpo9.includes('ComplementoSecreto'),
+      preco: !semCidade9.includes('432,10') && !semCidade9.includes('43210') && !corpo9.includes('R$'),
+      dono: !corpo9.includes(donoIaId) && !corpo9.includes('@exemplo.invalid'),
+    };
+    expect('a IA recebe o conteúdo do anúncio, e NUNCA rua, número, complemento, preço ou dados do dono',
+      privacidade9, { conteudo: true, rua: true, numero: true, complemento: true, preco: true, dono: true });
+
+    // Aceitar a descrição — e tentar mandar outro texto junto, pelo navegador.
+    const aceite = await usar(donoIaId, sug9!.id, 'description', { description: 'Texto injetado pelo navegador.' });
+    const [{ description: descricaoDepois }] = await sql<{ description: string }[]>`SELECT description FROM spaces WHERE id=${espacoIa}`;
+    expect('aceitar aplica o texto GUARDADO (o que o navegador mandar é ignorado)',
+      [aceite.ok, descricaoDepois, descricaoDepois.includes('injetado')], [true, sug9!.suggestion!.description, false]);
+    const [sug9b] = await sugestoesDe(espacoIa);
+    expect('sugestão marca o campo aplicado e fica completa (não havia título para aplicar)',
+      [sug9b?.applied_fields, sug9b?.status], [['description'], 'applied']);
+    const [{ n: auditIa }] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM audit_logs WHERE action='space.ai_suggestion_applied' AND entity_id=${espacoIa}`;
+    expect('fica registrado quem aplicou', auditIa, 1);
+    const denovo = await usar(donoIaId, sug9!.id, 'description');
+    expect('aplicar de novo não muda nada', [denovo.ok, /não está mais aberta|já foi aplicada/.test(denovo.message ?? '')], [false, true]);
+
+    const alheio = await usar(outroId, sug9!.id, 'description');
+    entrarComo(outroId);
+    const fdDesc = new FormData();
+    fdDesc.set('suggestionId', sug9!.id);
+    const alheioDescarta = await dismissListingSuggestionAction(undefined, fdDesc);
+    expect('outra pessoa não aplica nem descarta a sugestão de um anúncio que não é dela',
+      [alheio.message, alheioDescarta.message], ['Sugestão não encontrada.', 'Sugestão não encontrada.']);
+
+    // Limites
+    const cliqueDuplo = await pedir(donoIaId, espacoIa);
+    expect('segundo pedido logo em seguida (clique duplo) é barrado sem chamar a IA',
+      [cliqueDuplo.ok, /Aguarde/.test(cliqueDuplo.message ?? '')], [false, true]);
+
+    const espacoIntervalo = await espacoDe(donoIaIntervaloId, 'Garagem coberta dois', descricaoOriginal);
+    await sql`INSERT INTO listing_suggestions (space_id, owner_id, status, input_snapshot, created_at)
+      VALUES (${espacoIntervalo}, ${donoIaIntervaloId}, 'ready', '{}'::jsonb, now() - interval '2 minutes')`;
+    const intervalo = await pedir(donoIaIntervaloId, espacoIntervalo);
+    expect('mesmo anúncio, pedido há 2 minutos: espera o intervalo', [intervalo.ok, /Tente de novo em \d+ minutos/.test(intervalo.message ?? '')], [false, true]);
+
+    const espacoLimite = await espacoDe(donoIaLimiteId, 'Garagem coberta tres', descricaoOriginal);
+    for (let n = 0; n < 5; n++) {
+      await sql`INSERT INTO listing_suggestions (space_id, owner_id, status, input_snapshot, created_at)
+        VALUES (${espacoLimite}, ${donoIaLimiteId}, 'ready', '{}'::jsonb, now() - make_interval(hours => ${n + 1}))`;
+    }
+    expect('uso conta as últimas 24 h (inclusive pedidos que falharam)', (await getListingAiUsage(donoIaLimiteId, espacoLimite)).usedLast24h, 5);
+    const limiteDia = await pedir(donoIaLimiteId, espacoLimite);
+    expect('6º pedido em 24 h → recusado', [limiteDia.ok, /últimas 24 horas/.test(limiteDia.message ?? '')], [false, true]);
+
+    const espacoTeto = await espacoDe(donoIaTetoId, 'Garagem coberta quatro', descricaoOriginal);
+    const chamadasListing = (await sql<{ calls: number }[]>`
+      SELECT COALESCE((SELECT calls FROM ai_usage_counters
+        WHERE day = (now() AT TIME ZONE 'America/Sao_Paulo')::date AND feature = 'listing'), 0)::int AS calls`)[0]!.calls;
+    await sql`INSERT INTO platform_settings (key, value) VALUES ('ai.listing_daily_limit', ${String(chamadasListing)})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+    const pedidosAntesTeto9 = tb9.anthropicRequests.length;
+    const teto9 = await pedir(donoIaTetoId, espacoTeto);
+    expect('teto diário do app atingido → recusa, sem chamar a IA',
+      [teto9.ok, /limite diário/.test(teto9.message ?? ''), tb9.anthropicRequests.length - pedidosAntesTeto9], [false, true, 0]);
+    await sql`UPDATE platform_settings SET value = '300' WHERE key = 'ai.listing_daily_limit'`;
+
+    const espacoFalha = await espacoDe(donoIaFalhaId, 'Garagem coberta cinco', descricaoOriginal);
+    tb9.anthropicQueue.length = 0;
+    tb9.anthropicQueue.push({ status: 500 });
+    const falha9 = await pedir(donoIaFalhaId, espacoFalha);
+    const [registroFalha] = await sugestoesDe(espacoFalha);
+    expect('IA fora do ar: mensagem clara, registro "falhou" (conta no limite) e anúncio intacto',
+      [falha9.ok, /Não conseguimos gerar sugestões agora/.test(falha9.message ?? ''), registroFalha?.status, registroFalha?.suggestion],
+      [false, true, 'failed', null]);
+
+    let navegadorLeuSugestoes = true;
+    try {
+      await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('request.jwt.claim.sub', ${donoIaId}, true)`;
+        await tx`SELECT count(*) FROM listing_suggestions`;
+      });
+    } catch {
+      navegadorLeuSugestoes = false;
+    }
+    expect('pelo navegador (papel authenticated), a tabela de sugestões não é lida nem pelo dono', navegadorLeuSugestoes, false);
+  } finally {
+    await sql`UPDATE ai_usage_counters SET calls = ${listingAntes}
+      WHERE day = (now() AT TIME ZONE 'America/Sao_Paulo')::date AND feature = 'listing'`;
+    await sql`UPDATE platform_settings SET value = '300' WHERE key = 'ai.listing_daily_limit'`;
+    if (chaveAntes9 === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = chaveAntes9;
+    if (baseAntes9 === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = baseAntes9;
+    await tb9.close();
+  }
 
   // =========================================================================
   await limpar();

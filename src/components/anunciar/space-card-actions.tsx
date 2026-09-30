@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { CalendarDays, Eye, Pause, Pencil, Play, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
+import { CalendarDays, Eye, Pause, PenLine, Pencil, Play, Sparkles, Trash2, TriangleAlert } from 'lucide-react';
 import Link from 'next/link';
 import {
   toggleSpaceStatusAction, deleteSpaceAction, type SpaceActionState,
@@ -104,6 +104,16 @@ export function SpaceCardActions({
           >
             <CalendarDays className="size-4" aria-hidden />
             Calendário
+          </Link>
+        )}
+
+        {!isDraft && (
+          <Link
+            href={`/meus-espacos/${spaceId}/melhorar`}
+            className="inline-flex items-center gap-2 h-9 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)] transition-colors"
+          >
+            <PenLine className="size-4" aria-hidden />
+            Melhorar anúncio
           </Link>
         )}
 

@@ -657,3 +657,40 @@ function extrairLocal(text: string, s: Scanner): string | null {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Menções de fatos num texto qualquer (reusado pela guarda da IA de anúncio)
+// ---------------------------------------------------------------------------
+
+/** Negação comum em descrição: "não tem câmera", "não possui portão", "sem banheiro". */
+const NEGACAO_DESCRICAO = /(?:\bnao (?:tem|possui|ha|conta com|oferece|dispoe de|dispomos de)|\bsem)\s+(?:de\s+|um\s+|uma\s+)?$/;
+
+export type FactMentions = {
+  features: { key: NeedFeatureKey; negated: boolean }[];
+  unsupported: UnsupportedNeed[];
+};
+
+/**
+ * Onde o texto fala de cada característica do catálogo (afirmando ou
+ * negando) e de cada item que os anúncios não informam. Mesmo vocabulário
+ * da busca por necessidade — a guarda de fatos da IA de anúncio
+ * (src/lib/listing-ai/guard.ts) usa isto para saber o que uma frase afirma.
+ */
+export function detectFactMentions(text: string): FactMentions {
+  const norm = normalizeSameLength(text);
+  const features: FactMentions['features'] = [];
+  for (const [re, key] of FEATURES) {
+    const g = new RegExp(re.source, 'g');
+    let m: RegExpExecArray | null;
+    while ((m = g.exec(norm)) !== null) {
+      const comecaComSem = m[0].startsWith('sem ');
+      const antes = norm.slice(Math.max(0, m.index - 40), m.index);
+      features.push({ key, negated: !comecaComSem && (NEGACAO.test(antes) || NEGACAO_DESCRICAO.test(antes)) });
+    }
+  }
+  const unsupported = new Set<UnsupportedNeed>();
+  for (const [re, need] of NAO_SUPORTADOS) {
+    if (new RegExp(re.source).test(norm)) unsupported.add(need);
+  }
+  return { features, unsupported: [...unsupported] };
+}
