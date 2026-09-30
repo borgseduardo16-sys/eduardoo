@@ -166,6 +166,12 @@ export const savedSearches = pgTable(
     /** Resumo legível gerado pelo servidor a partir dos critérios. */
     label: text('label').notNull(),
     criteria: jsonb('criteria').$type<Record<string, unknown>>().notNull(),
+    /**
+     * Forma canônica dos critérios (src/lib/alerts/criteria.ts). O índice
+     * único com `user_id` impede o mesmo alerta duas vezes — inclusive no
+     * duplo clique, que uma checagem só no código deixaria passar.
+     */
+    criteriaKey: text('criteria_key').notNull(),
     status: savedSearchStatus('status').notNull().default('active'),
     lastNotifiedAt: timestamp('last_notified_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -174,6 +180,7 @@ export const savedSearches = pgTable(
   (t) => [
     index('saved_searches_user_idx').on(t.userId, t.createdAt),
     index('saved_searches_status_idx').on(t.status),
+    uniqueIndex('saved_searches_user_criteria_key').on(t.userId, t.criteriaKey),
     check('saved_searches_label_length', sql`char_length(${t.label}) BETWEEN 1 AND 160`),
     check('saved_searches_criteria_object', sql`jsonb_typeof(${t.criteria}) = 'object'`),
   ],

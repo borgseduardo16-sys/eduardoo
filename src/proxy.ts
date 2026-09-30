@@ -22,6 +22,7 @@ const PROTECTED_PREFIXES = [
   '/minha-conta',
   '/anunciar',
   '/favoritos',
+  '/alertas',
   '/mensagens',
   '/reservas',
   '/admin',

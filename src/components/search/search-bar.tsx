@@ -36,6 +36,7 @@ export function SearchBar({
   initialTipo,
   initialOnde,
   initialGps,
+  keepParams,
 }: {
   className?: string;
   autoFocus?: boolean;
@@ -49,6 +50,8 @@ export function SearchBar({
    * sozinhos, e nunca inventamos 0,0 como marcador de "usando GPS".
    */
   initialGps?: { lat: number; lng: number };
+  /** Parâmetros que uma nova busca precisa manter (ex.: o alerta em edição). */
+  keepParams?: Record<string, string>;
 }) {
   const router = useRouter();
   const id = useId();
@@ -114,6 +117,7 @@ export function SearchBar({
       params.set('onde', onde.trim());
     }
 
+    for (const [k, v] of Object.entries(keepParams ?? {})) params.set(k, v);
     startTransition(() => router.push(`/espacos?${params.toString()}`));
   }
 

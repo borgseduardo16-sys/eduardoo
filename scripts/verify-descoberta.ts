@@ -65,7 +65,10 @@ const favAId = uuid();
 const favBId = uuid();
 const esperaId = uuid();
 const bloqueadoId = uuid();
-const todos = [donoId, locatarioId, outroId, favAId, favBId, esperaId, bloqueadoId];
+const alertaAId = uuid();
+const alertaBId = uuid();
+const alertaPremiumId = uuid();
+const todos = [donoId, locatarioId, outroId, favAId, favBId, esperaId, bloqueadoId, alertaAId, alertaBId, alertaPremiumId];
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string };
 let identidade: Identidade = { id: '', role: 'user', fullName: '' };
@@ -124,6 +127,8 @@ async function seed() {
 
 async function limpar() {
   await sql`DELETE FROM notifications WHERE user_id IN ${sql(todos)}`;
+  await sql`DELETE FROM saved_searches WHERE user_id IN ${sql(todos)}`;
+  await sql`DELETE FROM premium_memberships WHERE user_id IN ${sql(todos)}`;
   await sql`DELETE FROM waitlist_entries WHERE user_id IN ${sql(todos)}`;
   await sql`DELETE FROM favorites WHERE user_id IN ${sql(todos)}`;
   await sql`DELETE FROM user_blocks WHERE blocker_id IN ${sql(todos)} OR blocked_id IN ${sql(todos)}`;
@@ -1036,6 +1041,245 @@ async function main() {
     { ...r, earliestStart: earliestStartFrom(r.availableFrom, r.blockedUntil, todayInSaoPaulo()) }, criteriosReais, rotulos)?.percent]));
   expect('do banco: a garagem que marcou "acesso para moto" 100%, a que não marcou 87% (70 de 80 = 87,5, para baixo) — as duas continuam na lista',
     [porId.get(comMoto.id), porId.get(semMoto.id), reais.length], [100, 87, 2]);
+
+  // =========================================================================
+  secao('8. Alertas de busca: criar, limites, pausar, editar, aviso real e agrupamento');
+  // =========================================================================
+
+  const {
+    alertCriteriaSchema, canonicalCriteria, isAlertable, alertLabel, alertSearchHref, spaceMatchesAlert, emptyAlertCriteria,
+  } = await import('../src/lib/alerts/criteria');
+  const { saveSearchAlertAction, setSearchAlertStatusAction, deleteSearchAlertAction } = await import('../src/lib/alerts/actions');
+  const { listUserSavedSearches, alertPlanFor } = await import('../src/lib/alerts/queries');
+  const { runSavedSearchDigest } = await import('../src/lib/alerts/matching');
+  const { publishSpaceAction } = await import('../src/lib/spaces/actions');
+
+  // ---- 8a. Critérios (puro)
+  const base8 = emptyAlertCriteria();
+  expect('alerta sem tipo nem local não é permitido (avisaria de todo anúncio)', isAlertable({ ...base8, precoMaxCents: 30000 }), false);
+  expect('tipo sozinho já é alerta', isAlertable({ ...base8, tipos: ['garagem'] }), true);
+  expect('critério com chave desconhecida é recusado pelo formato', alertCriteriaSchema.safeParse({ ...base8, admin: true }).success, false);
+  expect('mesmos critérios em outra ordem = mesmo alerta',
+    canonicalCriteria({ ...base8, tipos: ['garagem', 'deposito'], caracteristicas: ['portao', 'coberto'] })
+      === canonicalCriteria({ ...base8, tipos: ['deposito', 'garagem'], caracteristicas: ['coberto', 'portao'] }), true);
+  expect('nome do alerta gerado pelo servidor',
+    alertLabel({ ...base8, tipos: ['garagem'], bairro: 'Centro', cidade: 'Colatina', precoMaxCents: 30000, caracteristicas: ['coberto'] },
+      new Map([['coberto', 'Coberto']])).replace(/ /g, ' '),
+    'Garagem • Centro, Colatina • até R$ 300,00 • Coberto');
+  expect('"Ver espaços" do alerta usa os filtros de sempre',
+    alertSearchHref({ ...base8, tipos: ['garagem'], bairro: 'Centro', cidade: 'Colatina', precoMaxCents: 30000 }),
+    '/espacos?tipo=garagem&onde=Centro%2C+Colatina&precoMax=300');
+  const candidato8 = {
+    type: 'garagem', city: 'Colatina', district: 'Centro', priceMonthlyCents: 28000, featureKeys: ['coberto'],
+    sizeM2: '20', distanceMeters: null, earliestStart: '2026-09-30',
+  };
+  const crit8 = { ...base8, tipos: ['garagem' as const], bairro: 'Centro', cidade: 'Colatina', precoMaxCents: 30000, caracteristicas: ['coberto'] };
+  expect('anúncio que atende a tudo → bate', spaceMatchesAlert(candidato8, crit8, '2026-09-30'), true);
+  expect('R$ 0,01 acima do teto → não bate', spaceMatchesAlert({ ...candidato8, priceMonthlyCents: 30001 }, crit8, '2026-09-30'), false);
+  expect('sem a característica pedida → não bate', spaceMatchesAlert({ ...candidato8, featureKeys: [] }, crit8, '2026-09-30'), false);
+  expect('outro bairro → não bate', spaceMatchesAlert({ ...candidato8, district: 'Jardim' }, crit8, '2026-09-30'), false);
+  expect('fora do raio → não bate',
+    spaceMatchesAlert({ ...candidato8, distanceMeters: 6000 }, { ...base8, tipos: ['garagem'], ponto: { lat: 0, lng: 0, raioM: 5000 } }, '2026-09-30'),
+    false);
+
+  // ---- 8b. Ações reais: criar, duplicar, limite, pausar, editar, acesso alheio
+  const cidade8 = `Cidade8 ${tag}`;
+  // Um anúncio publicado faz "Centro, <cidade8>" ser um local conhecido (sem geocodificador).
+  await criarPublicado({ cidade: cidade8, bairro: 'Centro', tipo: 'deposito', precoCents: 50000 });
+
+  async function salvarAlerta(userId: string, busca: string, alertId?: string) {
+    entrarComo(userId);
+    const fd = new FormData();
+    fd.set('search', busca);
+    if (alertId) fd.set('alertId', alertId);
+    return saveSearchAlertAction(undefined, fd);
+  }
+  async function mudarStatus(userId: string, alertId: string, status: 'active' | 'paused') {
+    entrarComo(userId);
+    const fd = new FormData();
+    fd.set('alertId', alertId);
+    fd.set('status', status);
+    return setSearchAlertStatusAction(undefined, fd);
+  }
+
+  const buscaGaragem = new URLSearchParams({
+    tipo: 'garagem', onde: `Centro, ${cidade8}`, precoMax: '300', caracteristicas: 'coberto,inexistente',
+  }).toString();
+  const r1 = await salvarAlerta(alertaAId, buscaGaragem);
+  assert('criar alerta a partir da busca', r1.ok && Boolean(r1.alertId), JSON.stringify(r1));
+  const [linha1] = await sql<{ user_id: string; label: string; criteria: Record<string, unknown>; status: string }[]>`
+    SELECT user_id, label, criteria, status::text FROM saved_searches WHERE id=${r1.alertId!}`;
+  expect('gravado para quem está logado, com critérios reinterpretados (característica inexistente fica de fora)',
+    [linha1?.user_id === alertaAId, linha1?.criteria.bairro, linha1?.criteria.cidade, linha1?.criteria.precoMaxCents,
+      linha1?.criteria.caracteristicas, linha1?.status],
+    [true, 'Centro', cidade8, 30000, ['coberto'], 'active']);
+  const r1dup = await salvarAlerta(alertaAId, buscaGaragem);
+  expect('mesma busca de novo → recusada como duplicada', [r1dup.ok, r1dup.message], [false, 'Você já tem um alerta com exatamente esta busca.']);
+  const rVago = await salvarAlerta(alertaAId, 'precoMax=300');
+  assert('busca sem tipo nem local não vira alerta', !rVago.ok && /tipo de espaço ou um local/.test(rVago.message ?? ''), rVago.message);
+  const r2 = await salvarAlerta(alertaAId, new URLSearchParams({ tipo: 'deposito', onde: cidade8 }).toString());
+  assert('segundo alerta (limite da conta gratuita = 2)', r2.ok, JSON.stringify(r2));
+  const r3 = await salvarAlerta(alertaAId, new URLSearchParams({ tipo: 'galpao', onde: cidade8 }).toString());
+  expect('terceiro alerta ativo na conta gratuita → limite, com a mensagem do plano', [r3.ok, r3.limitReached], [false, true]);
+  let bancoRecusou = false;
+  try {
+    await sql`INSERT INTO saved_searches (user_id, label, criteria, criteria_key)
+      VALUES (${alertaAId}, 'direto', '{"tipos":["sala"]}'::jsonb, 'direto-1')`;
+  } catch (err) {
+    bancoRecusou = (err as { constraint_name?: string }).constraint_name === 'saved_searches_active_limit';
+  }
+  expect('o banco também recusa o 3º alerta ativo, mesmo sem passar pela ação', bancoRecusou, true);
+
+  const rPausa = await mudarStatus(alertaAId, r2.alertId!, 'paused');
+  const [pausado] = await sql<{ status: string }[]>`SELECT status::text FROM saved_searches WHERE id=${r2.alertId!}`;
+  expect('pausar', [rPausa.ok, pausado?.status], [true, 'paused']);
+  const r3b = await salvarAlerta(alertaAId, new URLSearchParams({ tipo: 'galpao', onde: cidade8 }).toString());
+  assert('com um alerta pausado, cabe um novo', r3b.ok, JSON.stringify(r3b));
+  const rAtiva = await mudarStatus(alertaAId, r2.alertId!, 'active');
+  expect('reativar passando do limite → recusado', [rAtiva.ok, rAtiva.limitReached], [false, true]);
+
+  // Outra pessoa, com o id do alerta na mão.
+  const rAlheio = await mudarStatus(alertaBId, r1.alertId!, 'paused');
+  entrarComo(alertaBId);
+  const fdApagaAlheio = new FormData();
+  fdApagaAlheio.set('alertId', r1.alertId!);
+  const rApagaAlheio = await deleteSearchAlertAction(undefined, fdApagaAlheio);
+  const rEditaAlheio = await salvarAlerta(alertaBId, new URLSearchParams({ tipo: 'sala', onde: cidade8 }).toString(), r1.alertId!);
+  const [intacto] = await sql<{ status: string; label: string }[]>`SELECT status::text, label FROM saved_searches WHERE id=${r1.alertId!}`;
+  expect('outra pessoa não pausa, não apaga e não edita um alerta que não é dela',
+    [rAlheio.message, rApagaAlheio.message, rEditaAlheio.message, intacto?.status, intacto?.label === linha1?.label],
+    ['Alerta não encontrado.', 'Alerta não encontrado.', 'Alerta não encontrado.', 'active', true]);
+  expect('a lista de alertas só traz os da própria pessoa', (await listUserSavedSearches(alertaBId)).length, 0);
+
+  let navegadorLeuAlertas = true;
+  try {
+    await sql.begin(async (tx) => {
+      await tx`SET LOCAL ROLE authenticated`;
+      await tx`SELECT set_config('request.jwt.claim.sub', ${alertaAId}, true)`;
+      await tx`SELECT count(*) FROM saved_searches`;
+    });
+  } catch {
+    navegadorLeuAlertas = false;
+  }
+  expect('pelo navegador (papel authenticated), nem o próprio dono lê a tabela de alertas', navegadorLeuAlertas, false);
+
+  const rEdita = await salvarAlerta(alertaAId, new URLSearchParams({
+    tipo: 'garagem', onde: `Centro, ${cidade8}`, precoMax: '350', caracteristicas: 'coberto',
+  }).toString(), r1.alertId!);
+  const [editado] = await sql<{ criteria: Record<string, unknown>; label: string }[]>`SELECT criteria, label FROM saved_searches WHERE id=${r1.alertId!}`;
+  expect('editar troca os critérios pelos da busca atual, e o nome acompanha',
+    [rEdita.ok, editado?.criteria.precoMaxCents, /350/.test(editado?.label ?? '')], [true, 35000, true]);
+
+  const tentativas = await Promise.allSettled(['c1', 'c2', 'c3'].map((k) =>
+    sql`INSERT INTO saved_searches (user_id, label, criteria, criteria_key) VALUES (${alertaBId}, ${k}, '{}'::jsonb, ${k})`));
+  expect('3 criações simultâneas numa conta gratuita: exatamente 2 passam (o banco trava a linha do perfil)',
+    tentativas.filter((t) => t.status === 'fulfilled').length, 2);
+  await sql`DELETE FROM saved_searches WHERE user_id=${alertaBId}`;
+
+  await sql`INSERT INTO premium_memberships (user_id) VALUES (${alertaPremiumId})`;
+  const planoPremium = await alertPlanFor(alertaPremiumId);
+  expect('Premium: até 20 alertas e aviso a cada hora — o plano que já existe, sem cobrança nova',
+    [planoPremium.premium, planoPremium.limit, planoPremium.cooldownHours], [true, 20, 1]);
+  let criadosPremium = 0;
+  for (const t of ['garagem', 'deposito', 'galpao']) {
+    if ((await salvarAlerta(alertaPremiumId, new URLSearchParams({ tipo: t, onde: cidade8 }).toString())).ok) criadosPremium++;
+  }
+  expect('Premium passa do limite da conta gratuita', criadosPremium, 3);
+
+  // ---- 8c. Publicação de verdade → aviso, agrupamento, pausa, bloqueio
+  let seqRasc = 0;
+  async function rascunhoPronto(titulo: string, precoCents: number, caracteristicasRasc: string[], bairro = 'Centro') {
+    seqRasc++;
+    const [row] = await sql<{ id: string }[]>`
+      INSERT INTO spaces (owner_id, slug, type, title, description, street, number, district, city, state,
+        available_from, price_monthly_cents, size_m2, draft_step, location, approx_location)
+      VALUES (${donoId}, ${`${tag}-rasc-${seqRasc}`}, 'garagem', ${titulo},
+        'Descricao com mais de vinte caracteres para passar na regra do banco.', 'Rua Teste', '10',
+        ${bairro}, ${cidade8}, 'ES', CURRENT_DATE, ${precoCents}, 20, 8,
+        ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326), ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326))
+      RETURNING id`;
+    for (let n = 0; n < 3; n++) {
+      await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${row!.id}, ${`${donoId}/${row!.id}/f${n}.jpg`}, ${n})`;
+    }
+    for (const f of caracteristicasRasc) await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${row!.id}, ${f})`;
+    return row!.id;
+  }
+  async function publicar(spaceId: string) {
+    entrarComo(donoId, 'owner', 'Dona Descoberta');
+    const fd = new FormData();
+    fd.set('spaceId', spaceId);
+    return comRedirect(() => publishSpaceAction(undefined, fd));
+  }
+  const matchesDo = async (alertId: string) => sql<{ space_id: string; pendente: boolean }[]>`
+    SELECT space_id, notified_at IS NULL AS pendente FROM saved_search_matches WHERE saved_search_id=${alertId}`;
+  const avisosAlerta = async (userId: string) => sql<{ title: string; body: string; link_path: string }[]>`
+    SELECT title, body, link_path FROM notifications WHERE user_id=${userId} AND type='saved_search_match' ORDER BY created_at`;
+  const [alertaPremiumGaragem] = await sql<{ id: string }[]>`
+    SELECT id FROM saved_searches WHERE user_id=${alertaPremiumId} AND criteria->'tipos' ? 'garagem'`;
+
+  // Favoritos de referência: A (que também tem alerta) e B (sem alerta).
+  const garagemRef = await criarPublicado({ cidade: cidade8, bairro: 'Centro', tipo: 'garagem', precoCents: 32000 });
+  await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${garagemRef.id}, 'coberto')`;
+  await sql`INSERT INTO favorites (user_id, space_id) VALUES (${alertaAId}, ${garagemRef.id}), (${alertaBId}, ${garagemRef.id})`;
+
+  const nova1 = await rascunhoPronto('Garagem coberta nova um', 32000, ['coberto']);
+  const pub1 = await publicar(nova1);
+  assert('primeira publicação pela ação de verdade (redirecionou)', pub1.redirecionou);
+  const avisos1 = await avisosAlerta(alertaAId);
+  expect('anúncio que atende ao alerta → 1 aviso com link para o anúncio',
+    [avisos1.length, avisos1[0]?.title, avisos1[0]?.link_path?.startsWith('/espacos/')], [1, 'Novo espaço no seu alerta', true]);
+  expect('quem tem alerta que bateu NÃO recebe também o aviso "com o seu perfil" do mesmo anúncio',
+    await contarNotificacoes(alertaAId, 'new_compatible_space', nova1), 0);
+  expect('quem só favoritou (sem alerta) continua recebendo o aviso da Fase 18',
+    await contarNotificacoes(alertaBId, 'new_compatible_space', nova1), 1);
+  expect('Premium com alerta de garagem na cidade também é avisado', (await avisosAlerta(alertaPremiumId)).length, 1);
+  expect('o dono do anúncio nunca é avisado pelo próprio anúncio', (await avisosAlerta(donoId)).length, 0);
+
+  const nova2 = await rascunhoPronto('Garagem coberta nova dois', 33000, ['coberto']);
+  await publicar(nova2);
+  expect('segundo anúncio dentro do intervalo: nenhum aviso novo, fica na fila',
+    [(await avisosAlerta(alertaAId)).length, (await matchesDo(r1.alertId!)).filter((m) => m.pendente).length], [1, 1]);
+
+  const caro = await rascunhoPronto('Garagem coberta cara demais', 40000, ['coberto']);
+  await publicar(caro);
+  const noJardim = await rascunhoPronto('Garagem coberta no Jardim', 30000, ['coberto'], 'Jardim');
+  await publicar(noJardim);
+  const semCobertura = await rascunhoPronto('Garagem aberta sem cobertura', 30000, []);
+  await publicar(semCobertura);
+  expect('acima do teto, outro bairro ou sem a característica: não entram no alerta',
+    (await matchesDo(r1.alertId!)).map((m) => m.space_id).sort(), [nova1, nova2].sort());
+
+  // O intervalo passou (24 h na conta gratuita): a próxima que bater leva a fila junto.
+  await sql`UPDATE saved_searches SET last_notified_at = now() - interval '25 hours' WHERE id=${r1.alertId!}`;
+  const nova3 = await rascunhoPronto('Garagem coberta nova tres', 34000, ['coberto']);
+  await publicar(nova3);
+  const avisos3 = await avisosAlerta(alertaAId);
+  expect('depois do intervalo: UM aviso agrupado com os 2 da fila',
+    [avisos3.length, avisos3[1]?.title, /Encontramos 2 novos espaços/.test(avisos3[1]?.body ?? ''), avisos3[1]?.link_path?.startsWith('/espacos?')],
+    [2, 'Novos espaços no seu alerta', true, true]);
+
+  // Resumo do cron: o alerta Premium ("garagem na cidade", sem teto nem
+  // bairro) pegou TODOS os anúncios depois do primeiro — inclusive o caro, o
+  // do Jardim e o sem cobertura, que o alerta de A recusou. Todos na fila.
+  const naFilaPremium = (await matchesDo(alertaPremiumGaragem!.id)).filter((m) => m.pendente).length;
+  expect('alerta mais amplo (Premium) pegou 5 anúncios na fila, dentro de 1 h', naFilaPremium, 5);
+  const antesDoCron = (await avisosAlerta(alertaPremiumId)).length;
+  await sql`UPDATE saved_searches SET last_notified_at = now() - interval '2 hours' WHERE id=${alertaPremiumGaragem!.id}`;
+  const cron1 = await runSavedSearchDigest();
+  const depoisDoCron = await avisosAlerta(alertaPremiumId);
+  expect('cron diário esvazia a fila que passou do intervalo, num aviso só',
+    [depoisDoCron.length - antesDoCron, depoisDoCron.at(-1)?.body.includes(`Encontramos ${naFilaPremium} novos espaços`), cron1.sent >= 1],
+    [1, true, true]);
+  const cron2 = await runSavedSearchDigest();
+  expect('cron de novo: nada a mandar (nunca repete)', [(await avisosAlerta(alertaPremiumId)).length, cron2.sent], [depoisDoCron.length, 0]);
+
+  // Pausado não avisa; bloqueio entre as pessoas também corta o aviso.
+  await mudarStatus(alertaAId, r1.alertId!, 'paused');
+  await sql`INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (${donoId}, ${alertaPremiumId})`;
+  const nova4 = await rascunhoPronto('Garagem coberta nova quatro', 31000, ['coberto']);
+  await publicar(nova4);
+  const [{ n: matchesNova4 }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM saved_search_matches WHERE space_id=${nova4}`;
+  expect('alerta pausado e pessoa bloqueada pelo dono: o anúncio novo não entra em alerta nenhum', matchesNova4, 0);
 
   // =========================================================================
   await limpar();

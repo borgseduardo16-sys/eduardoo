@@ -237,11 +237,23 @@ export type NewPublishedSpace = {
  * repetir "temos algo novo pra você" com frequência, não impedir que a
  * mesma pessoa seja avisada de espaços DIFERENTES.
  */
-export async function alertCompatibleFavoritersOfNewSpace(space: NewPublishedSpace): Promise<void> {
+export async function alertCompatibleFavoritersOfNewSpace(
+  space: NewPublishedSpace,
+  options?: {
+    /**
+     * Quem já tem um alerta de busca salva que bateu com este anúncio
+     * (Fase 23) — recebe o aviso do alerta, que pediu explicitamente, e não
+     * um segundo aviso "com o seu perfil" sobre o mesmo espaço.
+     */
+    exceptUserIds?: readonly string[];
+  },
+): Promise<void> {
   const patterns = await listFavoritePatternsForType(space.type, space.city, space.id, space.ownerId);
   if (patterns.length === 0) return;
 
+  const fora = new Set(options?.exceptUserIds ?? []);
   const elegiveis = patterns
+    .filter((pattern) => !fora.has(pattern.userId))
     .map((pattern) => ({ userId: pattern.userId, score: computeCompatibilityScore(pattern, space) }))
     .filter((c) => c.score >= COMPATIBILITY_THRESHOLD)
     .sort((a, b) => b.score - a.score)

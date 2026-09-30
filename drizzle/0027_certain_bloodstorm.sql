@@ -1,0 +1,2 @@
+ALTER TABLE "saved_searches" ADD COLUMN "criteria_key" text NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "saved_searches_user_criteria_key" ON "saved_searches" USING btree ("user_id","criteria_key");

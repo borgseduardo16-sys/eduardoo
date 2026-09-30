@@ -198,6 +198,7 @@ export default async function MinhaContaPage({
             <Atalho href="/meus-espacos" icon={House} titulo="Meus espaços" texto="Anúncios, solicitações e recebimentos." />
             <Atalho href="/reservas" icon={CalendarCheck} titulo="Minhas reservas" texto="O que você pediu ou está alugando." />
             <Atalho href="/favoritos" icon={Heart} titulo="Favoritos" texto="Espaços que você salvou." />
+            <Atalho href="/alertas" icon={BellRing} titulo="Alertas de busca" texto="Aviso quando aparece um espaço novo que você procura." />
             <Atalho
               href={`/perfil/${user.id}#avaliacoes`}
               icon={Star}

@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { spaces, spaceFeatures, features, auditLogs, bookings } from '@/db/schema';
+import { matchNewSpaceToAlerts } from '@/lib/alerts/matching';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { notifyUser } from '@/lib/notifications/dispatch';
 import { parseBRLToCents, formatBRL } from '@/lib/money';
@@ -552,17 +553,23 @@ export async function publishSpaceAction(
   // Só na primeira publicação: "de novo no ar" (retomar) não é espaço NOVO.
   // Precisa vir antes do redirect() (ele lança para interromper a função).
   if (primeiraPublicacao && space.city) {
+    // Alertas de busca salva primeiro (Fase 23): quem pediu explicitamente
+    // para ser avisado não recebe, além disso, o aviso "com o seu perfil".
+    const { userIds: comAlerta } = await matchNewSpaceToAlerts(spaceId);
     try {
-      await alertCompatibleFavoritersOfNewSpace({
-        id: spaceId,
-        ownerId: user.id,
-        type: space.type,
-        city: space.city,
-        title: space.title,
-        slug: space.slug,
-        priceMonthlyCents: space.priceMonthlyCents,
-        featureKeys: space.featureKeys,
-      });
+      await alertCompatibleFavoritersOfNewSpace(
+        {
+          id: spaceId,
+          ownerId: user.id,
+          type: space.type,
+          city: space.city,
+          title: space.title,
+          slug: space.slug,
+          priceMonthlyCents: space.priceMonthlyCents,
+          featureKeys: space.featureKeys,
+        },
+        { exceptUserIds: comAlerta },
+      );
     } catch (err) {
       console.error('[publicar] falha ao notificar favoritos sobre espaço compatível:', err);
     }

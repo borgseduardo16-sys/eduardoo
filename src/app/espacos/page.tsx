@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import { ChevronLeft, ChevronRight, SearchX, SlidersHorizontal } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/dal';
 import { buildNeedSearchUrl } from '@/lib/search/need/to-url';
-import { todayInSaoPaulo } from '@/lib/search/need/interpret';
+import { todayInSaoPaulo } from '@/lib/dates';
 import {
   needSummaryFromParams, parseSizeParam, parseStartParam, parseTypesParam, parseVehicleParam,
 } from '@/lib/search/need/params';
@@ -25,6 +25,8 @@ import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SearchBar } from '@/components/search/search-bar';
 import { NeedSummaryView } from '@/components/search/need-summary';
+import { SaveSearchButton } from '@/components/alerts/save-search-button';
+import { getUserSavedSearch } from '@/lib/alerts/queries';
 import { FiltersBar } from '@/components/espacos/filters-bar';
 import { ResultCard } from '@/components/espacos/result-card';
 import { ResultsMap, MobileMapToggle, type MapSpace } from '@/components/map/spaces-map';
@@ -90,7 +92,9 @@ export default async function EspacosPage({
       gps: sp.lat && sp.lng && Number.isFinite(latQ) && Number.isFinite(lngQ) ? { lat: latQ, lng: lngQ } : null,
       clientKey: viewer?.id ?? `ip:${ip}`,
     });
-    redirect(destino);
+    // Editando um alerta (Fase 23): a nova busca continua no modo de edição.
+    const alertaEmEdicao = sp.alerta && /^[0-9a-f-]{36}$/i.test(sp.alerta) ? `&alerta=${sp.alerta}` : '';
+    redirect(`${destino}${alertaEmEdicao}`);
   }
   const hoje = todayInSaoPaulo();
 
@@ -259,6 +263,16 @@ export default async function EspacosPage({
     ? needSummaryFromParams(sp, { today: hoje, featureLabels: rotulosCaracteristica })
     : null;
 
+  // ---- Alerta desta busca (Fase 23): só quando a busca diz O QUE ou ONDE —
+  // "qualquer espaço em qualquer lugar" avisaria de todo anúncio novo.
+  const alertavel = !buscaBloqueadaPorCep && resolucao.source !== 'unresolved' && Boolean(
+    tipo || tipos.length > 0 || resolucao.cityFilter || resolucao.districtFilter || resolucao.point,
+  );
+  const alertaEmEdicao = viewer && sp.alerta ? await getUserSavedSearch(viewer.id, sp.alerta) : null;
+  const buscaAtual = new URLSearchParams(
+    Object.entries(sp).filter(([k, v]) => v && k !== 'pagina' && k !== 'alerta') as [string, string][],
+  ).toString();
+
   // ---- Cabecalho: o que estamos mostrando, em uma frase.
   let tituloLocal: string | null = null;
   if (resolucao.label) {
@@ -278,6 +292,7 @@ export default async function EspacosPage({
           <SearchBar
             initialTipo={sp.busca ?? sp.tipo}
             initialOnde={sp.busca ? sp.ondeCampo : sp.onde}
+            keepParams={alertaEmEdicao ? { alerta: alertaEmEdicao.id } : undefined}
             initialGps={resolucao.source === 'gps' && lat != null && lng != null ? { lat, lng } : undefined}
           />
         </div>
@@ -296,6 +311,15 @@ export default async function EspacosPage({
         </header>
 
         {resumoNecessidade && <NeedSummaryView summary={resumoNecessidade} />}
+
+        {alertavel && (
+          <SaveSearchButton
+            search={buscaAtual}
+            loggedIn={Boolean(viewer)}
+            alertId={alertaEmEdicao?.id}
+            alertLabel={alertaEmEdicao?.label}
+          />
+        )}
 
         {buscaBloqueadaPorCep && (
           <Alert tone="warning" title="CEP não encontrado">

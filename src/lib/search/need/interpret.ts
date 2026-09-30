@@ -3,6 +3,7 @@ import { isIntegrationConfigured, IntegrationNotConfiguredError } from '@/lib/en
 import { rateLimit } from '@/lib/rate-limit';
 import { settingInt } from '@/lib/settings';
 import { consumeAiQuota } from '@/lib/ai/usage';
+import { todayInSaoPaulo } from '@/lib/dates';
 import { interpretNeedByRules, normalizeSameLength } from './rules';
 import { fromAiOutput, mergeInterpretations } from './ai-schema';
 import { interpretNeedWithAi, NeedAiError } from './ai';
@@ -71,15 +72,8 @@ export function clearNeedCache() {
   cache.clear();
 }
 
-/** Hoje no fuso de São Paulo, 'AAAA-MM-DD'. */
-export function todayInSaoPaulo(now = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now);
-}
+/** Hoje no fuso de São Paulo, 'AAAA-MM-DD' (mora em src/lib/dates.ts; reexportado para quem já importava daqui). */
+export { todayInSaoPaulo };
 
 export function cleanNeedText(raw: string): string {
   return raw.replace(/\s+/g, ' ').trim().slice(0, NEED_LIMITS.maxTextLength);

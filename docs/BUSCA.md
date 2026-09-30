@@ -116,3 +116,53 @@ Dado que o anúncio não tem conta como não atendido, e a explicação diz
 
 A explicação mostra cada critério informado, atendido ou não, sem pesos nem
 fórmula, e termina dizendo o que o número não é.
+
+---
+
+## Alertas de busca (Fase 23)
+
+Na página de resultados, **"Criar alerta desta busca"** guarda os critérios
+que estão na tela (tipo, bairro/cidade ou ponto com raio, preço,
+características, área, "para começar já"). O navegador manda só a busca; o
+servidor reinterpreta, valida e escreve o nome do alerta. O texto livre da
+busca por necessidade **não** é guardado — só os critérios que saíram dele.
+
+- Um alerta precisa dizer **o quê** (tipo) ou **onde** (local). "Qualquer
+  espaço em qualquer lugar" avisaria de todo anúncio publicado.
+- **Mesma busca duas vezes** não vira dois alertas (índice único no banco).
+- **Editar** = abrir a busca do alerta, ajustar e tocar em "Salvar esta
+  busca no alerta" — a própria tela de busca é o editor.
+
+### Quando avisa
+
+Só quando um anúncio é publicado **pela primeira vez** e atende a **todos**
+os critérios do alerta (tipo, bairro/cidade ou raio, faixa de preço, todas
+as características, área e disponibilidade). Anúncio que volta de pausado
+não é "novo" — isso é assunto de favoritos e lista de espera.
+
+Não avisa: alerta pausado, o dono do próprio anúncio, conta suspensa, nem
+quando há bloqueio entre as duas pessoas. Quem recebeu o aviso do alerta não
+recebe também o "novo espaço com o seu perfil" (Fase 18) do mesmo anúncio.
+
+### Frequência (anti-spam)
+
+| Plano | Alertas ativos | Intervalo mínimo entre avisos do mesmo alerta |
+|-------|----------------|-----------------------------------------------|
+| Gratuito | 2 | 24 h |
+| Premium | 20 | 1 h |
+
+O que chegar dentro do intervalo fica na fila e vem **num aviso só** —
+"Encontramos 4 novos espaços que combinam com o seu alerta…" — na próxima
+publicação que bater depois do intervalo ou no cron diário
+(`/api/cron/notificacoes`, que depende do `CRON_SECRET`). O mesmo anúncio
+nunca é avisado duas vezes pelo mesmo alerta (chave única alerta+anúncio).
+
+Os números vivem em `platform_settings` (`alerts.saved_search_max_free`,
+`alerts.saved_search_max_premium`, `alerts.digest_hours_free`,
+`alerts.digest_hours_premium`). O limite de ativos é garantido por um
+gatilho no banco (`saved_searches_active_limit`), que trava a linha do
+perfil — duas abas criando alerta ao mesmo tempo não passam do limite.
+Premium aqui é o plano que já existe: nenhuma cobrança nova.
+
+Os avisos são da categoria **"Alertas que você criou"** nas preferências de
+notificação — dá para desligar sem apagar os alertas.

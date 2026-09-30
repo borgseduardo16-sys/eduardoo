@@ -5,6 +5,7 @@ import { runRentDueReminders, runOwnerActivityDigests, runPromotionExpiringRemin
 import { runDepositAutoRelease } from '@/lib/payments/deposits';
 import { runPriceDropCatchUp } from '@/lib/notifications/space-alerts';
 import { runWaitlistSweep } from '@/lib/waitlist/notify';
+import { runSavedSearchDigest } from '@/lib/alerts/matching';
 
 /**
  * GET /api/cron/notificacoes
@@ -47,16 +48,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'token invalido' }, { status: 401 });
   }
 
-  const [vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera] = await Promise.all([
+  const [vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera, alertas] = await Promise.all([
     runRentDueReminders(),
     runOwnerActivityDigests(),
     runDepositAutoRelease(),
     runPromotionExpiringReminders(),
-    // Fase 23: quedas de preço que ficaram para depois da janela mínima, e a
-    // rede de segurança da lista de espera.
+    // Fase 23: quedas de preço que ficaram para depois da janela mínima, a
+    // rede de segurança da lista de espera e o resumo dos alertas de busca
+    // (o que chegou dentro do intervalo mínimo e ficou na fila).
     runPriceDropCatchUp(),
     runWaitlistSweep(),
+    runSavedSearchDigest(),
   ]);
 
-  return NextResponse.json({ ok: true, vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera });
+  return NextResponse.json({ ok: true, vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera, alertas });
 }
