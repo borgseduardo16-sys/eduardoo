@@ -800,10 +800,17 @@ async function novaAba(
     viewport?: { width: number; height: number };
     /** Geolocalizacao REAL do Chromium (mock da API do navegador, nao do app). */
     geolocation?: { latitude: number; longitude: number };
+    /**
+     * User-Agent de navegador comum. O padrao do Playwright diz
+     * "HeadlessChrome", que a contagem de visitas (Fase 23) trata como robo
+     * — de proposito. Teste que confere contador usa este.
+     */
+    userAgent?: string;
   },
 ): Promise<Page> {
   const ctx = await browser!.newContext({
     viewport: opts?.viewport ?? { width: 430, height: 900 },
+    ...(opts?.userAgent ? { userAgent: opts.userAgent } : {}),
     ...(opts?.geolocation
       ? { geolocation: opts.geolocation, permissions: ['geolocation'] as const }
       : {}),
@@ -1530,11 +1537,19 @@ async function testeIFavoritos() {
   await pageDono.context().close();
 }
 
-async function testeJCompartilhar() {
-  secao('TESTE J (navegador) - compartilhar: fallback real de copiar link');
+const UA_NAVEGADOR =
+  'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36';
 
-  const [espaco] = await sql<{ slug: string }[]>`SELECT slug FROM spaces WHERE id=${publicado}`;
-  const page = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 430, height: 900 } });
+async function compartilhamentosDe(spaceId: string): Promise<number> {
+  const [r] = await sql<{ n: number }[]>`SELECT COALESCE(sum(shares), 0)::int AS n FROM space_daily_stats WHERE space_id=${spaceId}`;
+  return r?.n ?? 0;
+}
+
+async function testeJCompartilhar() {
+  secao('TESTE J (navegador) - compartilhar: WhatsApp, copiar link de verdade e contagem');
+
+  const [espaco] = await sql<{ slug: string; title: string }[]>`SELECT slug, title FROM spaces WHERE id=${publicado}`;
+  const page = await novaAba(testbed!.users.get(outroId)!, { viewport: { width: 430, height: 900 }, userAgent: UA_NAVEGADOR });
 
   /*
    * Sem a API nativa de compartilhar do sistema, a interface tem que cair
@@ -1552,15 +1567,32 @@ async function testeJCompartilhar() {
   await page.goto(`${baseUrl}/espacos/${espaco!.slug}`, { waitUntil: 'domcontentloaded' });
 
   const esperado = `${baseUrl}/espacos/${espaco!.slug}`;
+  const compartilhamentosAntes = await compartilhamentosDe(publicado);
   await page.getByTestId('botao-compartilhar').click();
+  const whats = page.getByRole('link', { name: 'WhatsApp' });
+  await whats.waitFor({ timeout: 10_000 });
+  const hrefWhats = (await whats.getAttribute('href')) ?? '';
+  expect('WhatsApp abre pelo link oficial com o título e a URL do anúncio',
+    hrefWhats, `https://wa.me/?text=${encodeURIComponent(`${espaco!.title} — ${esperado}`)}`);
+  expect('sem Web Share no aparelho, "Mais opções" não aparece',
+    await page.getByRole('button', { name: 'Mais opções' }).count(), 0);
+  await page.getByRole('button', { name: 'Copiar link' }).click();
   await page.getByText('Link copiado').waitFor({ timeout: 10_000 });
-  ok('sem Web Share, o botao confirma que copiou o link');
+  ok('copiar link confirma que copiou');
 
   const copiado = await page.evaluate(`navigator.clipboard.readText()`);
   expect('o link copiado e exatamente a URL do anuncio', copiado, esperado);
 
   await page.getByText('Compartilhar', { exact: true }).waitFor({ timeout: 5_000 });
   ok('o botao volta ao texto original depois de copiar');
+
+  // O aviso vai por sendBeacon (assíncrono): espera o contador do dia subir.
+  let compartilhamentosDepois = compartilhamentosAntes;
+  for (let i = 0; i < 20 && compartilhamentosDepois === compartilhamentosAntes; i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    compartilhamentosDepois = await compartilhamentosDe(publicado);
+  }
+  expect('compartilhar conta +1 no contador do anúncio (só o número, sem quem)', compartilhamentosDepois, compartilhamentosAntes + 1);
 
   await page.screenshot({ path: join(tmp, 'teste-j-compartilhar.png') });
   await page.context().close();

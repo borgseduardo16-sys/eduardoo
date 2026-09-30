@@ -96,7 +96,7 @@ function diasAFrente(n: number): string {
 }
 
 let seq = 0;
-async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairro?: string; fotos?: number; cidade?: string; areaM2?: number | null; ownerId?: string }): Promise<{ id: string; slug: string }> {
+async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairro?: string; fotos?: number; cidade?: string; areaM2?: number | null; ownerId?: string; ponto?: { lat: number; lng: number } }): Promise<{ id: string; slug: string }> {
   seq++;
   const slug = `${tag}-${seq}`;
   const dono = opts?.ownerId ?? donoId;
@@ -107,8 +107,8 @@ async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairr
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
       ${opts?.bairro ?? 'Centro'}, ${opts?.cidade ?? cidade}, 'ES', CURRENT_DATE, ${opts?.precoCents ?? 40000},
       ${opts?.areaM2 === undefined ? 20 : opts.areaM2}, 8,
-      ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326),
-      ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326))
+      ST_SetSRID(ST_MakePoint(${(opts?.ponto ?? PONTO).lng}, ${(opts?.ponto ?? PONTO).lat}), 4326),
+      ST_SetSRID(ST_MakePoint(${(opts?.ponto ?? PONTO).lng}, ${(opts?.ponto ?? PONTO).lat}), 4326))
     RETURNING id`;
   const id = row!.id;
   for (let n = 0; n < (opts?.fotos ?? 3); n++) {
@@ -1788,6 +1788,100 @@ async function main() {
       await sql`UPDATE platform_settings SET value = to_jsonb(${desdeAntes10}::text) WHERE key='analytics.views_counting_since'`;
     }
   }
+
+
+  // =========================================================================
+  secao('11. Compartilhar e espaços semelhantes: critérios reais, só dado público');
+  // =========================================================================
+  const { similarityScore, rankSimilar, similarTypes } = await import('../src/lib/spaces/similar-rank');
+  const { listSimilarSpaces } = await import('../src/lib/spaces/similar');
+  const { scaleCentsByBps } = await import('../src/lib/money');
+
+  // ---- 11a. Pontuação pura ----
+  const baseSim = { type: 'garagem', priceMonthlyCents: 40000, featureKeys: ['coberto', 'portao'], city: 'X', district: 'Centro' };
+  const mesmoSim = similarityScore(baseSim, { ...baseSim, distanceMeters: 300 });
+  const parecidoSim = similarityScore(baseSim, { ...baseSim, type: 'vaga_carro', distanceMeters: 300 });
+  assert('mesmo tipo vale mais que tipo parecido', mesmoSim.score > parecidoSim.score, `${mesmoSim.score} x ${parecidoSim.score}`);
+  const pertoSim = similarityScore(baseSim, { ...baseSim, distanceMeters: 500 });
+  const longeSim = similarityScore(baseSim, { ...baseSim, distanceMeters: 15000 });
+  assert('mais perto vale mais', pertoSim.score > longeSim.score, `${pertoSim.score} x ${longeSim.score}`);
+  const semComumSim = similarityScore(baseSim, { ...baseSim, featureKeys: [], distanceMeters: 500 });
+  assert('características em comum contam', pertoSim.score > semComumSim.score);
+  const caroSim = similarityScore(baseSim, { ...baseSim, priceMonthlyCents: 60000, distanceMeters: 500 });
+  assert('preço mais distante vale menos', pertoSim.score > caroSim.score);
+  expect('explicação em palavras, só do que é verdade', mesmoSim.reasons, ['Mesmo tipo', 'Preço parecido', '2 características em comum']);
+  expect('sem ponto no mapa: mesma cidade/bairro vira o critério de região',
+    similarityScore(baseSim, { ...baseSim, distanceMeters: null }).reasons.includes('No mesmo bairro'), true);
+  expect('tipos parecidos de garagem', similarTypes('garagem'), ['garagem', 'vaga_carro']);
+  expect('tipo desconhecido: só ele mesmo', similarTypes('nave_espacial'), ['nave_espacial']);
+  expect('faixa de preço em centavos inteiros (50% e 160%)',
+    [scaleCentsByBps(39999, 5000, 'baixo'), scaleCentsByBps(39999, 16000, 'cima')], [19999, 63999]);
+  expect('empate vai para o mais perto',
+    rankSimilar(baseSim, [{ ...baseSim, distanceMeters: 900, id: 'b' }, { ...baseSim, distanceMeters: 100, id: 'a' }], 2).map((x) => x.id),
+    ['a', 'b']);
+
+  // ---- 11b. Consulta real ----
+  const cidadeSim = `Cidade Sim ${tag}`;
+  const P0 = { lat: -20.3155, lng: -40.3128 };
+  const base11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
+  const igual = await criarPublicado({ tipo: 'garagem', precoCents: 42000, cidade: cidadeSim, ponto: { lat: P0.lat + 0.001, lng: P0.lng } });
+  const vagaSim = await criarPublicado({ tipo: 'vaga_carro', precoCents: 38000, cidade: cidadeSim, ponto: { lat: P0.lat + 0.009, lng: P0.lng } });
+  const deposito11 = await criarPublicado({ tipo: 'deposito', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
+  const caro11 = await criarPublicado({ tipo: 'garagem', precoCents: 90000, cidade: cidadeSim, ponto: P0 });
+  const longe11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: { lat: P0.lat + 0.4, lng: P0.lng } });
+  const pausado11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
+  await sql`UPDATE spaces SET status='paused' WHERE id=${pausado11.id}`;
+  const futuro11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
+  await sql`UPDATE spaces SET available_from = CURRENT_DATE + 10 WHERE id=${futuro11.id}`;
+  const bloqueado11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
+  await sql`INSERT INTO space_availability_blocks (space_id, starts_on, ends_on, reason, created_by)
+    VALUES (${bloqueado11.id}, CURRENT_DATE + 2, CURRENT_DATE + 5, 'manutencao', ${donoId})`;
+  await sql`INSERT INTO space_features (space_id, feature_key) VALUES
+    (${base11.id}, 'coberto'), (${base11.id}, 'portao'), (${igual.id}, 'coberto'), (${igual.id}, 'portao'), (${vagaSim.id}, 'coberto')`;
+
+  const baseInfo = await getPublicSpaceBySlug(base11.slug);
+  const semelhantes = await listSimilarSpaces(
+    {
+      id: base11.id, type: 'garagem', priceMonthlyCents: 40000, city: cidadeSim, district: 'Centro',
+      approxLat: baseInfo!.approxLat, approxLng: baseInfo!.approxLng, featureKeys: ['coberto', 'portao'],
+    },
+    { availableNow: true, limit: 10 },
+  );
+  const idsSim = semelhantes.map((x) => x.id);
+  expect('semelhantes: mesma garagem perto primeiro, depois a vaga de carro (tipo parecido)', idsSim, [igual.id, vagaSim.id]);
+  assert('o próprio anúncio não aparece', !idsSim.includes(base11.id));
+  assert('tipo sem relação (depósito para garagem) não aparece', !idsSim.includes(deposito11.id));
+  assert('preço fora da faixa (mais de 160%) não aparece', !idsSim.includes(caro11.id));
+  assert('longe demais (mais de 25 km) não aparece', !idsSim.includes(longe11.id));
+  assert('pausado não aparece', !idsSim.includes(pausado11.id));
+  assert('disponível só daqui a 10 dias não aparece como alternativa "disponível agora"', !idsSim.includes(futuro11.id));
+  assert('com bloqueio pela frente não aparece (o aluguel mensal atravessaria o bloqueio)', !idsSim.includes(bloqueado11.id));
+  expect('cada um diz por que apareceu', semelhantes[0]?.reasons, ['Mesmo tipo', 'Preço parecido', '2 características em comum']);
+  assert('e a distância vem calculada entre pontos aproximados', semelhantes[0]?.distanceMeters != null && semelhantes[0].distanceMeters < 1000);
+  const chavesSim = Object.keys(semelhantes[0] ?? {});
+  assert('nenhum dado privado nos semelhantes (rua, número, complemento, ponto exato)',
+    !chavesSim.some((k) => ['street', 'number', 'complement', 'location', 'postalCode'].includes(k)), chavesSim.join(','));
+  const semPonto = await listSimilarSpaces(
+    { id: base11.id, type: 'garagem', priceMonthlyCents: 40000, city: cidadeSim, district: 'Centro', approxLat: null, approxLng: null, featureKeys: [] },
+    { availableNow: true, limit: 10 },
+  );
+  assert('anúncio sem ponto no mapa usa a mesma cidade', semPonto.map((x) => x.id).includes(igual.id) && semPonto.every((x) => x.city === cidadeSim));
+  expect('sem cidade e sem ponto: nenhuma sugestão (nada aleatório)',
+    (await listSimilarSpaces({ id: base11.id, type: 'garagem', priceMonthlyCents: 40000, city: null, district: null, approxLat: null, approxLng: null, featureKeys: [] }, { availableNow: true })).length, 0);
+
+  // ---- 11c. Prévia do link compartilhado ----
+  const { sharePreviewDescription } = await import('../src/lib/spaces/share-preview');
+  await sql`UPDATE spaces SET street='Rua Secreta Onze', number='4321', complement='Fundos B' WHERE id=${base11.id}`;
+  const publico11 = await getPublicSpaceBySlug(base11.slug);
+  const descricaoOg = sharePreviewDescription(publico11!) ?? '';
+  assert('prévia tem tipo e preço', descricaoOg.startsWith('Garagem · R$\u00a0400,00/mês'), descricaoOg);
+  assert('prévia tem a localização geral (bairro e cidade)', descricaoOg.includes(`Centro, ${cidadeSim}`), descricaoOg);
+  const textoPublico = JSON.stringify(publico11);
+  assert('dado público do anúncio (fonte da prévia e da página) não traz rua, número nem complemento',
+    !/Rua Secreta|4321|Fundos B/.test(textoPublico) && !/Rua Secreta|4321|Fundos B/.test(descricaoOg));
+  const paginaFonte = await import('node:fs').then((fs) => fs.readFileSync('src/app/espacos/[slug]/page.tsx', 'utf8'));
+  assert('link compartilhado é a URL estável do anúncio (/espacos/slug)',
+    paginaFonte.includes('const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`'));
 
   // =========================================================================
   await limpar();

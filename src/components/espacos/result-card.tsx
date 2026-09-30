@@ -27,6 +27,8 @@ export function ResultCard({
   favorited,
   loggedIn,
   match,
+  note,
+  titleAs: Titulo = 'h2',
 }: {
   space: PublicSpace;
   coverUrl: string | null;
@@ -34,6 +36,10 @@ export function ResultCard({
   loggedIn: boolean;
   /** Compatibilidade com a busca atual (Fase 23). Ausente = não há critério suficiente. */
   match?: MatchResult | null;
+  /** Linha curta extra embaixo do preço (ex.: por que é um espaço semelhante). */
+  note?: string | null;
+  /** Nível do título do card: h3 quando a lista já está dentro de uma seção com h2. */
+  titleAs?: 'h2' | 'h3';
 }) {
   return (
     <li data-testid="resultado-card" data-space-id={space.id}>
@@ -84,9 +90,9 @@ export function ResultCard({
             {spaceTypeLabel(space.type as SpaceTypeKey)}
           </p>
           <div className="flex items-start justify-between gap-2">
-            <h2 className="font-medium leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors">
+            <Titulo className="font-medium leading-snug line-clamp-2 group-hover:text-[var(--accent)] transition-colors">
               {space.title}
-            </h2>
+            </Titulo>
             {space.ratingCount > 0 && (
               <span className="shrink-0 flex items-center gap-1 text-[0.8125rem] tabular-nums">
                 <Star className="size-3.5 text-[var(--accent)]" aria-hidden fill="currentColor" />
@@ -114,6 +120,7 @@ export function ResultCard({
             <span className="font-semibold tabular-nums">{formatBRL(space.priceMonthlyCents)}</span>
             <span className="text-[var(--content-muted)] text-[0.875rem]"> /mês</span>
           </p>
+          {note && <p className="text-[0.75rem] text-[var(--content-subtle)]">{note}</p>}
         </div>
       </Link>
       {match && <MatchDetails match={match} />}

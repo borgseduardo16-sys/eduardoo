@@ -188,6 +188,19 @@ export function addToleranceCents(cents: number, bps: number): number {
 }
 
 /**
+ * Fração de um valor em pontos-base, só com inteiros — 5000 bps = metade,
+ * 16000 bps = 160%. `arredondar` escolhe o lado ('baixo' para piso, 'cima'
+ * para teto). Usado na faixa de preço de "espaços semelhantes" (Fase 23).
+ */
+export function scaleCentsByBps(cents: number, bps: number, arredondar: 'baixo' | 'cima'): number {
+  if (!Number.isSafeInteger(cents) || cents < 0 || !Number.isInteger(bps) || bps < 0) {
+    throw new InvalidAmountError('Valor inválido.');
+  }
+  const bruto = cents * bps;
+  return arredondar === 'baixo' ? Math.floor(bruto / 10_000) : Math.ceil(bruto / 10_000);
+}
+
+/**
  * Centavos no formato que o filtro de preço da busca aceita: 30000 → "300",
  * 29990 → "299,90". O inverso de `parseBRLToCents`, sem ponto flutuante.
  */

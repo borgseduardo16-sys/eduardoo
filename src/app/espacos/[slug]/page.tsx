@@ -37,6 +37,12 @@ import { WaitlistPanel } from '@/components/waitlist/waitlist-panel';
 import { PriceHistory } from '@/components/espacos/price-history';
 import { PublicAvailability } from '@/components/calendar/public-availability';
 import { ViewTracker } from '@/components/analytics/track';
+import { SimilarSpaces } from '@/components/espacos/similar-spaces';
+import { listSimilarSpaces } from '@/lib/spaces/similar';
+import { similarTypes } from '@/lib/spaces/similar-rank';
+import { listUserFavoriteIds } from '@/lib/favorites/queries';
+import { todayInSaoPaulo } from '@/lib/dates';
+import { sharePreviewDescription } from '@/lib/spaces/share-preview';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
@@ -55,11 +61,9 @@ export async function generateMetadata({
   const space = await getPublicSpaceBySlug(slug);
   if (!space) return { title: 'Espaço não encontrado' };
 
-  const local = [space.district, space.city].filter(Boolean).join(', ');
-  const descricaoBase = space.description?.slice(0, 160)?.trim();
-  // A localizacao aproximada entra na descricao do compartilhamento (alem de
-  // ja aparecer, visualmente, na imagem gerada abaixo) — pedido explicito.
-  const descricao = [descricaoBase, local ? `${local}.` : null].filter(Boolean).join(' — ') || undefined;
+  // Prévia do link (WhatsApp, redes): tipo, preço e localização GERAL. Tudo
+  // sai de `getPublicSpaceBySlug`, que nem seleciona o endereço.
+  const descricao = sharePreviewDescription(space);
   const url = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
 
   return {
@@ -96,7 +100,7 @@ export default async function EspacoPage({
   const isOwner = viewer?.id === space.ownerId;
   const paginaAvaliacoes = parsePage(sp.avaliacoes);
 
-  const [estadoFavorito, existingBooking, reviewsPage, ownerReputation, ownerResponse, disponibilidade, entradaEspera, historicoPreco] = await Promise.all([
+  const [estadoFavorito, existingBooking, reviewsPage, ownerReputation, ownerResponse, disponibilidade, entradaEspera, historicoPreco, semelhantes, favoritosIds] = await Promise.all([
     viewer ? getFavoriteState(viewer.id, space.id) : Promise.resolve(null),
     viewer && !isOwner ? getViewerActiveBookingForSpace(space.id, viewer.id) : Promise.resolve(null),
     listReviewsForSpace(space.id, { page: paginaAvaliacoes }),
@@ -105,9 +109,26 @@ export default async function EspacoPage({
     getSpaceAvailability(space.id),
     viewer && !isOwner ? getUserWaitlistEntry(space.id, viewer.id) : Promise.resolve(null),
     getPublicPriceHistory(space.id, space.publishedAt),
+    // Fase 23: parecidos e disponíveis agora (o dono não precisa ver).
+    isOwner
+      ? Promise.resolve([])
+      : listSimilarSpaces(
+          {
+            id: space.id,
+            type: space.type,
+            priceMonthlyCents: space.priceMonthlyCents,
+            city: space.city,
+            district: space.district,
+            approxLat: space.approxLat,
+            approxLng: space.approxLng,
+            featureKeys: space.features.map((f) => f.key),
+          },
+          { availableNow: true, limit: 4 },
+        ),
+    viewer && !isOwner ? listUserFavoriteIds(viewer.id) : Promise.resolve(new Set<string>()),
   ]);
   const favorited = estadoFavorito != null;
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = todayInSaoPaulo();
   // Fase 23: alugado, pausado ou com reserva vigente — a página abre, mas não
   // convida a solicitar; oferece a lista de espera.
   const disponivel = disponibilidade?.openForRequests ?? false;
@@ -122,9 +143,15 @@ export default async function EspacoPage({
       ...space.images.flatMap((i) => [i.storagePath, i.thumbPath]),
       space.owner?.avatarPath,
       ...reviewsPage.rows.map((r) => r.author.avatarPath),
+      ...semelhantes.map((s) => s.coverPath),
     ].filter(Boolean) as string[],
   );
   const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`;
+  // Busca com critérios parecidos: dá para ver mais e salvar como alerta.
+  const buscaParecida = `/espacos?${new URLSearchParams({
+    tipos: similarTypes(space.type).join(','),
+    ...(space.city ? { onde: space.city } : {}),
+  }).toString()}`;
 
   return (
     <>
@@ -148,7 +175,7 @@ export default async function EspacoPage({
           </Link>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <ShareButton title={space.title} url={shareUrl} className={ACAO_COMPACTA} />
+            <ShareButton title={space.title} url={shareUrl} spaceId={space.id} className={ACAO_COMPACTA} />
             {!isOwner && (
               <FavoriteButton
                 spaceId={space.id}
@@ -263,6 +290,23 @@ export default async function EspacoPage({
                       : null
                   }
                 />
+                <p className="text-[0.875rem] text-[var(--content-muted)]">
+                  {semelhantes.length > 0 ? (
+                    <>
+                      Encontramos espaços semelhantes próximos.{' '}
+                      <a href="#semelhantes" className="font-medium text-[var(--accent)] underline underline-offset-4">
+                        Ver alternativas
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      Ainda não há espaços parecidos disponíveis por perto.{' '}
+                      <Link href={buscaParecida} className="font-medium text-[var(--accent)] underline underline-offset-4">
+                        Criar um alerta para quando aparecer
+                      </Link>
+                    </>
+                  )}
+                </p>
               </div>
             ) : (
               <>
@@ -295,6 +339,19 @@ export default async function EspacoPage({
               </>
             )}
           </section>
+        )}
+
+        {/* Fase 23: ocupado → as alternativas vêm logo aqui, não no fim da página. */}
+        {!isOwner && !disponivel && !existingBooking && semelhantes.length > 0 && (
+          <SimilarSpaces
+            spaces={semelhantes}
+            coverUrls={urls}
+            favoriteIds={favoritosIds}
+            loggedIn={Boolean(viewer)}
+            title="Espaços semelhantes disponíveis"
+            description="Este espaço está indisponível no momento. Estes são parecidos, ficam perto e estão disponíveis agora."
+            searchHref={buscaParecida}
+          />
         )}
 
         {/* Fase 23: quando dá para começar, e as datas indisponíveis (sem motivo). */}
@@ -369,6 +426,18 @@ export default async function EspacoPage({
             </p>
             <AreaMap lat={space.approxLat} lng={space.approxLng} />
           </section>
+        )}
+
+        {!isOwner && (disponivel || existingBooking) && semelhantes.length > 0 && (
+          <SimilarSpaces
+            spaces={semelhantes}
+            coverUrls={urls}
+            favoriteIds={favoritosIds}
+            loggedIn={Boolean(viewer)}
+            title="Espaços semelhantes"
+            description="Do mesmo tipo ou parecido, perto daqui, com preço próximo e disponíveis agora. Distâncias aproximadas a partir deste anúncio."
+            searchHref={buscaParecida}
+          />
         )}
 
         <ProtectionNotice variant="card" />
