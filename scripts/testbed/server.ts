@@ -35,6 +35,13 @@
  *                       10 min, 5 conferencias (60202), 5 envios/10 min
  *                       (60203), numero fixo (60205), invalido (60200) e
  *                       verificacao encerrada (20404).
+ *   - Anthropic       — POST /v1/messages (Fase 23): exige `x-api-key` e
+ *                       `anthropic-version`; responde, em ordem, o que o
+ *                       teste enfileirar em `anthropicQueue` (texto da
+ *                       resposta, `stop_reason`, erro HTTP ou demora). Fila
+ *                       vazia = 500 — nunca inventa uma resposta de IA.
+ *                       Todo pedido fica em `anthropicRequests`, para o
+ *                       teste conferir o que foi mandado (e o que NÃO foi).
  *
  * O que isto PROVA: que o nosso codigo monta a requisicao certa, trata a
  * resposta certa, grava no banco certo e mostra a imagem certa.
@@ -96,7 +103,26 @@ export type Testbed = {
   twilioSmsSent: { to: string; code: string; at: number }[];
   /** Numeros tratados como fixos (respondem 60205). */
   twilioLandlines: Set<string>;
+  /** Chave que o dublê da Anthropic exige no header `x-api-key`. */
+  anthropicApiKey: string;
+  /** Próximas respostas da "IA", consumidas em ordem. */
+  anthropicQueue: AnthropicStubReply[];
+  /** Corpo e headers de cada pedido que chegou ao dublê da Anthropic. */
+  anthropicRequests: { headers: Record<string, string | string[] | undefined>; body: Record<string, unknown> }[];
   close: () => Promise<void>;
+};
+
+/**
+ * Uma resposta enfileirada no dublê da Anthropic. `text` vira o bloco de
+ * texto da mensagem (o JSON que a saída estruturada devolveria); `status`
+ * diferente de 200 vira erro no formato da API.
+ */
+export type AnthropicStubReply = {
+  text?: string;
+  stopReason?: 'end_turn' | 'max_tokens' | 'refusal';
+  status?: number;
+  errorType?: string;
+  delayMs?: number;
 };
 
 const BUCKET = 'space-images';
@@ -128,6 +154,9 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   };
   const twilioSmsSent: { to: string; code: string; at: number }[] = [];
   const twilioLandlines = new Set<string>();
+  const anthropicApiKey = `sk-ant-teste-${randomUUID()}`;
+  const anthropicQueue: AnthropicStubReply[] = [];
+  const anthropicRequests: { headers: Record<string, string | string[] | undefined>; body: Record<string, unknown> }[] = [];
   /** Uma verificacao aberta por numero, como no Twilio. */
   const twilioVerifs = new Map<string, { sid: string; code: string; status: string; checks: number; expiresAt: number }>();
 
@@ -614,6 +643,41 @@ export async function startTestbed(port = 0): Promise<Testbed> {
           }
         }
 
+        // ---------------------------------------------------------------
+        // Anthropic — Messages API
+        // ---------------------------------------------------------------
+        else if (req.method === 'POST' && rota === '/v1/messages') {
+          const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as Record<string, unknown>;
+          anthropicRequests.push({ headers: { ...req.headers }, body: corpo });
+          const erroApi = (http: number, type: string, message: string) =>
+            json(res, http, { type: 'error', error: { type, message } });
+
+          if (req.headers['x-api-key'] !== anthropicApiKey) {
+            status = erroApi(401, 'authentication_error', 'invalid x-api-key');
+          } else if (!req.headers['anthropic-version']) {
+            status = erroApi(400, 'invalid_request_error', 'anthropic-version header is required');
+          } else {
+            const proxima = anthropicQueue.shift();
+            if (proxima?.delayMs) await new Promise((r) => setTimeout(r, proxima.delayMs));
+            if (!proxima) {
+              status = erroApi(500, 'api_error', 'fila vazia no dublê: o teste não enfileirou resposta');
+            } else if (proxima.status && proxima.status !== 200) {
+              status = erroApi(proxima.status, proxima.errorType ?? 'api_error', 'erro simulado pelo teste');
+            } else {
+              status = json(res, 200, {
+                id: `msg_${randomUUID().replace(/-/g, '')}`,
+                type: 'message',
+                role: 'assistant',
+                model: corpo.model,
+                content: proxima.text != null ? [{ type: 'text', text: proxima.text }] : [],
+                stop_reason: proxima.stopReason ?? 'end_turn',
+                stop_sequence: null,
+                usage: { input_tokens: 100, output_tokens: 50 },
+              });
+            }
+          }
+        }
+
         else {
           status = json(res, 404, { error: 'rota nao implementada no testbed', rota });
         }
@@ -660,6 +724,9 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     twilio,
     twilioSmsSent,
     twilioLandlines,
+    anthropicApiKey,
+    anthropicQueue,
+    anthropicRequests,
     tilesServidos: () => tiles.slice(),
     close: () =>
       new Promise<void>((resolve) => {

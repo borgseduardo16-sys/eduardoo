@@ -17,6 +17,8 @@ import { spaces } from '@/db/schema';
  */
 export type CompatibilityContext = {
   type?: string | null;
+  /** Vários tipos aceitos (busca por necessidade, Fase 23). Vale só sem `type`. */
+  types?: readonly string[] | null;
   cityFilter?: string | null;
   districtFilter?: string | null;
   priceMinCents?: number | null;
@@ -33,6 +35,7 @@ export type CompatibilityContext = {
 export function hasSearchContext(ctx: CompatibilityContext): boolean {
   return Boolean(
     ctx.type
+    || ctx.types?.length
     || ctx.cityFilter
     || ctx.districtFilter
     || ctx.priceMinCents != null
@@ -46,7 +49,9 @@ export function hasSearchContext(ctx: CompatibilityContext): boolean {
 export function compatibilityScoreExpr(ctx: CompatibilityContext): SQL<number> {
   const tipo = ctx.type
     ? sql`(CASE WHEN ${spaces.type}::text = ${ctx.type} THEN 1 ELSE 0 END)`
-    : sql`0`;
+    : ctx.types?.length
+      ? sql`(CASE WHEN ${spaces.type}::text IN (${sql.join(ctx.types.map((t) => sql`${t}`), sql`, `)}) THEN 1 ELSE 0 END)`
+      : sql`0`;
 
   const cidade = ctx.cityFilter
     ? sql`(CASE WHEN ${spaces.city} ILIKE ${ctx.cityFilter} THEN 1 ELSE 0 END)`
@@ -64,8 +69,16 @@ export function compatibilityScoreExpr(ctx: CompatibilityContext): SQL<number> {
         THEN 1 ELSE 0 END)`
     : sql`0`;
 
+  // Mesma regra do filtro "disponível agora" (inclui os bloqueios do
+  // calendário, Fase 23) — escrita aqui por extenso para este módulo não
+  // depender de src/lib/spaces/queries.ts, que já depende dele. `spaces.id`
+  // vai LITERAL: interpolado, sairia "id" sem tabela e o Postgres ligaria
+  // ao `b.id` do bloqueio (ver a nota da capa em listPublishedSpaces).
   const disponivel = ctx.availableNow
-    ? sql`(CASE WHEN ${spaces.availableFrom} <= CURRENT_DATE THEN 1 ELSE 0 END)`
+    ? sql`(CASE WHEN ${spaces.availableFrom} <= CURRENT_DATE AND NOT EXISTS (
+        SELECT 1 FROM space_availability_blocks b
+        WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE
+      ) THEN 1 ELSE 0 END)`
     : sql`0`;
 
   const caracteristicas = ctx.featureKeys?.length

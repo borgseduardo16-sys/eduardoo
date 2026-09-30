@@ -80,7 +80,7 @@ function diasAFrente(n: number): string {
 }
 
 let seq = 0;
-async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairro?: string; fotos?: number }): Promise<{ id: string; slug: string }> {
+async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairro?: string; fotos?: number; cidade?: string; areaM2?: number | null }): Promise<{ id: string; slug: string }> {
   seq++;
   const slug = `${tag}-${seq}`;
   const [row] = await sql<{ id: string }[]>`
@@ -88,7 +88,8 @@ async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairr
       available_from, price_monthly_cents, size_m2, draft_step, location, approx_location)
     VALUES (${donoId}, ${slug}, ${opts?.tipo ?? 'garagem'}, ${`Garagem de teste ${slug}`},
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
-      ${opts?.bairro ?? 'Centro'}, ${cidade}, 'ES', CURRENT_DATE, ${opts?.precoCents ?? 40000}, 20, 8,
+      ${opts?.bairro ?? 'Centro'}, ${opts?.cidade ?? cidade}, 'ES', CURRENT_DATE, ${opts?.precoCents ?? 40000},
+      ${opts?.areaM2 === undefined ? 20 : opts.areaM2}, 8,
       ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326),
       ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326))
     RETURNING id`;
@@ -714,6 +715,258 @@ async function main() {
   expect('primeiro início possível pula o último bloqueio',
     earliestOpenEndedStart({ today: '2026-10-01', availableFrom: '2026-10-05', blocks: [{ startsOn: '2026-10-10', endsOn: '2026-10-12' }] }),
     '2026-10-13');
+
+  // =========================================================================
+  secao('6. Busca por necessidade: regras, IA opcional, fallback e filtros reais');
+  // =========================================================================
+
+  const { interpretNeedByRules } = await import('../src/lib/search/need/rules');
+  const { fromAiOutput, mergeInterpretations } = await import('../src/lib/search/need/ai-schema');
+  const { interpretNeed, clearNeedCache, todayInSaoPaulo } = await import('../src/lib/search/need/interpret');
+  const { buildNeedSearchUrl } = await import('../src/lib/search/need/to-url');
+  const { needSummaryFromParams } = await import('../src/lib/search/need/params');
+  const { addToleranceCents, centsToInputString } = await import('../src/lib/money');
+  const { matchKnownLocation } = await import('../src/lib/spaces/queries');
+  const { resolveLocation } = await import('../src/lib/spaces/resolve-location');
+  const { aiCallsToday } = await import('../src/lib/ai/usage');
+  const { startTestbed } = await import('./testbed/server');
+
+  // ---- 6a. Regras (puro, data fixa) ----
+  const HOJE_FIXO = '2026-09-30';
+  const regra = (t: string) => interpretNeedByRules(t, { today: HOJE_FIXO });
+
+  const exemplo = regra('Preciso de uma garagem coberta para uma moto por cerca de dois meses perto do centro.');
+  expect('exemplo do pedido: garagem, moto, coberta, centro, 2 meses — nada sobrando',
+    [exemplo.interpretation.types, exemplo.interpretation.vehicle, exemplo.interpretation.featureKeys,
+      exemplo.interpretation.location, exemplo.interpretation.durationMonths, exemplo.residual],
+    [['garagem'], 'moto', ['coberto'], 'Centro', 2, []]);
+  const moto = regra('Preciso guardar uma moto perto do centro.');
+  expect('"guardar uma moto" sem tipo dito: vaga de moto, garagem ou vaga de carro',
+    [moto.interpretation.types, moto.interpretation.purpose, moto.interpretation.location],
+    [['vaga_moto', 'garagem', 'vaga_carro'], 'guardar_veiculo', 'Centro']);
+  const vaga = regra('vaga coberta em Vila Velha até R$ 200');
+  expect('"até R$ 200" vira teto em centavos; "em Vila Velha" vira local',
+    [vaga.interpretation.priceMaxCents, vaga.interpretation.location, vaga.interpretation.types],
+    [20000, 'Vila Velha', ['vaga_carro']]);
+  const faixa = regra('galpão com banheiro e acesso para caminhão, entre 2 e 3 mil');
+  expect('"entre 2 e 3 mil": mínimo e máximo', [faixa.interpretation.priceMinCents, faixa.interpretation.priceMaxCents], [200000, 300000]);
+  assert('caminhão exige "acesso para caminhão"', faixa.interpretation.featureKeys.includes('acesso_caminhao'));
+  expect('"uns 300 reais" tem folga de 10% e fica marcado como aproximado',
+    [regra('depósito, uns 300 reais').interpretation.priceMaxCents, regra('depósito, uns 300 reais').interpretation.priceApprox], [33000, true]);
+  expect('"sem cobertura" NÃO pede cobertura', regra('vaga de moto sem cobertura').interpretation.featureKeys, []);
+  const vinteQuatro = regra('depósito com acesso 24/7');
+  expect('"24/7" é acesso a qualquer hora, não 24 de julho',
+    [vinteQuatro.interpretation.featureKeys, vinteQuatro.interpretation.startDate], [['acesso_24h'], null]);
+  expect('"a partir de novembro" com hoje = 30/09/2026 → 01/11/2026',
+    regra('garagem a partir de novembro').interpretation.startDate, '2026-11-01');
+  expect('"até 3 km" é distância, não orçamento',
+    [regra('garagem até 3 km').interpretation.radiusMeters, regra('garagem até 3 km').interpretation.priceMaxCents], [3000, null]);
+  expect('"loja virtual" é estoque, não loja com fachada',
+    regra('espaço para estoque da minha loja virtual').interpretation.types, ['deposito', 'galpao']);
+  expect('palavra sem regra ("inverno") sobra para a IA — e não vira bairro',
+    [regra('lugar para minha lancha no inverno').residual, regra('lugar para minha lancha no inverno').interpretation.location],
+    [['inverno'], null]);
+  expect('texto sem nada reconhecível não inventa critério', regra('xablau').interpretation.types, []);
+  expect('dinheiro: folga só com inteiros (R$ 300 + 10% = R$ 330)', addToleranceCents(30000, 1000), 33000);
+  expect('dinheiro: centavos → texto do filtro', [centsToInputString(30000), centsToInputString(29990)], ['300', '299,90']);
+
+  // ---- 6b. Validação do que a IA devolve (puro) ----
+  type SaidaIa = Parameters<typeof fromAiOutput>[0];
+  const saidaBase: SaidaIa = {
+    tipos: ['garagem'], veiculo: null, finalidade: null, caracteristicas: [], local: null, perto_de_mim: false,
+    preco_maximo: null, preco_minimo: null, preco_aproximado: false, area_minima_m2: null, data_inicio: null,
+    comecar_agora: false, duracao_meses: null, barato: false, nao_suportado: [],
+  };
+  const inventada = fromAiOutput({ ...saidaBase, local: 'Vitória', preco_maximo: '500' }, { today: HOJE_FIXO, text: 'garagem coberta' });
+  expect('IA "achou" um local e um preço que não estão no texto → descartados', [inventada.location, inventada.priceMaxCents], [null, null]);
+  const dataRuim = fromAiOutput({ ...saidaBase, data_inicio: '2031-01-01' }, { today: HOJE_FIXO, text: 'garagem em 2031' });
+  expect('data da IA a mais de 1 ano → descartada', dataRuim.startDate, null);
+  const juntas = mergeInterpretations(
+    regra('garagem até R$ 300').interpretation,
+    fromAiOutput({ ...saidaBase, tipos: ['deposito'], preco_maximo: '900' }, { today: HOJE_FIXO, text: 'garagem até R$ 300' }),
+  );
+  expect('na junção, o preço lido pelas regras vale mais que o da IA', juntas.priceMaxCents, 30000);
+
+  // ---- 6c. Busca real no banco com os filtros novos ----
+  const cidade6 = `Cidade6 ${tag}`;
+  const hoje6 = todayInSaoPaulo();
+  const garagemCoberta = await criarPublicado({ cidade: cidade6, bairro: 'Centro', tipo: 'garagem', precoCents: 25000, areaM2: 30 });
+  const vagaMoto = await criarPublicado({ cidade: cidade6, bairro: 'Centro', tipo: 'vaga_moto', precoCents: 12000, areaM2: null });
+  const depositoLonge = await criarPublicado({ cidade: cidade6, bairro: 'Jardim Seis', tipo: 'deposito', precoCents: 30000, areaM2: 15 });
+  const garagemBloqueada = await criarPublicado({ cidade: cidade6, bairro: 'Centro', tipo: 'garagem', precoCents: 26000, areaM2: 30 });
+  await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${garagemCoberta.id}, 'coberto'), (${garagemBloqueada.id}, 'coberto')`;
+  await sql`INSERT INTO space_availability_blocks (space_id, starts_on, ends_on, reason, created_by)
+    VALUES (${garagemBloqueada.id}, ${diasAFrente(20)}, ${diasAFrente(22)}, 'manutencao', ${donoId})`;
+
+  expect('"Centro, <cidade>" bate com o bairro dentro da cidade (antes ia para o geocodificador)',
+    await matchKnownLocation(`centro, ${cidade6}`), { kind: 'district', district: 'Centro', city: cidade6, state: 'ES' });
+  expect('"<cidade>, ES" bate com a cidade + UF',
+    await matchKnownLocation(`${cidade6}, es`), { kind: 'city', city: cidade6, state: 'ES' });
+
+  const idsDe = (lista: { id: string }[]) => lista.map((r) => r.id).sort();
+  const noCentro = { cityFilter: cidade6, districtFilter: 'Centro' };
+  expect('vários tipos: vaga de moto OU garagem',
+    idsDe(await listPublishedSpaces({ ...noCentro, types: ['vaga_moto', 'garagem'], limit: 60 })),
+    [garagemCoberta.id, vagaMoto.id, garagemBloqueada.id].sort());
+  expect('área mínima: anúncio sem área ou menor não entra',
+    idsDe(await listPublishedSpaces({ cityFilter: cidade6, sizeMinM2: 25, limit: 60 })),
+    [garagemCoberta.id, garagemBloqueada.id].sort());
+  expect('"disponível agora" agora respeita o bloqueio do calendário (o aluguel atravessaria o bloqueio)',
+    idsDe(await listPublishedSpaces({ ...noCentro, type: 'garagem', availableNow: true, limit: 60 })), [garagemCoberta.id]);
+  expect('começar depois do fim do bloqueio: a garagem bloqueada volta a aparecer',
+    idsDe(await listPublishedSpaces({ ...noCentro, type: 'garagem', startBy: diasAFrente(23), limit: 60 })),
+    [garagemCoberta.id, garagemBloqueada.id].sort());
+
+  // ---- 6d. Do texto à URL, sem IA configurada ----
+  const apiKeyAntes = process.env.ANTHROPIC_API_KEY;
+  const baseAntes = process.env.ANTHROPIC_BASE_URL;
+  delete process.env.ANTHROPIC_API_KEY;
+  clearNeedCache();
+
+  const urlSemIa = new URL(await buildNeedSearchUrl({
+    q: `garagem coberta para moto no centro de ${cidade6}, até R$ 280`, clientKey: `t:${tag}`, today: hoje6,
+  }), 'http://x');
+  const p = urlSemIa.searchParams;
+  expect('URL: tipo, característica, local no formato bairro+cidade, teto e veículo',
+    [p.get('tipo'), p.get('caracteristicas'), p.get('onde'), p.get('precoMax'), p.get('veiculo'), p.get('ia')],
+    ['garagem', 'coberto', `Centro, ${cidade6}`, '280', 'moto', null]);
+  const loc = await resolveLocation({ onde: p.get('onde') });
+  const achados = await listPublishedSpaces({
+    type: p.get('tipo')!, featureKeys: p.get('caracteristicas')!.split(','), cityFilter: loc.cityFilter,
+    districtFilter: loc.districtFilter, priceMaxCents: 28000, limit: 60,
+  });
+  expect('a busca materializada acha exatamente as garagens cobertas no Centro até R$ 280',
+    idsDe(achados), [garagemCoberta.id, garagemBloqueada.id].sort());
+
+  expect('local tirado da frase não volta para o campo "Onde?" (só o que a pessoa digitou volta)', p.get('ondeCampo'), null);
+  const urlComCampo = new URL(await buildNeedSearchUrl({
+    q: 'garagem coberta no centro', onde: cidade6, clientKey: `t:${tag}`, today: hoje6,
+  }), 'http://x');
+  expect('campo "Onde?" com a cidade + "no centro" na frase → bairro dentro da cidade, e o campo guarda o que foi digitado',
+    [urlComCampo.searchParams.get('onde'), urlComCampo.searchParams.get('ondeCampo')], [`Centro, ${cidade6}`, cidade6]);
+
+  const urlSala = new URL(await buildNeedSearchUrl({ q: `sala coberta em ${cidade6}`, clientKey: `t:${tag}`, today: hoje6 }), 'http://x');
+  expect('"coberto" não se aplica a sala: não vira filtro (zeraria a busca) e aparece como não usado',
+    [urlSala.searchParams.get('caracteristicas'), urlSala.searchParams.get('ignorado')], [null, 'coberto']);
+
+  const urlResiduo = new URL(await buildNeedSearchUrl({ q: 'lugar para minha lancha no inverno', clientKey: `t:${tag}`, today: hoje6 }), 'http://x');
+  expect('sem IA: o que as regras entenderam vale, o resto aparece como não usado, sem aviso de falha',
+    [urlResiduo.searchParams.get('veiculo'), urlResiduo.searchParams.get('ignorado'), urlResiduo.searchParams.get('ia')],
+    ['barco', 'inverno', null]);
+
+  const urlTexto = new URL(await buildNeedSearchUrl({ q: 'canil', clientKey: `t:${tag}`, today: hoje6 }), 'http://x');
+  expect('nenhum critério que filtre e texto curto → busca textual de sempre, e o que não dá para filtrar é dito',
+    [urlTexto.searchParams.get('texto'), urlTexto.searchParams.get('naoFiltra')], ['canil', 'animais']);
+
+  const semNada = await interpretNeed('garagem coberta', { clientKey: `t:${tag}`, today: hoje6 });
+  expect('regras entenderam tudo → a IA nem é consultada', semNada.ai, 'nao_necessaria');
+
+  // ---- 6e. Com IA (dublê HTTP da API real), falhas e limites ----
+  const tb = await startTestbed();
+  process.env.ANTHROPIC_API_KEY = tb.anthropicApiKey;
+  process.env.ANTHROPIC_BASE_URL = tb.url;
+  const [{ calls: chamadasAntes }] = await sql<{ calls: number }[]>`
+    SELECT COALESCE((SELECT calls FROM ai_usage_counters
+      WHERE day = (now() AT TIME ZONE 'America/Sao_Paulo')::date AND feature = 'search'), 0)::int AS calls`;
+  const respostaIa = (over: Record<string, unknown>) => JSON.stringify({ ...saidaBase, tipos: [], ...over });
+
+  try {
+    clearNeedCache();
+    tb.anthropicQueue.push({
+      text: respostaIa({
+        tipos: ['garagem', 'galpao'], veiculo: 'barco', finalidade: 'guardar_veiculo',
+        data_inicio: `${Number(hoje6.slice(0, 4)) + (hoje6.slice(5) > '06-21' ? 1 : 0)}-06-21`,
+        local: 'Vitória',
+      }),
+    });
+    const comIa = await interpretNeed('lugar para minha lancha no inverno', { clientKey: `ia:${tag}`, today: hoje6 });
+    expect('IA respondeu: status ok, tipos dela, sem resíduo', [comIa.ai, comIa.interpretation.types, comIa.residual], ['ok', ['garagem', 'galpao'], []]);
+    expect('local que a IA "achou" fora do texto (Vitória) foi descartado', comIa.interpretation.location, null);
+    const pedido = tb.anthropicRequests.at(-1)!;
+    const corpoPedido = JSON.stringify(pedido.body);
+    expect('pedido à IA: modelo, saída estruturada e nenhuma ferramenta',
+      [pedido.body.model, (pedido.body.output_config as { format?: { type?: string } })?.format?.type, 'tools' in pedido.body],
+      ['claude-haiku-4-5', 'json_schema', false]);
+    assert('pedido à IA leva só o texto e a data — nenhum id, e-mail ou dado do banco',
+      corpoPedido.includes('lancha no inverno') && corpoPedido.includes(hoje6) &&
+      !corpoPedido.includes(donoId) && !corpoPedido.includes('@exemplo.invalid') && !corpoPedido.includes(cidade6));
+    assert('chave vai no header, nunca no corpo', pedido.headers['x-api-key'] === tb.anthropicApiKey && !corpoPedido.includes(tb.anthropicApiKey));
+
+    const pedidosAntes = tb.anthropicRequests.length;
+    const doCache = await interpretNeed('lugar  para minha LANCHA no inverno', { clientKey: `ia:${tag}`, today: hoje6 });
+    expect('mesma frase no mesmo dia: vem do cache, sem nova chamada paga',
+      [doCache.ai, tb.anthropicRequests.length - pedidosAntes], ['ok', 0]);
+
+    const falha = async (texto: string, resposta: Parameters<typeof tb.anthropicQueue.push>[0]) => {
+      clearNeedCache();
+      tb.anthropicQueue.length = 0;
+      tb.anthropicQueue.push(resposta);
+      return interpretNeed(texto, { clientKey: `ia:${tag}`, today: hoje6 });
+    };
+    const foraDoFormato = await falha('lugar para minha lancha no inverno', { text: 'isto não é JSON' });
+    expect('resposta fora do formato → segue com as regras e marca a falha',
+      [foraDoFormato.ai, foraDoFormato.interpretation.vehicle, foraDoFormato.residual], ['falhou', 'barco', ['inverno']]);
+    const tipoInventado = await falha('lugar para minha lancha no inverno', { text: respostaIa({ tipos: ['castelo'] }) });
+    expect('IA tenta um tipo que não existe → recusado pelo formato, regras seguem', tipoInventado.ai, 'falhou');
+    const recusa = await falha('lugar para minha lancha no inverno', { stopReason: 'refusal', text: '' });
+    expect('recusa da IA → regras', recusa.ai, 'falhou');
+    const erro500 = await falha('lugar para minha lancha no inverno', { status: 500 });
+    expect('IA fora do ar (500) → regras', erro500.ai, 'falhou');
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-chave-errada';
+    const chaveErrada = await falha('lugar para minha lancha no inverno', { text: respostaIa({}) });
+    expect('chave inválida (401) → regras, sem quebrar a busca', chaveErrada.ai, 'falhou');
+    process.env.ANTHROPIC_API_KEY = tb.anthropicApiKey;
+    const inicioDemora = Date.now();
+    const demorou = await falha('lugar para minha lancha no inverno', { delayMs: 6_500, text: respostaIa({ tipos: ['garagem'] }) });
+    const esperou = Date.now() - inicioDemora;
+    assert('IA demorou mais de 6 s → desiste e segue com as regras', demorou.ai === 'falhou' && esperou < 6_400, `${esperou} ms`);
+
+    const urlFalha = new URL(await (async () => {
+      clearNeedCache();
+      tb.anthropicQueue.length = 0;
+      tb.anthropicQueue.push({ status: 529, errorType: 'overloaded_error' });
+      return buildNeedSearchUrl({ q: 'lugar para minha lancha no inverno', clientKey: `ia:${tag}`, today: hoje6 });
+    })(), 'http://x');
+    const resumoFalha = needSummaryFromParams(Object.fromEntries(urlFalha.searchParams), { today: hoje6, featureLabels: new Map() });
+    expect('falha da IA chega à tela como o aviso combinado, com os critérios das regras',
+      [urlFalha.searchParams.get('ia'), resumoFalha?.aiUnavailable, resumoFalha?.chips.map((c) => c.id)],
+      ['indisponivel', true, ['veiculo', 'tipo']]);
+
+    // Teto diário do app inteiro: com o contador no teto, nem chama a IA.
+    const chamadasHoje = await aiCallsToday('search');
+    await sql`INSERT INTO platform_settings (key, value) VALUES ('ai.search_daily_limit', ${String(chamadasHoje)})
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`;
+    clearNeedCache();
+    const pedidosAntesTeto = tb.anthropicRequests.length;
+    const noTeto = await interpretNeed('lugar para minha lancha no inverno', { clientKey: `ia:${tag}`, today: hoje6 });
+    expect('teto diário atingido → não chama a IA, regras seguem', [noTeto.ai, tb.anthropicRequests.length - pedidosAntesTeto], ['limite', 0]);
+    await sql`UPDATE platform_settings SET value = '500' WHERE key = 'ai.search_daily_limit'`;
+
+    // Limite por pessoa: 20 a cada 10 minutos.
+    const pessoa = `rl:${tag}`;
+    let permitidas = 0;
+    let barrada: string | null = null;
+    for (let n = 0; n < 21; n++) {
+      clearNeedCache();
+      tb.anthropicQueue.length = 0;
+      tb.anthropicQueue.push({ text: respostaIa({ tipos: ['garagem'] }) });
+      const r = await interpretNeed(`lugar para minha lancha no inverno ${n}`, { clientKey: pessoa, today: hoje6 });
+      if (r.ai === 'ok') permitidas++;
+      else barrada = r.ai;
+    }
+    expect('mesma pessoa: 20 interpretações por IA em 10 min, a 21ª cai nas regras', [permitidas, barrada], [20, 'limite']);
+  } finally {
+    // Devolve o contador do dia como estava (o teste não pode gastar a cota real).
+    await sql`UPDATE ai_usage_counters SET calls = ${chamadasAntes}
+      WHERE day = (now() AT TIME ZONE 'America/Sao_Paulo')::date AND feature = 'search'`;
+    await sql`UPDATE platform_settings SET value = '500' WHERE key = 'ai.search_daily_limit'`;
+    if (apiKeyAntes === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = apiKeyAntes;
+    if (baseAntes === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = baseAntes;
+    await tb.close();
+  }
+  void depositoLonge;
 
   // =========================================================================
   await limpar();

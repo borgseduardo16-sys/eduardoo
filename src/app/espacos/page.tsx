@@ -1,7 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { ChevronLeft, ChevronRight, SearchX, SlidersHorizontal } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/dal';
+import { buildNeedSearchUrl } from '@/lib/search/need/to-url';
+import { todayInSaoPaulo } from '@/lib/search/need/interpret';
+import {
+  needSummaryFromParams, parseSizeParam, parseStartParam, parseTypesParam,
+} from '@/lib/search/need/params';
 import {
   listPublishedSpaces, listFeaturesForType, listAllActiveFeatures, effectiveSort,
   type SearchSort,
@@ -16,6 +23,7 @@ import { SPACE_TYPES, spaceTypeLabel, spaceTypeOptions, type SpaceTypeKey } from
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SearchBar } from '@/components/search/search-bar';
+import { NeedSummaryView } from '@/components/search/need-summary';
 import { FiltersBar } from '@/components/espacos/filters-bar';
 import { ResultCard } from '@/components/espacos/result-card';
 import { ResultsMap, MobileMapToggle, type MapSpace } from '@/components/map/spaces-map';
@@ -65,6 +73,26 @@ export default async function EspacosPage({
   const sp = await searchParams;
   const viewer = await getCurrentUser();
 
+  // ---- Busca por necessidade (Fase 23): o texto livre de "O que você
+  // precisa?" chega como `q`, é interpretado UMA vez aqui e vira a URL de
+  // resultados com os filtros de sempre — paginação, filtros e link
+  // compartilhado funcionam sem reinterpretar (nem chamar a IA de novo).
+  const necessidade = sp.q?.trim();
+  if (necessidade) {
+    const h = await headers();
+    const ip = h.get('x-forwarded-for')?.split(',')[0]?.trim() || h.get('x-real-ip') || 'sem-ip';
+    const latQ = Number(sp.lat);
+    const lngQ = Number(sp.lng);
+    const destino = await buildNeedSearchUrl({
+      q: necessidade,
+      onde: sp.onde ?? null,
+      gps: sp.lat && sp.lng && Number.isFinite(latQ) && Number.isFinite(lngQ) ? { lat: latQ, lng: lngQ } : null,
+      clientKey: viewer?.id ?? `ip:${ip}`,
+    });
+    redirect(destino);
+  }
+  const hoje = todayInSaoPaulo();
+
   // ---- Tipo: valor canonico, ou tentativa de reconhecer por palavra-chave.
   const tipoBruto = sp.tipo?.trim();
   const tipo: SpaceTypeKey | undefined =
@@ -86,9 +114,17 @@ export default async function EspacosPage({
     onde: sp.onde,
   });
 
-  const textQuery = [resolucao.source === 'unresolved' ? sp.onde : null, tipoNaoReconhecido]
+  // `texto`: busca por necessidade que não entendeu nada, com poucas
+  // palavras — vira a busca textual de sempre (título, cidade, bairro).
+  const textQuery = [resolucao.source === 'unresolved' ? sp.onde : null, tipoNaoReconhecido, sp.texto?.trim().slice(0, 80)]
     .filter(Boolean)
     .join(' ') || undefined;
+
+  // Vários tipos (busca por necessidade: "moto" cabe em vaga de moto,
+  // garagem ou vaga de carro). Só vale quando nenhum tipo único foi escolhido.
+  const tipos = tipo ? [] : parseTypesParam(sp.tipos);
+  const areaMinM2 = parseSizeParam(sp.areaMin);
+  const inicio = parseStartParam(sp.inicio, hoje);
 
   const raioMeters = sp.raio ? Number(sp.raio) : null;
   const precoMinCents = precoOuNulo(sp.precoMin);
@@ -113,6 +149,7 @@ export default async function EspacosPage({
   // so mostra "Recomendados pra voce" quando ha algo real pra comparar.
   const contextoCompatibilidade = {
     type: tipo,
+    types: tipos,
     cityFilter: resolucao.cityFilter,
     districtFilter: resolucao.districtFilter,
     priceMinCents: precoMinCents,
@@ -130,6 +167,8 @@ export default async function EspacosPage({
           point: resolucao.point,
           radiusMeters: raioMeters,
           textQuery,
+          sizeMinM2: areaMinM2,
+          startBy: inicio,
           sort: ordenar,
           limit: POR_PAGINA + 1,
           offset: (pagina - 1) * POR_PAGINA,
@@ -170,7 +209,14 @@ export default async function EspacosPage({
       lat: r.approxLat as number, lng: r.approxLng as number,
     }));
 
-  const tipos = spaceTypeOptions();
+  const opcoesDeTipo = spaceTypeOptions();
+
+  const resumoNecessidade = sp.busca
+    ? needSummaryFromParams(sp, {
+        today: hoje,
+        featureLabels: new Map((await listAllActiveFeatures()).map((f) => [f.key, f.label])),
+      })
+    : null;
 
   // ---- Cabecalho: o que estamos mostrando, em uma frase.
   let tituloLocal: string | null = null;
@@ -189,8 +235,8 @@ export default async function EspacosPage({
       <main id="conteudo" className="mx-auto max-w-7xl px-4 sm:px-6 py-6 sm:py-8 space-y-5">
         <div className="max-w-3xl">
           <SearchBar
-            initialTipo={sp.tipo}
-            initialOnde={sp.onde}
+            initialTipo={sp.busca ?? sp.tipo}
+            initialOnde={sp.busca ? sp.ondeCampo : sp.onde}
             initialGps={resolucao.source === 'gps' && lat != null && lng != null ? { lat, lng } : undefined}
           />
         </div>
@@ -207,6 +253,8 @@ export default async function EspacosPage({
             </p>
           )}
         </header>
+
+        {resumoNecessidade && <NeedSummaryView summary={resumoNecessidade} />}
 
         {buscaBloqueadaPorCep && (
           <Alert tone="warning" title="CEP não encontrado">
@@ -253,21 +301,21 @@ export default async function EspacosPage({
           <>
             <nav aria-label="Filtrar por tipo" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1">
               <Link
-                href={hrefComPagina({ ...sp, tipo: undefined }, 1)}
-                aria-current={!tipo ? 'page' : undefined}
+                href={hrefComPagina({ ...sp, tipo: undefined, tipos: undefined }, 1)}
+                aria-current={!tipo && tipos.length === 0 ? 'page' : undefined}
                 className={cn(
                   'shrink-0 px-3.5 py-2 rounded-[var(--radius-pill)] text-[0.875rem] border transition-colors',
-                  !tipo
+                  !tipo && tipos.length === 0
                     ? 'border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--accent)] font-medium'
                     : 'text-[var(--content-muted)] hover:border-[var(--content-subtle)]',
                 )}
               >
                 Todos
               </Link>
-              {tipos.map((t) => (
+              {opcoesDeTipo.map((t) => (
                 <Link
                   key={t.value}
-                  href={hrefComPagina({ ...sp, tipo: t.value }, 1)}
+                  href={hrefComPagina({ ...sp, tipo: t.value, tipos: undefined }, 1)}
                   aria-current={tipo === t.value ? 'page' : undefined}
                   className={cn(
                     'shrink-0 px-3.5 py-2 rounded-[var(--radius-pill)] text-[0.875rem] border transition-colors',
@@ -300,7 +348,9 @@ export default async function EspacosPage({
                 <SearchX className="size-6 mx-auto text-[var(--content-subtle)]" aria-hidden />
                 <p className="font-medium">Nada por aqui ainda</p>
                 <p className="text-[0.9375rem] text-[var(--content-muted)] max-w-sm mx-auto leading-relaxed">
-                  {temPonto || tipo || featureKeys.length > 0 || precoMinCents || precoMaxCents
+                  {resumoNecessidade && resumoNecessidade.chips.length > 0
+                    ? 'Nenhum espaço atende a tudo isso ainda. Tire um dos critérios acima para ver mais opções.'
+                    : temPonto || tipo || tipos.length > 0 || featureKeys.length > 0 || precoMinCents || precoMaxCents
                     ? 'Experimente aumentar a distância, remover um filtro ou buscar outro local.'
                     : resolucao.source === 'unresolved'
                       ? `Não encontramos nada para "${resolucao.label}". Tente outro local.`

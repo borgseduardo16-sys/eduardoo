@@ -6,16 +6,15 @@ import { LoaderCircle, LocateFixed, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { spaceTypeOptions } from '@/lib/spaces/types';
 
-/** Sugestões do campo "o que você precisa". Casam com os tipos do banco. */
-const TIPOS = [
-  { value: 'garagem', label: 'Garagem' },
-  { value: 'vaga_carro', label: 'Vaga' },
-  { value: 'deposito', label: 'Depósito' },
-  { value: 'galpao', label: 'Galpão' },
-  { value: 'sala', label: 'Sala' },
-  { value: 'terreno', label: 'Terreno' },
-] as const;
+/** Todos os tipos: quem escolhe um da lista (ou digita o nome exato) busca por tipo direto. */
+const TODOS_OS_TIPOS = spaceTypeOptions().filter((t) => t.value !== 'outro');
+
+function semAcento(s: string) {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+
 
 type GeoState =
   | { status: 'idle' }
@@ -57,7 +56,12 @@ export function SearchBar({
   const [geo, setGeo] = useState<GeoState>(
     initialGps ? { status: 'granted', lat: initialGps.lat, lng: initialGps.lng } : { status: 'idle' },
   );
-  const [tipo, setTipo] = useState(initialTipo ?? '');
+  // O campo aceita um tipo ("Garagem") ou uma necessidade em texto livre
+  // ("vaga coberta para moto no centro" — Fase 23). Reaberto na página de
+  // resultados, mostra o que a pessoa escreveu.
+  const [texto, setTexto] = useState(
+    () => TODOS_OS_TIPOS.find((t) => t.value === initialTipo)?.label ?? initialTipo ?? '',
+  );
   const [onde, setOnde] = useState(initialOnde ?? '');
 
   function usarMinhaLocalizacao() {
@@ -97,7 +101,10 @@ export function SearchBar({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     const params = new URLSearchParams();
-    if (tipo) params.set('tipo', tipo);
+    const digitado = texto.trim();
+    const tipoExato = TODOS_OS_TIPOS.find((t) => semAcento(t.label) === semAcento(digitado) || t.value === digitado);
+    if (tipoExato) params.set('tipo', tipoExato.value);
+    else if (digitado) params.set('q', digitado.slice(0, 300));
 
     if (geo.status === 'granted') {
       params.set('lat', String(geo.lat));
@@ -126,18 +133,18 @@ export function SearchBar({
           </label>
           <input
             id={`${id}-tipo`}
+            name="q"
             list={`${id}-tipos`}
-            value={tipo ? (TIPOS.find((t) => t.value === tipo)?.label ?? tipo) : ''}
-            onChange={(e) => {
-              const match = TIPOS.find((t) => t.label.toLowerCase() === e.target.value.toLowerCase());
-              setTipo(match ? match.value : e.target.value);
-            }}
-            placeholder="Garagem, depósito, galpão…"
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            maxLength={300}
+            enterKeyHint="search"
+            placeholder="Ex.: vaga coberta para moto no centro"
             autoFocus={autoFocus}
             className="w-full bg-transparent border-0 p-0 mt-0.5 text-base md:text-[0.9375rem] placeholder:text-[var(--content-subtle)] focus:outline-none"
           />
           <datalist id={`${id}-tipos`}>
-            {TIPOS.map((t) => (
+            {TODOS_OS_TIPOS.map((t) => (
               <option key={t.value} value={t.label} />
             ))}
           </datalist>

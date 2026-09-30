@@ -174,6 +174,30 @@ export function parseBRLToCents(input: string): number {
   return cents;
 }
 
+/**
+ * Acrescenta uma folga percentual a um teto, arredondando PARA BAIXO até o
+ * real inteiro — "cerca de R$ 300" com 1000 bps (10%) vira R$ 330. Usado
+ * pela busca por necessidade (Fase 23); só inteiros.
+ */
+export function addToleranceCents(cents: number, bps: number): number {
+  if (!Number.isSafeInteger(cents) || cents < 0 || !Number.isInteger(bps) || bps < 0) {
+    throw new InvalidAmountError('Folga inválida.');
+  }
+  const comFolga = cents + Math.floor((cents * bps) / 10_000);
+  return comFolga - (comFolga % 100);
+}
+
+/**
+ * Centavos no formato que o filtro de preço da busca aceita: 30000 → "300",
+ * 29990 → "299,90". O inverso de `parseBRLToCents`, sem ponto flutuante.
+ */
+export function centsToInputString(cents: number): string {
+  if (!Number.isSafeInteger(cents) || cents < 0) throw new InvalidAmountError('Valor inválido.');
+  const reais = Math.trunc(cents / 100);
+  const resto = cents % 100;
+  return resto === 0 ? String(reais) : `${reais},${String(resto).padStart(2, '0')}`;
+}
+
 /** 300 bps → "3%"; 250 → "2,5%". So exibicao — conta de dinheiro continua em centavos. */
 export function formatBps(bps: number): string {
   return `${(bps / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;

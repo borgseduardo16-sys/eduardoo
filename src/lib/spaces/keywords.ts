@@ -24,7 +24,8 @@ const SINONIMOS: Record<SpaceTypeKey, readonly string[]> = {
   outro: [],
 };
 
-function normalizar(s: string): string {
+/** Minúsculas, sem acento, sem espaço nas pontas. Reusado pela busca por necessidade. */
+export function normalizeSearchText(s: string): string {
   return s
     .toLowerCase()
     .normalize('NFD')
@@ -38,12 +39,12 @@ function normalizar(s: string): string {
  * sem pontuar: previsivel de proposito.
  */
 export function matchSpaceTypeKeyword(texto: string): SpaceTypeKey | null {
-  const alvo = normalizar(texto);
+  const alvo = normalizeSearchText(texto);
   if (!alvo) return null;
 
   for (const tipo of SPACE_TYPES) {
     for (const sinonimo of SINONIMOS[tipo]) {
-      if (alvo.includes(normalizar(sinonimo))) return tipo;
+      if (alvo.includes(normalizeSearchText(sinonimo))) return tipo;
     }
   }
   return null;

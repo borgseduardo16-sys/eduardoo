@@ -1,6 +1,6 @@
 import 'server-only';
 import { cache } from 'react';
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql, type SQL } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { spaces, spaceImages, spaceFeatures, features, profiles } from '@/db/schema';
 import { latOf, lngOf, withinMeters, distanceMeters, type LatLng } from '@/db/schema/_types';
@@ -103,6 +103,11 @@ export type SearchSpacesOptions = {
   city?: string;
   /** Tipo do espaco (space_type). Valor desconhecido = nenhum resultado, de proposito. */
   type?: string;
+  /**
+   * Varios tipos aceitos (busca por necessidade, Fase 23: "moto" cabe em
+   * vaga de moto, garagem ou vaga de carro). Ignorado quando `type` existe.
+   */
+  types?: readonly string[];
   /** So anuncios desta pessoa (perfil publico, Fase 21). */
   ownerId?: string;
 
@@ -122,8 +127,16 @@ export type SearchSpacesOptions = {
   priceMaxCents?: number | null;
   /** Chaves de `features`. Semantica E: o espaco precisa ter todas. */
   featureKeys?: readonly string[];
-  /** So espacos com `available_from <= hoje`. */
+  /**
+   * So espacos em que um aluguel pode comecar hoje: `available_from <= hoje`
+   * e nenhum bloqueio do calendario pela frente (Fase 23 — o aluguel e
+   * mensal e sem data para terminar, entao atravessaria o bloqueio).
+   */
   availableNow?: boolean;
+  /** Mesma regra de `availableNow`, para uma data de inicio ('AAAA-MM-DD'). */
+  startBy?: string | null;
+  /** Area minima em m². Anuncio sem area informada nao entra. */
+  sizeMinM2?: number | null;
 
   sort?: SearchSort;
   /**
@@ -135,6 +148,23 @@ export type SearchSpacesOptions = {
    */
   relaxTypeAndFeatures?: boolean;
 };
+
+/**
+ * Um aluguel que comeca em `dia` e possivel? Disponivel a partir de antes
+ * disso, e sem bloqueio ativo do calendario terminando em `dia` ou depois
+ * (Fase 23). Mesma regra de `earliestOpenEndedStart` em
+ * src/lib/spaces/availability.ts, que valida a solicitacao — a busca nunca
+ * mostra como disponivel algo que a solicitacao recusaria.
+ */
+export function openEndedStartPossibleBy(dia: SQL): SQL {
+  return sql`(
+    ${spaces.availableFrom} <= ${dia}
+    AND NOT EXISTS (
+      SELECT 1 FROM space_availability_blocks b
+      WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= ${dia}
+    )
+  )`;
+}
 
 /**
  * `distance` so faz sentido com um ponto de referencia real. Pedir para
@@ -184,6 +214,14 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
   }
   if (options?.type && !options?.relaxTypeAndFeatures) {
     conditions.push(sql`${spaces.type}::text = ${options.type}`);
+  } else if (options?.types?.length && !options?.relaxTypeAndFeatures) {
+    conditions.push(sql`${spaces.type}::text IN (${sql.join(options.types.map((t) => sql`${t}`), sql`, `)})`);
+  }
+  if (options?.sizeMinM2 != null) {
+    conditions.push(sql`${spaces.sizeM2} >= ${options.sizeMinM2}`);
+  }
+  if (options?.startBy) {
+    conditions.push(openEndedStartPossibleBy(sql`${options.startBy}::date`));
   }
   if (options?.priceMinCents != null) {
     conditions.push(gte(spaces.priceMonthlyCents, options.priceMinCents));
@@ -192,7 +230,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
     conditions.push(lte(spaces.priceMonthlyCents, options.priceMaxCents));
   }
   if (options?.availableNow) {
-    conditions.push(sql`${spaces.availableFrom} <= CURRENT_DATE`);
+    conditions.push(openEndedStartPossibleBy(sql`CURRENT_DATE`));
   }
   if (point && options?.radiusMeters) {
     conditions.push(withinMeters(spaces.approxLocation, point, options.radiusMeters));
@@ -250,6 +288,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
    */
   const tierExpr = gatedPromotionTierExpr({
     type: options?.type,
+    types: options?.types,
     cityFilter: options?.cityFilter || options?.city,
     districtFilter: options?.districtFilter,
     priceMinCents: options?.priceMinCents,
@@ -266,6 +305,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
   const orderBy =
     sort === 'compatibility' ? [desc(compatibilityScoreExpr({
         type: options?.type,
+        types: options?.types,
         cityFilter: options?.cityFilter || options?.city,
         districtFilter: options?.districtFilter,
         priceMinCents: options?.priceMinCents,
@@ -561,6 +601,26 @@ export async function matchKnownLocation(text: string): Promise<KnownLocationMat
 
   const base = and(eq(spaces.status, 'published'), isNull(spaces.deletedAt));
 
+  /*
+   * "Centro, Colatina" (bairro, cidade) e "Colatina, ES" (cidade, UF) —
+   * Fase 23. Antes, o texto com vírgula nunca batia com nada do banco e ia
+   * direto para o geocodificador, mesmo quando o bairro já tinha anúncio.
+   */
+  const partes = termo.split(',').map((p) => p.trim()).filter(Boolean);
+  if (partes.length === 2) {
+    const [a, b] = partes as [string, string];
+    if (/^[A-Za-z]{2}$/.test(b)) {
+      const [cidadeUf] = await db
+        .select({ city: spaces.city, state: spaces.state })
+        .from(spaces)
+        .where(and(base, sql`${spaces.city} ILIKE ${a}`, sql`${spaces.state} ILIKE ${b}`))
+        .limit(1);
+      if (cidadeUf?.city) return { kind: 'city', city: cidadeUf.city, state: cidadeUf.state };
+    }
+    const noBairro = await matchKnownDistrictInCity(a, b);
+    if (noBairro) return noBairro;
+  }
+
   const [porCidadeExata] = await db
     .select({ city: spaces.city, state: spaces.state })
     .from(spaces)
@@ -611,6 +671,33 @@ export async function matchKnownLocation(text: string): Promise<KnownLocationMat
     return { kind: 'city', city: porSimilaridade.city, state: porSimilaridade.state };
   }
 
+  return null;
+}
+
+/**
+ * Bairro dentro de uma cidade, os dois já existentes entre os anúncios
+ * publicados (Fase 23). Nome exato primeiro, prefixo depois — "centro" em
+ * "colatina" devolve o "Centro"/"Colatina" como estão gravados.
+ */
+export async function matchKnownDistrictInCity(
+  district: string,
+  city: string,
+): Promise<Extract<KnownLocationMatch, { kind: 'district' }> | null> {
+  const bairro = district.trim();
+  const cidade = city.trim();
+  if (bairro.length < 2 || cidade.length < 2) return null;
+  const base = and(eq(spaces.status, 'published'), isNull(spaces.deletedAt));
+
+  for (const padrao of [bairro, `${bairro}%`]) {
+    const [achou] = await db
+      .select({ district: spaces.district, city: spaces.city, state: spaces.state })
+      .from(spaces)
+      .where(and(base, sql`${spaces.district} ILIKE ${padrao}`, sql`${spaces.city} ILIKE ${cidade}`))
+      .limit(1);
+    if (achou?.district) {
+      return { kind: 'district', district: achou.district, city: achou.city, state: achou.state };
+    }
+  }
   return null;
 }
 
