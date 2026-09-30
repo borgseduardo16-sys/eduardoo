@@ -261,31 +261,40 @@ async function main() {
     await contarNotificacoes(governorTestId, 'favorite_price_drop') + await contarNotificacoes(governorTestId, 'favorite_unavailable'), 3);
 
   // =========================================================================
-  secao('2. Alerta de queda de preço em favoritos (chamada direta)');
+  secao('2. Alerta de queda de preço em favoritos (regra da Fase 23: menor preço já avisado, 1%, janela de 24h)');
   // =========================================================================
+  // Desde a Fase 23 o aviso compara o preço ATUAL do banco com o menor preço
+  // que cada pessoa já conhece (price_alert_baseline_cents) — por isso o
+  // preço muda de verdade antes de cada chamada. A regra completa (inclusive
+  // 400 → 390 → 395 → 385) é testada em scripts/verify-descoberta.ts.
 
   const espaco1Id = await criarPublicado(dono1Id, 'preco', { precoCents: 30000 });
+  const [{ slug: slug1 }] = await sql<{ slug: string }[]>`SELECT slug FROM spaces WHERE id=${espaco1Id}`;
   await favoritar(fav1Id, espaco1Id);
   await favoritar(fav2Id, espaco1Id);
+  const precoReal = async (de: number, para: number) => {
+    await sql`UPDATE spaces SET price_monthly_cents=${para} WHERE id=${espaco1Id}`;
+    await alertFavoritersOfPriceDrop({ id: espaco1Id, title: 'Espaço 1', slug: slug1! }, de, para);
+  };
 
-  await alertFavoritersOfPriceDrop({ id: espaco1Id, title: 'Espaço 1', slug: 'espaco-1' }, 30000, 29500);
-  expect('queda de 1,67% (abaixo do limiar de 5%) NAO notifica', await contarNotificacoes(fav1Id, 'favorite_price_drop'), 0);
+  await precoReal(30000, 29800);
+  expect('queda de 0,67% (abaixo do limiar de 1%) NAO notifica', await contarNotificacoes(fav1Id, 'favorite_price_drop'), 0);
 
-  await alertFavoritersOfPriceDrop({ id: espaco1Id, title: 'Espaço 1', slug: 'espaco-1' }, 30000, 28000);
-  expect('queda de 6,67% notifica os 2 favoritos', await contarNotificacoes(fav1Id, 'favorite_price_drop')
+  await precoReal(29800, 28000);
+  expect('queda de 6,67% sobre o preço conhecido notifica os 2 favoritos', await contarNotificacoes(fav1Id, 'favorite_price_drop')
     + await contarNotificacoes(fav2Id, 'favorite_price_drop'), 2);
   expect('quem NAO favoritou nao recebe nada', await contarNotificacoes(naoFavoritouId, 'favorite_price_drop'), 0);
 
   const [notifPreco] = await sql<{ title: string; body: string; link_path: string }[]>`
     SELECT title, body, link_path FROM notifications WHERE user_id=${fav1Id} AND type='favorite_price_drop' LIMIT 1`;
-  assert('corpo menciona os dois valores', notifPreco!.body.includes('R$') && notifPreco!.body.includes('mês'), notifPreco!.body);
-  expect('link aponta pro espaço', notifPreco!.link_path, '/espacos/espaco-1');
+  assert('corpo menciona os dois valores e a diferença', notifPreco!.body.includes('300,00') && notifPreco!.body.includes('280,00') && notifPreco!.body.includes('a menos'), notifPreco!.body);
+  expect('link aponta pro espaço', notifPreco!.link_path, `/espacos/${slug1}`);
 
-  await alertFavoritersOfPriceDrop({ id: espaco1Id, title: 'Espaço 1', slug: 'espaco-1' }, 28000, 26000);
-  expect('nova queda real, mas dentro do cooldown de 7 dias, fica em silêncio',
+  await precoReal(28000, 26000);
+  expect('nova queda real, mas dentro da janela de 24h, fica para depois (o cron manda)',
     await contarNotificacoes(fav1Id, 'favorite_price_drop'), 1);
 
-  await alertFavoritersOfPriceDrop({ id: espaco1Id, title: 'Espaço 1', slug: 'espaco-1' }, 26000, 27000);
+  await precoReal(26000, 27000);
   expect('AUMENTO de preço nunca notifica (decisão de escopo da Fase 18.2)',
     await contarNotificacoes(fav1Id, 'favorite_price_drop'), 1);
 

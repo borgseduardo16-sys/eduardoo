@@ -66,3 +66,50 @@ export async function toggleFavoriteAction(formData: FormData): Promise<Favorite
   revalidatePath('/espacos');
   return { ok: true, favorited: true };
 }
+
+export type PriceAlertState = { ok: boolean; message?: string; enabled?: boolean };
+
+/**
+ * "Me avise quando o preço baixar" (Fase 23), por favorito.
+ *
+ * Mesma regra de `toggleFavoriteAction`: a chave é (usuário da sessão,
+ * espaço) — não existe como mexer no aviso de outra pessoa. Religar parte do
+ * preço de agora ("me avise a partir daqui"): uma queda que aconteceu com o
+ * aviso desligado não vira notificação atrasada.
+ */
+export async function setPriceAlertAction(formData: FormData): Promise<PriceAlertState> {
+  let user;
+  try {
+    user = await requireUserOrThrow();
+  } catch {
+    return { ok: false, message: 'Entre na sua conta para receber avisos.' };
+  }
+
+  const spaceId = String(formData.get('spaceId') ?? '');
+  const enabled = formData.get('enabled') === '1';
+  if (!/^[0-9a-f-]{36}$/i.test(spaceId)) return { ok: false, message: 'Espaço não encontrado.' };
+
+  const [space] = await db
+    .select({ priceMonthlyCents: spaces.priceMonthlyCents })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+  if (!space) return { ok: false, message: 'Espaço não encontrado.' };
+
+  const atualizados = await db
+    .update(favorites)
+    .set(
+      enabled
+        ? { priceAlert: true, priceAlertBaselineCents: space.priceMonthlyCents }
+        : { priceAlert: false },
+    )
+    .where(and(eq(favorites.userId, user.id), eq(favorites.spaceId, spaceId)))
+    .returning({ priceAlert: favorites.priceAlert });
+
+  if (atualizados.length === 0) {
+    return { ok: false, message: 'Favorite o espaço para receber avisos de preço.' };
+  }
+
+  revalidatePath('/favoritos');
+  return { ok: true, enabled: atualizados[0].priceAlert };
+}

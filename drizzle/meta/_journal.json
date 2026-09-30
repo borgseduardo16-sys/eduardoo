@@ -176,6 +176,20 @@
       "when": 1790626157211,
       "tag": "0024_rotulos_com_acento",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790736611137,
+      "tag": "0025_chemical_marrow",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790736629418,
+      "tag": "0026_gatilhos_descoberta",
+      "breakpoints": true
     }
   ]
 }

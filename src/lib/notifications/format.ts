@@ -2,6 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import {
   CircleCheck, CircleX, Ban, Wallet, Clock, MessageCircle, Star, ShieldCheck, Info, Bell,
   TrendingDown, Sparkles, Users, Sparkle, Hourglass, MessageSquareHeart,
+  BellRing, SearchCheck, ChartColumn,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -31,6 +32,10 @@ export const NOTIFICATION_TYPE_INFO: Record<string, { icon: LucideIcon; tone: 'p
   review_available: { icon: MessageSquareHeart, tone: 'neutral' },
   promotion_expiring: { icon: Hourglass, tone: 'caution' },
   premium_changed: { icon: Sparkle, tone: 'neutral' },
+  // --- Fase 23 ---
+  waitlist_available: { icon: BellRing, tone: 'positive' },
+  saved_search_match: { icon: SearchCheck, tone: 'neutral' },
+  monthly_report: { icon: ChartColumn, tone: 'neutral' },
 };
 
 export function notificationIcon(type: string): LucideIcon {

@@ -242,6 +242,13 @@ export const notificationType = pgEnum('notification_type', [
   'promotion_expiring',
   /** Premium concedido ou encerrado pela administração. */
   'premium_changed',
+  // --- Fase 23: descoberta, disponibilidade e desempenho ---
+  /** Espaço da lista de espera da pessoa voltou a ficar disponível. */
+  'waitlist_available',
+  /** Anúncio novo que atende a um alerta (busca salva) criado pela pessoa. */
+  'saved_search_match',
+  /** Relatório mensal de desempenho dos anúncios do proprietário está pronto. */
+  'monthly_report',
 ]);
 
 /**
@@ -257,6 +264,44 @@ export const notificationCategory = pgEnum('notification_category', [
   'meus_espacos',
   'recomendacoes',
   'conta',
+  /** Fase 23: o que a própria pessoa pediu para acompanhar (lista de espera, alertas de busca). */
+  'alertas',
+]);
+
+/**
+ * Entrada na lista de espera de um espaço indisponível (Fase 23).
+ * waiting -> notified (o espaço voltou a ficar disponível e a pessoa foi
+ * avisada) | left (a pessoa saiu) | closed (o anúncio deixou de existir).
+ * Nenhum desses estados reserva nada: quem é avisado segue o fluxo normal
+ * de solicitação.
+ */
+export const waitlistStatus = pgEnum('waitlist_status', ['waiting', 'notified', 'left', 'closed']);
+
+/** Alerta de busca salva (Fase 23): pausado não gera aviso, mas continua salvo. */
+export const savedSearchStatus = pgEnum('saved_search_status', ['active', 'paused']);
+
+/**
+ * Motivo de um bloqueio manual de datas no calendário do espaço (Fase 23).
+ * PRIVADO: só o proprietário vê. O público vê apenas "indisponível".
+ */
+export const availabilityBlockReason = pgEnum('availability_block_reason', [
+  'manutencao',
+  'uso_proprio',
+  'viagem',
+  'outro',
+]);
+
+/**
+ * Sugestão de melhoria de anúncio feita por IA (Fase 23). `failed` também
+ * vira linha: a tentativa gastou (ou tentou gastar) uma chamada, e o limite
+ * de uso conta tentativas, não só sucessos.
+ */
+export const listingSuggestionStatus = pgEnum('listing_suggestion_status', [
+  'ready',
+  'partially_applied',
+  'applied',
+  'dismissed',
+  'failed',
 ]);
 
 /**

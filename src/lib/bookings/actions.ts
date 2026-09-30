@@ -16,6 +16,9 @@ import { findPendingRequestBySameRenter, listOtherPendingRequestsForSpace } from
 import { requestBookingSchema, respondBookingSchema, cancelBookingSchema } from './schemas';
 import { buildBookingReference } from './reference';
 import { postBookingSystemMessage } from '@/lib/messaging/system';
+import { onSpaceBecameUnavailable, onSpaceMaybeAvailableAgain } from '@/lib/spaces/availability-events';
+import { getSpaceAvailability, earliestOpenEndedStart, blockCrossedByOpenEndedStart } from '@/lib/spaces/availability';
+import { formatBookingDate } from './format';
 
 /*
  * `postgres` so anexa `PostgresError` como propriedade do export default
@@ -70,6 +73,15 @@ function pgErrorFrom(err: unknown): PgError | null {
  * conflito de concorrencia vestido de dois jeitos — tratar so o primeiro
  * deixaria a segunda transacao estourar como erro 500 sem motivo aparente.
  */
+/**
+ * true quando a trigger `bookings_guard_blocked_period` (Fase 23) recusou:
+ * o período da reserva cruza um bloqueio de datas do calendário do espaço.
+ */
+function isBlockedPeriodConflict(err: unknown): boolean {
+  const pg = pgErrorFrom(err);
+  return pg?.code === '23P01' && pg.constraint_name === 'bookings_period_not_blocked';
+}
+
 function isOccupancyConflict(err: unknown): boolean {
   const pg = pgErrorFrom(err);
   if (!pg) return false;
@@ -125,6 +137,32 @@ export async function requestBookingAction(
   }
   if (space.ownerId === user.id) {
     return { ok: false, message: 'Você não pode solicitar o próprio espaço.' };
+  }
+
+  /*
+   * Disponibilidade de verdade (Fase 23): ninguém ocupando, e a data pedida
+   * respeitando "disponível a partir de" e os bloqueios do calendário. Como
+   * o aluguel é mensal e sem data para terminar, ele ocupa o espaço da data
+   * de início em diante — um bloqueio futuro também impede começar antes dele.
+   */
+  const disponibilidade = await getSpaceAvailability(space.id);
+  if (!disponibilidade?.openForRequests) {
+    return { ok: false, message: 'Este espaço não está disponível para solicitação agora.' };
+  }
+  const hoje = new Date().toISOString().slice(0, 10);
+  const inicioMinimo = earliestOpenEndedStart({
+    today: hoje,
+    availableFrom: disponibilidade.availableFrom,
+    blocks: disponibilidade.upcomingBlocks,
+  });
+  if (startDate < inicioMinimo) {
+    const bloqueio = blockCrossedByOpenEndedStart(startDate, disponibilidade.upcomingBlocks);
+    return {
+      ok: false,
+      message: bloqueio
+        ? `O espaço está indisponível de ${formatBookingDate(bloqueio.startsOn)} a ${formatBookingDate(bloqueio.endsOn)}. Como o aluguel é mensal e sem data para terminar, a data de início mais próxima é ${formatBookingDate(inicioMinimo)}.`
+        : `Este espaço fica disponível a partir de ${formatBookingDate(inicioMinimo)}.`,
+    };
   }
 
   const jaTemPendente = await findPendingRequestBySameRenter(spaceId, user.id);
@@ -345,6 +383,13 @@ export async function respondToBookingRequestAction(
     if (isOccupancyConflict(err)) {
       return { ok: false, message: 'Este espaço já tem uma reserva ativa — não é possível aceitar duas ao mesmo tempo.' };
     }
+    if (isBlockedPeriodConflict(err)) {
+      return {
+        ok: false,
+        message:
+          'O calendário deste espaço tem datas bloqueadas depois do início pedido. Como o aluguel é mensal e sem data para terminar, desfaça o bloqueio no calendário antes de aceitar.',
+      };
+    }
     if (err instanceof Error && err.message.startsWith('CONCORRENCIA')) {
       return { ok: false, message: 'Esta solicitação já foi respondida em outra aba ou dispositivo.' };
     }
@@ -381,6 +426,10 @@ export async function respondToBookingRequestAction(
   revalidatePath('/meus-espacos/solicitacoes');
   revalidatePath('/reservas');
   revalidatePath('/espacos');
+
+  // Fase 23: o banco já marcou o espaço como alugado; quem favoritou fica
+  // sabendo (menos quem acabou de alugar). Best-effort.
+  await onSpaceBecameUnavailable(booking.spaceId, [booking.renterId]);
 
   // A partir de uma reserva aceita, as duas partes quase sempre precisam
   // combinar algo (acesso, horário) — por isso cria a conversa se ainda não
@@ -480,6 +529,10 @@ export async function cancelBookingAction(
   revalidatePath('/meus-espacos/solicitacoes');
   revalidatePath('/reservas');
   revalidatePath('/espacos');
+
+  // Fase 23: cancelar uma reserva aceita devolve o espaço ao ar (trigger no
+  // banco) — lista de espera e favoritos ficam sabendo. Best-effort.
+  await onSpaceMaybeAvailableAgain(booking.spaceId);
 
   // Diferente do aceite, so publica se ja existia conversa — cancelar nao
   // e motivo pra abrir um canal novo so pra anunciar isso (ver
@@ -610,6 +663,11 @@ export async function endBookingAction(
   revalidatePath('/meus-espacos/solicitacoes');
   revalidatePath('/meus-espacos/financeiro');
   revalidatePath('/reservas');
+  revalidatePath('/espacos');
+
+  // Fase 23: o aluguel acabou e o espaço voltou ao ar (trigger no banco) —
+  // quem estava na lista de espera é avisado. Best-effort.
+  await onSpaceMaybeAvailableAgain(booking.spaceId);
 
   await postBookingSystemMessage({
     spaceId: booking.spaceId,

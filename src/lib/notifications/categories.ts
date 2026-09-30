@@ -17,6 +17,7 @@ export const NOTIFICATION_CATEGORIES = [
   'avaliacoes',
   'meus_espacos',
   'recomendacoes',
+  'alertas',
   'conta',
 ] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
@@ -48,6 +49,10 @@ export const CATEGORY_INFO: Record<NotificationCategory, { label: string; descri
     label: 'Favoritos e recomendações',
     description: 'Preço de favorito caiu, favorito voltou a ficar disponível, espaço novo parecido com os que você salvou.',
   },
+  alertas: {
+    label: 'Alertas que você criou',
+    description: 'Espaço da sua lista de espera disponível e anúncios novos que atendem aos seus alertas de busca.',
+  },
   conta: {
     label: 'Conta e segurança',
     description: 'Avisos sobre a sua conta, denúncias que você fez e o plano Premium.',
@@ -74,6 +79,9 @@ const TIPO_PARA_CATEGORIA: Record<string, NotificationCategory> = {
   favorite_unavailable: 'recomendacoes',
   favorite_available_again: 'recomendacoes',
   new_compatible_space: 'recomendacoes',
+  waitlist_available: 'alertas',
+  saved_search_match: 'alertas',
+  monthly_report: 'meus_espacos',
   report_resolved: 'conta',
   account_notice: 'conta',
   premium_changed: 'conta',
@@ -95,6 +103,7 @@ const ROTULO_CURTO: Record<NotificationCategory, string> = {
   avaliacoes: 'Avaliações',
   meus_espacos: 'Meus espaços',
   recomendacoes: 'Recomendações',
+  alertas: 'Alertas',
   conta: 'Conta',
 };
 

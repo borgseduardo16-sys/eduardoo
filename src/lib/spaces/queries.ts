@@ -335,12 +335,26 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
 /** Alias — a busca (Parte 3) e o marketplace simples sao a mesma consulta. */
 export const searchPublishedSpaces = listPublishedSpaces;
 
-/** Pagina publica de um anuncio. Devolve null se nao estiver publicado. */
+/**
+ * Status em que a pagina publica do anuncio abre (Fase 23). Alugado e
+ * pausado continuam com pagina — link compartilhado nao quebra, e e ali que
+ * a pessoa entra na lista de espera —, mas nunca aparecem na busca, que
+ * segue so com `published`.
+ */
+export const PUBLIC_PAGE_STATUSES = ['published', 'rented', 'paused'] as const;
+
+/** Pagina publica de um anuncio. Devolve null se nao estiver no ar (ou alugado/pausado). */
 export const getPublicSpaceBySlug = cache(async (slug: string) => {
   const [space] = await db
     .select(publicColumns)
     .from(spaces)
-    .where(and(eq(spaces.slug, slug), eq(spaces.status, 'published'), isNull(spaces.deletedAt)))
+    .where(
+      and(
+        eq(spaces.slug, slug),
+        inArray(spaces.status, [...PUBLIC_PAGE_STATUSES]),
+        isNull(spaces.deletedAt),
+      ),
+    )
     .limit(1);
 
   if (!space) return null;

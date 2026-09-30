@@ -95,11 +95,12 @@ export async function findPendingRequestBySameRenter(spaceId: string, renterId: 
 }
 
 /**
- * Relacao ATIVA de quem esta vendo a pagina com este espaco — pendente ou
- * aprovada. Usado na pagina publica do anuncio pra decidir entre mostrar
- * "Solicitar aluguel" ou o status do que ja existe, em vez de deixar a
- * pessoa mandar uma segunda solicitacao sem saber que a primeira ainda
- * esta em aberto.
+ * Relacao ATIVA de quem esta vendo a pagina com este espaco — pendente,
+ * aprovada ou em andamento. Usado na pagina publica do anuncio pra decidir
+ * entre mostrar "Solicitar aluguel" ou o status do que ja existe, em vez de
+ * deixar a pessoa mandar uma segunda solicitacao sem saber que a primeira
+ * ainda esta em aberto — e, desde a Fase 23, pra quem ESTA alugando o
+ * espaco ver o proprio aluguel em vez do convite da lista de espera.
  */
 export async function getViewerActiveBookingForSpace(spaceId: string, viewerId: string) {
   const [row] = await db
@@ -109,9 +110,10 @@ export async function getViewerActiveBookingForSpace(spaceId: string, viewerId: 
       and(
         eq(bookings.spaceId, spaceId),
         eq(bookings.renterId, viewerId),
-        inArray(bookings.status, ['requested', 'approved']),
+        inArray(bookings.status, ['requested', ...OCCUPYING_STATUSES]),
       ),
     )
+    .orderBy(desc(bookings.requestedAt))
     .limit(1);
   return row ?? null;
 }

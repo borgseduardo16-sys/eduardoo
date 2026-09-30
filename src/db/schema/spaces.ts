@@ -232,12 +232,35 @@ export const favorites = pgTable(
      * pronta para uma notificacao de verdade no futuro, sem migracao nova.
      */
     priceCentsAtFavorite: integer('price_cents_at_favorite'),
+
+    /**
+     * "Me avise quando o preço baixar" (Fase 23). Ligado por padrão, que era
+     * o comportamento de todo favorito desde a Fase 18; a pessoa desliga por
+     * favorito.
+     */
+    priceAlert: boolean('price_alert').notNull().default(true),
+    /**
+     * O MENOR preço que esta pessoa já conhece para este espaço: o preço de
+     * quando favoritou, ou o do último aviso de queda. Só um preço abaixo
+     * dele gera aviso — é o que impede 400 → 390 → 395 → 385 de virar uma
+     * sequência de notificações (ver src/lib/notifications/space-alerts.ts).
+     * Quem escreve é o servidor; pelo navegador, a trigger
+     * `favorites_guard_server_fields` recalcula.
+     */
+    priceAlertBaselineCents: integer('price_alert_baseline_cents'),
+    /** Último aviso de queda enviado — base da janela mínima entre dois avisos. */
+    priceAlertNotifiedAt: timestamp('price_alert_notified_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     primaryKey({ columns: [t.userId, t.spaceId] }),
     index('favorites_space_idx').on(t.spaceId),
     index('favorites_user_created_idx').on(t.userId, t.createdAt),
+    check(
+      'favorites_price_alert_baseline_positive',
+      sql`${t.priceAlertBaselineCents} IS NULL OR ${t.priceAlertBaselineCents} > 0`,
+    ),
   ],
 );
 

@@ -237,6 +237,17 @@
   .animate-rise {
     animation: rise 0.4s var(--ease-out-soft) both;
   }
+
+  /* Dia bloqueado no calendario (Fase 23): hachura, para o estado nao
+     depender so de cor. */
+  .calendario-hachura {
+    background-image: repeating-linear-gradient(
+      135deg,
+      var(--border-strong) 0 2px,
+      transparent 2px 7px
+    );
+    background-color: var(--surface-sunken);
+  }
   @keyframes rise {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: none; }

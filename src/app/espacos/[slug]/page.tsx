@@ -5,12 +5,16 @@ import { ArrowLeft } from 'lucide-react';
 import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { getCurrentUser } from '@/lib/auth/dal';
-import { isFavorited } from '@/lib/favorites/queries';
+import { getFavoriteState } from '@/lib/favorites/queries';
 import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { bookingStatusLabel } from '@/lib/bookings/format';
 import { listReviewsForSpace, parsePage } from '@/lib/reviews/queries';
 import { getReputation } from '@/lib/reviews/reputation';
 import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
+import { getSpaceAvailability, earliestOpenEndedStart } from '@/lib/spaces/availability';
+import { getUserWaitlistEntry } from '@/lib/waitlist/queries';
+import { getPublicPriceHistory } from '@/lib/spaces/price-history';
+import { formatBookingDate as formatarData } from '@/lib/bookings/format';
 import { formatBRL } from '@/lib/money';
 import { serverEnv } from '@/lib/env';
 import type { SpaceTypeKey } from '@/lib/spaces/types';
@@ -25,9 +29,13 @@ import { ReportDialog } from '@/components/safety/report-dialog';
 import { ProtectionNotice } from '@/components/safety/protection-notice';
 import { VisitChecklist } from '@/components/safety/visit-checklist';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
+import { PriceAlertToggle } from '@/components/favorites/price-alert-toggle';
 import { ShareButton } from '@/components/espacos/share-button';
 import { ReviewsList } from '@/components/reviews/reviews-list';
 import { StartConversationButton } from '@/components/messaging/start-conversation-button';
+import { WaitlistPanel } from '@/components/waitlist/waitlist-panel';
+import { PriceHistory } from '@/components/espacos/price-history';
+import { PublicAvailability } from '@/components/calendar/public-availability';
 import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
@@ -87,13 +95,25 @@ export default async function EspacoPage({
   const isOwner = viewer?.id === space.ownerId;
   const paginaAvaliacoes = parsePage(sp.avaliacoes);
 
-  const [favorited, existingBooking, reviewsPage, ownerReputation, ownerResponse] = await Promise.all([
-    viewer ? isFavorited(viewer.id, space.id) : Promise.resolve(false),
+  const [estadoFavorito, existingBooking, reviewsPage, ownerReputation, ownerResponse, disponibilidade, entradaEspera, historicoPreco] = await Promise.all([
+    viewer ? getFavoriteState(viewer.id, space.id) : Promise.resolve(null),
     viewer && !isOwner ? getViewerActiveBookingForSpace(space.id, viewer.id) : Promise.resolve(null),
     listReviewsForSpace(space.id, { page: paginaAvaliacoes }),
     space.owner ? getReputation(space.owner.id) : Promise.resolve(null),
     space.owner ? getOwnerResponseStats(space.owner.id) : Promise.resolve(null),
+    getSpaceAvailability(space.id),
+    viewer && !isOwner ? getUserWaitlistEntry(space.id, viewer.id) : Promise.resolve(null),
+    getPublicPriceHistory(space.id, space.publishedAt),
   ]);
+  const favorited = estadoFavorito != null;
+  const hoje = new Date().toISOString().slice(0, 10);
+  // Fase 23: alugado, pausado ou com reserva vigente — a página abre, mas não
+  // convida a solicitar; oferece a lista de espera.
+  const disponivel = disponibilidade?.openForRequests ?? false;
+  const motivoIndisponivel =
+    space.status === 'paused'
+      ? 'O proprietário pausou este anúncio por enquanto.'
+      : 'Este espaço está alugado. Como o aluguel é mensal e sem data para terminar, não há previsão de quando ele volta.';
 
   // Uma chamada só para assinar fotos do anúncio, foto do proprietário e de quem avaliou.
   const urls = await signImagePaths(
@@ -137,6 +157,12 @@ export default async function EspacoPage({
             )}
           </div>
         </div>
+
+        {!isOwner && estadoFavorito && (
+          <div className="flex justify-end -mt-6">
+            <PriceAlertToggle spaceId={space.id} initialEnabled={estadoFavorito.priceAlert} />
+          </div>
+        )}
 
         {isOwner && (
           <Alert tone="info" title="Este anúncio é seu">
@@ -184,8 +210,18 @@ export default async function EspacoPage({
             {existingBooking ? (
               <>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-semibold text-[1.0625rem]">Sua solicitação</p>
-                  <Badge tone={existingBooking.status === 'approved' ? 'positive' : 'caution'}>
+                  <p className="font-semibold text-[1.0625rem]">
+                    {existingBooking.status === 'requested' || existingBooking.status === 'approved'
+                      ? 'Sua solicitação'
+                      : 'Seu aluguel'}
+                  </p>
+                  <Badge
+                    tone={
+                      existingBooking.status === 'requested' || existingBooking.status === 'past_due'
+                        ? 'caution'
+                        : 'positive'
+                    }
+                  >
                     {bookingStatusLabel(existingBooking.status)}
                   </Badge>
                 </div>
@@ -197,11 +233,34 @@ export default async function EspacoPage({
                     href={`/reservas/${existingBooking.id}`}
                     className="inline-flex items-center gap-1.5 h-11 px-5 font-medium rounded-[var(--radius-field)] border hover:bg-[var(--surface-sunken)] transition-colors"
                   >
-                    Ver detalhes da solicitação
+                    {existingBooking.status === 'requested' || existingBooking.status === 'approved'
+                      ? 'Ver detalhes da solicitação'
+                      : 'Ver meu aluguel'}
                   </Link>
                   <StartConversationButton spaceId={space.id} />
                 </div>
               </>
+            ) : !disponivel ? (
+              <div className="space-y-3" data-testid="espaco-indisponivel">
+                <div className="space-y-1">
+                  <p className="font-semibold text-[1.0625rem]">Indisponível no momento</p>
+                  <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">{motivoIndisponivel}</p>
+                </div>
+                <WaitlistPanel
+                  spaceId={space.id}
+                  slug={space.slug}
+                  loggedIn={Boolean(viewer)}
+                  entry={
+                    entradaEspera
+                      ? {
+                          status: entradaEspera.status,
+                          joinedAtLabel: formatarData(entradaEspera.joinedAt),
+                          notifiedAtLabel: entradaEspera.notifiedAt ? formatarData(entradaEspera.notifiedAt) : null,
+                        }
+                      : null
+                  }
+                />
+              </div>
             ) : (
               <>
                 <p className="font-semibold text-[1.0625rem]">Tenho interesse neste espaço</p>
@@ -234,6 +293,27 @@ export default async function EspacoPage({
             )}
           </section>
         )}
+
+        {/* Fase 23: quando dá para começar, e as datas indisponíveis (sem motivo). */}
+        {disponivel && disponibilidade && (
+          <PublicAvailability
+            today={hoje}
+            earliestStart={earliestOpenEndedStart({
+              today: hoje,
+              availableFrom: disponibilidade.availableFrom,
+              blocks: disponibilidade.upcomingBlocks,
+            })}
+            input={{
+              today: hoje,
+              availableFrom: disponibilidade.availableFrom,
+              occupied: [],
+              blocked: disponibilidade.upcomingBlocks,
+            }}
+          />
+        )}
+
+        {/* Fase 23: só aparece quando o preço mudou de verdade depois da publicação. */}
+        {historicoPreco && <PriceHistory history={historicoPreco} />}
 
         {/* Sobre o proprietário + Por que confiar neste anúncio? — só sinais reais */}
         {space.owner && ownerReputation && (

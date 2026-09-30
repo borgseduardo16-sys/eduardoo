@@ -301,8 +301,12 @@ async function main() {
       if (!pausado.some((s) => s.id === spaceId)) ok('anuncio pausado some da listagem');
       else bad('listagem', 'anuncio pausado continuou aparecendo');
 
-      if ((await getPublicSpaceBySlug(slug)) === null) ok('pagina de anuncio pausado nao abre');
-      else bad('pagina publica', 'anuncio pausado ainda acessivel');
+      // Fase 23: a pagina de anuncio PAUSADO continua abrindo — e onde a
+      // pessoa entra na lista de espera, e link compartilhado nao quebra —,
+      // mas marcada como pausada (sem "Solicitar aluguel") e fora da busca.
+      const paginaPausada = await getPublicSpaceBySlug(slug);
+      if (paginaPausada?.status === 'paused') ok('pagina de anuncio pausado abre, marcada como pausada (lista de espera)');
+      else bad('pagina publica', `esperava status paused, veio ${JSON.stringify(paginaPausada?.status)}`);
 
       await sql`UPDATE spaces SET status='published' WHERE id=${spaceId}`;
 

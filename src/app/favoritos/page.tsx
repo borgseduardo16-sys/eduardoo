@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { HeartOff, ImageOff, MapPin, TrendingDown, TrendingUp } from 'lucide-react';
+import { BellRing, HeartOff, ImageOff, MapPin, TrendingDown, TrendingUp } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { listUserFavoriteSpaces, type FavoriteSpace } from '@/lib/favorites/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
@@ -11,6 +11,10 @@ import { PromotionBadge } from '@/components/promotions/promotion-badge';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
+import { PriceAlertToggle } from '@/components/favorites/price-alert-toggle';
+import { WaitlistLeaveButton } from '@/components/waitlist/waitlist-leave-button';
+import { listUserWaitlist, type UserWaitlistItem } from '@/lib/waitlist/queries';
+import { formatBookingDate } from '@/lib/bookings/format';
 
 export const metadata: Metadata = { title: 'Meus favoritos' };
 export const dynamic = 'force-dynamic';
@@ -25,9 +29,11 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default async function FavoritosPage() {
   const user = await requireUser('/favoritos');
-  const favoritos = await listUserFavoriteSpaces(user.id);
+  const [favoritos, espera] = await Promise.all([listUserFavoriteSpaces(user.id), listUserWaitlist(user.id)]);
 
-  const urls = await signImagePaths(favoritos.map((f) => f.coverPath).filter(Boolean) as string[]);
+  const urls = await signImagePaths(
+    [...favoritos.map((f) => f.coverPath), ...espera.map((e) => e.coverPath)].filter(Boolean) as string[],
+  );
 
   // Separado de proposito (pedido explicito): quem esta comparando opcoes
   // quer ver primeiro o que ainda da pra reservar.
@@ -47,6 +53,26 @@ export default async function FavoritosPage() {
               : `${favoritos.length} ${favoritos.length === 1 ? 'espaço salvo' : 'espaços salvos'}.`}
           </p>
         </header>
+
+        {espera.length > 0 && (
+          <section aria-labelledby="espera-titulo" className="space-y-3" data-testid="minha-lista-espera">
+            <div className="space-y-0.5">
+              <h2 id="espera-titulo" className="font-semibold flex items-center gap-2">
+                <BellRing className="size-4 text-[var(--accent)]" aria-hidden />
+                Lista de espera
+              </h2>
+              <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                Espaços indisponíveis que você pediu para acompanhar. Nenhum deles fica reservado: quando um
+                voltar, você envia a solicitação normalmente.
+              </p>
+            </div>
+            <ul className="rounded-[var(--radius-card)] border divide-y">
+              {espera.map((e) => (
+                <WaitlistRow key={e.entryId} item={e} coverUrl={e.coverPath ? (urls.get(e.coverPath) ?? null) : null} />
+              ))}
+            </ul>
+          </section>
+        )}
 
         {favoritos.length === 0 ? (
           <div className="rounded-[var(--radius-card)] border border-dashed p-12 sm:p-16 text-center space-y-3">
@@ -166,7 +192,42 @@ function FavoriteCard({ favorito: f, coverUrl }: { favorito: FavoriteSpace; cove
             </p>
           )}
         </Link>
+        <PriceAlertToggle spaceId={f.id} initialEnabled={f.priceAlert} />
       </div>
+    </li>
+  );
+}
+
+function WaitlistRow({ item: e, coverUrl }: { item: UserWaitlistItem; coverUrl: string | null }) {
+  return (
+    <li className="flex items-center gap-3 p-3 sm:p-4">
+      <Link href={`/espacos/${e.slug}`} className="relative shrink-0 size-16 rounded-[var(--radius-field)] overflow-hidden bg-[var(--surface-sunken)] border">
+        {coverUrl ? (
+          <Image src={coverUrl} alt="" fill sizes="64px" className="object-cover" unoptimized />
+        ) : (
+          <span className="absolute inset-0 grid place-items-center">
+            <ImageOff className="size-4 text-[var(--content-subtle)]" aria-hidden />
+          </span>
+        )}
+      </Link>
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <Link href={`/espacos/${e.slug}`} className="block font-medium leading-snug truncate hover:text-[var(--accent)]">
+          {e.title}
+        </Link>
+        <p className="text-[0.8125rem] text-[var(--content-muted)] truncate">
+          {[e.district, e.city].filter(Boolean).join(', ')} · {formatBRL(e.priceMonthlyCents)}/mês
+        </p>
+        <p className="text-[0.8125rem]">
+          {e.status === 'notified' ? (
+            <span className="text-[var(--color-positive)] font-medium">
+              Disponível — você foi avisado em {formatBookingDate(e.notifiedAt)}
+            </span>
+          ) : (
+            <span className="text-[var(--content-muted)]">Aguardando desde {formatBookingDate(e.joinedAt)}</span>
+          )}
+        </p>
+      </div>
+      {e.status === 'waiting' && <WaitlistLeaveButton spaceId={e.spaceId} />}
     </li>
   );
 }

@@ -15,9 +15,9 @@ import { CepError, normalizeCep } from '@/lib/maps/cep';
 import { getOwnedSpace, NotSpaceOwnerError, SpaceNotFoundError } from './queries';
 import {
   alertFavoritersOfPriceDrop,
-  alertFavoritersOfAvailabilityChange,
   alertCompatibleFavoritersOfNewSpace,
 } from '@/lib/notifications/space-alerts';
+import { onSpaceBecameUnavailable, onSpaceMaybeAvailableAgain } from './availability-events';
 import { buildSlug } from './slug';
 import { SPACE_TYPES, type SpaceTypeKey } from './types';
 import {
@@ -390,7 +390,15 @@ export async function saveStepAction(
   }
 
   patch.draftStep = nextStep;
-  await db.update(spaces).set(patch).where(eq(spaces.id, spaceId));
+  /*
+   * Histórico de preço (Fase 23): quem grava é a trigger
+   * `spaces_record_price_change`, não este código — mas quem MUDOU só o
+   * servidor sabe. `set_config(..., true)` vale só para esta transação.
+   */
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('myplace.actor_id', ${user.id}, true)`);
+    await tx.update(spaces).set(patch).where(eq(spaces.id, spaceId));
+  });
 
   /*
    * Alerta de queda de preço (Fase 18.2). So faz sentido quando o anuncio ja
@@ -604,10 +612,14 @@ export async function toggleSpaceStatusAction(
     return { ok: false, message: 'Este anúncio ainda não foi publicado.' };
   }
 
-  await db
+  // O banco pode corrigir o status (trigger `spaces_published_not_occupied`):
+  // retomar um anúncio que tem reserva vigente volta como `rented`, não
+  // `published` — a resposta diz o que ficou gravado de verdade.
+  const [gravado] = await db
     .update(spaces)
     .set({ status: novo, updatedAt: new Date() })
-    .where(and(eq(spaces.id, spaceId), eq(spaces.ownerId, user.id)));
+    .where(and(eq(spaces.id, spaceId), eq(spaces.ownerId, user.id)))
+    .returning({ status: spaces.status });
 
   await db.insert(auditLogs).values({
     actorId: user.id,
@@ -617,20 +629,25 @@ export async function toggleSpaceStatusAction(
     entityId: spaceId,
   });
 
-  try {
-    await alertFavoritersOfAvailabilityChange(
-      { id: spaceId, title: space.title, slug: space.slug },
-      novo === 'paused' ? 'unavailable' : 'available_again',
-    );
-  } catch (err) {
-    console.error('[status] falha ao notificar favoritos sobre disponibilidade:', err);
+  // Avisos (Fase 23): lista de espera primeiro, depois quem favoritou —
+  // nunca os dois para a mesma pessoa. Best-effort, nunca derruba a ação.
+  if (novo === 'paused') {
+    await onSpaceBecameUnavailable(spaceId);
+  } else {
+    await onSpaceMaybeAvailableAgain(spaceId);
   }
 
   revalidatePath('/meus-espacos');
   revalidatePath('/espacos');
+  revalidatePath(`/espacos/${space.slug}`);
   return {
     ok: true,
-    message: novo === 'paused' ? 'Anúncio pausado.' : 'Anúncio de volta ao ar.',
+    message:
+      novo === 'paused'
+        ? 'Anúncio pausado.'
+        : gravado?.status === 'rented'
+          ? 'Anúncio retomado. Ele aparece como alugado enquanto houver uma reserva vigente.'
+          : 'Anúncio de volta ao ar.',
   };
 }
 

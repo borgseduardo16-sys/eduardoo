@@ -1452,6 +1452,23 @@ Ctrl+C na caixa já selecionada).
 
 ---
 
+## Fase 23 — Descoberta, alertas e desempenho 🚧 *(em andamento, 30/09/2026)*
+
+Checkpoint intermediário, salvo para não perder trabalho. O relatório
+completo desta fase entra aqui quando ela terminar.
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Status `rented` aplicado de verdade | ✅ | antes nunca era usado: espaço ocupado aparecia como disponível. Agora gatilhos no banco sincronizam (reserva vigente → `rented`; encerrou → volta a `published`) |
+| Histórico de preço | ✅ | gravado por gatilho a cada mudança depois da publicação; imutável; mostrado só quando houve mudança real |
+| Lista de espera | ✅ | só em espaço indisponível; aviso quando volta; uma entrada ativa por pessoa |
+| Aviso de queda de preço nos favoritos | ✅ | por favorito, com referência de preço guardada no banco (o navegador não consegue mexer), queda mínima e intervalo mínimo entre avisos |
+| Calendário de disponibilidade + bloqueios manuais | ✅ | concorrência resolvida no banco (trava da linha do espaço + gatilhos); reserva não começa antes de um bloqueio |
+| SQL para colar no Supabase | ⬜ | será gerado no fim da fase, junto com as migrações restantes |
+| Demais itens (busca por necessidade, compatibilidade, alertas salvos, IA no anúncio, desempenho, relatório mensal, compartilhar, renovação) | ⬜ | em andamento |
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |

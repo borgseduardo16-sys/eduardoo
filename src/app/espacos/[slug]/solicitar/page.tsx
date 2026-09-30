@@ -7,6 +7,7 @@ import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { getReputation } from '@/lib/reviews/reputation';
 import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
+import { getSpaceAvailability, earliestOpenEndedStart } from '@/lib/spaces/availability';
 import { requireUser } from '@/lib/auth/dal';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { settingInt } from '@/lib/settings';
@@ -35,7 +36,7 @@ export default async function SolicitarAluguelPage({
 
   const isOwner = space.ownerId === user.id;
 
-  const [urls, existing, renterFeeBps, ownerFeeBps, ownerReputation, ownerResponse] = await Promise.all([
+  const [urls, existing, renterFeeBps, ownerFeeBps, ownerReputation, ownerResponse, disponibilidade] = await Promise.all([
     signImagePaths(
       [...space.images.slice(0, 1).map((i) => i.thumbPath ?? i.storagePath), space.owner?.avatarPath].filter(
         Boolean,
@@ -46,11 +47,20 @@ export default async function SolicitarAluguelPage({
     settingInt('fees.owner_fee_bps', 300),
     space.owner ? getReputation(space.owner.id) : Promise.resolve(null),
     space.owner ? getOwnerResponseStats(space.owner.id) : Promise.resolve(null),
+    getSpaceAvailability(space.id),
   ]);
 
   const capa = space.images[0];
   const capaUrl = capa ? urls.get(capa.thumbPath ?? capa.storagePath) : null;
   const hoje = new Date().toISOString().slice(0, 10);
+  // Primeira data possível de verdade (Fase 23): "disponível a partir de" e
+  // os bloqueios do calendário — o servidor confere de novo ao enviar.
+  const inicioMinimo = earliestOpenEndedStart({
+    today: hoje,
+    availableFrom: disponibilidade?.availableFrom ?? null,
+    blocks: disponibilidade?.upcomingBlocks ?? [],
+  });
+  const aberto = disponibilidade?.openForRequests ?? false;
 
   return (
     <>
@@ -95,7 +105,7 @@ export default async function SolicitarAluguelPage({
           Confiança no momento da decisão (Fase 21): quem é o proprietário e
           o que vale saber do espaço, antes de enviar — só dado real.
         */}
-        {!isOwner && !existing && (
+        {!isOwner && !existing && aberto && (
           <>
             <section aria-labelledby="antes-titulo" className="rounded-[var(--radius-card)] border p-4 sm:p-5 space-y-3">
               <h2 id="antes-titulo" className="font-semibold">Antes de enviar</h2>
@@ -174,15 +184,36 @@ export default async function SolicitarAluguelPage({
               Ver detalhes da solicitação
             </Link>
           </div>
+        ) : !aberto ? (
+          <Alert tone="warning" title="Este espaço não está disponível para solicitação agora">
+            <p>
+              {space.status === 'paused'
+                ? 'O proprietário pausou o anúncio.'
+                : 'Ele está alugado no momento.'}{' '}
+              <Link href={`/espacos/${space.slug}`} className="underline underline-offset-2">
+                Voltar ao anúncio
+              </Link>{' '}
+              para entrar na lista de espera.
+            </p>
+          </Alert>
         ) : (
-          <RequestBookingForm
-            spaceId={space.id}
-            spaceTitle={space.title}
-            monthlyRentCents={space.priceMonthlyCents}
-            renterFeeBps={renterFeeBps}
-            ownerFeeBps={ownerFeeBps}
-            minStartDate={hoje}
-          />
+          <>
+            {inicioMinimo > hoje && (
+              <Alert tone="info" title={`Disponível a partir de ${formatBookingDate(inicioMinimo)}`}>
+                {(disponibilidade?.upcomingBlocks.length ?? 0) > 0
+                  ? 'O proprietário bloqueou algumas datas no calendário. Como o aluguel é mensal e sem data para terminar, ele só pode começar depois do último bloqueio.'
+                  : 'É a data a partir da qual o proprietário disponibilizou o espaço.'}
+              </Alert>
+            )}
+            <RequestBookingForm
+              spaceId={space.id}
+              spaceTitle={space.title}
+              monthlyRentCents={space.priceMonthlyCents}
+              renterFeeBps={renterFeeBps}
+              ownerFeeBps={ownerFeeBps}
+              minStartDate={inicioMinimo}
+            />
+          </>
         )}
       </main>
 

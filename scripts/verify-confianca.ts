@@ -531,7 +531,10 @@ async function main() {
   const pubJson = JSON.stringify(pub);
   assert('perfil público sem telefone, CPF, e-mail ou nome completo',
     !pubJson.includes('999990123') && !pubJson.includes(cpfTeste) && !pubJson.includes('@') && !pubJson.includes('Rocha'), pubJson);
-  expect('espaços ativos contados do banco', pub?.activeSpacesCount, 3);
+  // Fase 23: um dos 3 espaços tem aluguel ativo e, desde então, fica `rented`
+  // (trigger bookings_sync_space_occupancy) — o perfil lista e conta só os que
+  // estão disponíveis para alugar agora, os mesmos que aparecem logo abaixo.
+  expect('espaços disponíveis contados do banco (o alugado fica de fora)', pub?.activeSpacesCount, 2);
   expect('sem plano ativo, nenhum indicador Premium', pub?.isPremium, false);
   await sql`INSERT INTO premium_memberships (user_id, status, source) VALUES (${donoId}, 'active', 'admin_grant')`;
   expect('Premium só aparece quando o plano está ativo no banco', (await getPublicProfile(donoId))?.isPremium, true);

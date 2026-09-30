@@ -23,12 +23,17 @@ export async function listUserFavoriteIds(userId: string): Promise<Set<string>> 
 }
 
 export async function isFavorited(userId: string, spaceId: string): Promise<boolean> {
+  return (await getFavoriteState(userId, spaceId)) != null;
+}
+
+/** Favorito desta pessoa neste espaço, com o estado do aviso de preço (Fase 23). Null = não favoritou. */
+export async function getFavoriteState(userId: string, spaceId: string): Promise<{ priceAlert: boolean } | null> {
   const [row] = await db
-    .select({ spaceId: favorites.spaceId })
+    .select({ priceAlert: favorites.priceAlert })
     .from(favorites)
     .where(and(eq(favorites.userId, userId), eq(favorites.spaceId, spaceId)))
     .limit(1);
-  return Boolean(row);
+  return row ?? null;
 }
 
 /** Quem favoritou este espaço — usado pelos alertas de preço/disponibilidade (Fase 18). */
@@ -99,6 +104,8 @@ export type FavoriteSpace = {
   favoritedAt: Date;
   /** Preco no momento em que a pessoa favoritou. Null = favorito antigo, sem historico. */
   priceCentsAtFavorite: number | null;
+  /** "Me avise quando o preço baixar" (Fase 23). */
+  priceAlert: boolean;
   promotionType: 'destaque' | 'turbo' | null;
 };
 
@@ -126,6 +133,7 @@ export async function listUserFavoriteSpaces(userId: string): Promise<FavoriteSp
       approxLng: lngOf(spaces.approxLocation),
       favoritedAt: favorites.createdAt,
       priceCentsAtFavorite: favorites.priceCentsAtFavorite,
+      priceAlert: favorites.priceAlert,
       // `spaces.id` literal de proposito — ver a nota em spaces/queries.ts.
       coverPath: sql<string | null>`(
         SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
