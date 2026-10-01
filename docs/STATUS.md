@@ -1641,7 +1641,7 @@ foi mexido.
 | Suíte | Resultado |
 |-------|-----------|
 | `scripts/verify-alugueis.ts` (nova, 13 seções) | 106 checagens, 0 falhas — também no banco montado pelo SQL do Supabase, com o papel sem superusuário |
-| `scripts/verify-alugueis-navegador.ts` (nova — Chromium, build de produção) | 27 checagens, 0 falhas: configurar e publicar pela tela, reservar 2 h com Pix, tempo só em Meus aluguéis, recusa do cartão → aviso com X, ponto, "!" só no aluguel com problema, pago some tudo |
+| `scripts/verify-alugueis-navegador.ts` (nova — Chromium, build de produção) | 28 checagens, 0 falhas: configurar e publicar pela tela, reservar 2 h com Pix, tempo só em Meus aluguéis, total da renovação com a taxa, recusa do cartão → aviso com X, ponto, "!" só no aluguel com problema, pago some tudo |
 | `scripts/verify-schema.ts` (seção 16 nova) | 218 checagens, 0 falhas |
 | `pnpm verify` (15 suítes) | 1.573 checagens, 0 falhas |
 | `pnpm verify:integracoes` (testes A a Q, Chromium) | 262 checagens, 0 falhas |
@@ -1917,7 +1917,7 @@ pnpm install
 pnpm db:migrate                      # aplica o schema
 pnpm verify                          # 1.573 checagens contra o Postgres real (15 suítes)
 pnpm verify:integracoes              # 262 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium, as 23 etapas da Fase 23)
-pnpm verify:alugueis-navegador       # 27 checagens em Chromium real (Parte 12: reserva por tempo, Meus aluguéis, pagamento pendente)
+pnpm verify:alugueis-navegador       # 28 checagens em Chromium real (Parte 12: reserva por tempo, Meus aluguéis, pagamento pendente)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real
 pnpm dev                             # http://localhost:3000
