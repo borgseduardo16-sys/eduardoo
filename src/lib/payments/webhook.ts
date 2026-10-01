@@ -46,6 +46,8 @@ const { PostgresError } = postgres;
  * adivinhar um efeito colateral financeiro.
  */
 const EVENTOS_TRATADOS = new Set([
+  // Fase 23: cobrança nova gerada pela assinatura (renovação mensal).
+  'PAYMENT_CREATED',
   'PAYMENT_CONFIRMED',
   'PAYMENT_RECEIVED',
   'PAYMENT_OVERDUE',
@@ -61,6 +63,14 @@ export type AsaasWebhookPayload = {
     value?: number;
     netValue?: number;
     status?: string;
+    /**
+     * Id da assinatura de origem ("sub_..."), só presente quando a cobrança
+     * foi gerada por uma assinatura — é o que liga as renovações mensais à
+     * nossa `subscriptions` (documentação do Asaas: eventos para cobranças).
+     */
+    subscription?: string;
+    dueDate?: string;
+    invoiceUrl?: string;
   };
 };
 
@@ -123,6 +133,7 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
         }
 
         pushJobs = await handleEvent(tx, event, pagamento, booking, payload);
+        if (pagamento.subscriptionId) await recalcNextDueDate(tx, pagamento.subscriptionId);
 
         await tx
           .update(webhookEvents)
@@ -130,6 +141,37 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
           .where(eq(webhookEvents.id, claimed.id));
 
         return { ok: true };
+      }
+
+      /*
+       * Fase 23 — renovação: a partir do 2º mês, quem cria a cobrança é o
+       * próprio Asaas (a assinatura), então ela chega aqui sem linha nossa.
+       * Se o `payment.subscription` é uma assinatura NOSSA, a cobrança é
+       * registrada (com os valores que o gateway informou) e o evento segue
+       * o mesmo caminho de qualquer cobrança. Assinatura desconhecida cai no
+       * "ignorado" lá embaixo — nada é criado a partir de um id que não é nosso.
+       */
+      const idAssinatura = typeof payload.payment?.subscription === 'string' ? payload.payment.subscription : null;
+      if (idAssinatura) {
+        const [assinatura] = await tx
+          .select()
+          .from(subscriptions)
+          .where(and(eq(subscriptions.provider, 'asaas'), eq(subscriptions.providerSubscriptionId, idAssinatura)))
+          .limit(1);
+        if (assinatura) {
+          const [booking] = await tx.select().from(bookings).where(eq(bookings.id, assinatura.bookingId)).limit(1);
+          if (!booking) throw new Error(`reserva ${assinatura.bookingId} da assinatura ${assinatura.id} nao encontrada`);
+          const cobranca = await registerSubscriptionPayment(tx, assinatura, providerPaymentId, payload);
+          pushJobs = await handleEvent(tx, event, cobranca, booking, payload);
+          await recalcNextDueDate(tx, assinatura.id);
+
+          await tx
+            .update(webhookEvents)
+            .set({ status: 'processed', processedAt: new Date() })
+            .where(eq(webhookEvents.id, claimed.id));
+
+          return { ok: true };
+        }
       }
 
       const [compra] = await tx
@@ -192,6 +234,93 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type PaymentRow = typeof payments.$inferSelect;
 type BookingRow = typeof bookings.$inferSelect;
+type SubscriptionRow = typeof subscriptions.$inferSelect;
+
+/**
+ * Grava localmente uma cobrança gerada pela assinatura (renovação). Valor,
+ * vencimento e link de pagamento vêm do gateway (servidor a servidor, com o
+ * token do webhook) — nunca do navegador. Valor inválido cai no valor da
+ * assinatura; se o gateway cobrar diferente do combinado, fica registrado na
+ * auditoria. Idempotente pelo índice único (provider, provider_payment_id).
+ */
+async function registerSubscriptionPayment(
+  tx: Tx,
+  assinatura: SubscriptionRow,
+  providerPaymentId: string,
+  payload: AsaasWebhookPayload,
+): Promise<PaymentRow> {
+  const bruto = payload.payment?.value;
+  const valorCents = typeof bruto === 'number' && Number.isFinite(bruto) && bruto > 0 ? Math.round(bruto * 100) : assinatura.amountCents;
+  const venc = payload.payment?.dueDate;
+  const dueDate = typeof venc === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(venc)
+    ? venc
+    : (assinatura.nextDueDate ?? new Date().toISOString().slice(0, 10));
+  const link = payload.payment?.invoiceUrl;
+  const invoiceUrl = typeof link === 'string' && link.startsWith('https://') ? link.slice(0, 500) : null;
+
+  const [novo] = await tx
+    .insert(payments)
+    .values({
+      bookingId: assinatura.bookingId,
+      subscriptionId: assinatura.id,
+      provider: 'asaas',
+      providerPaymentId,
+      status: 'pending',
+      method: assinatura.method,
+      amountCents: valorCents,
+      dueDate,
+      invoiceUrl,
+      providerPayload: payload as Record<string, unknown>,
+    })
+    .onConflictDoNothing({ target: [payments.provider, payments.providerPaymentId] })
+    .returning();
+  const linha = novo ?? (await tx
+    .select()
+    .from(payments)
+    .where(and(eq(payments.provider, 'asaas'), eq(payments.providerPaymentId, providerPaymentId)))
+    .limit(1))[0];
+  if (!linha) throw new Error(`cobranca ${providerPaymentId} nao pôde ser registrada`);
+
+  if (novo) {
+    await tx.insert(auditLogs).values({
+      actorId: null, actorRole: 'system', action: 'payment.renewal_registered',
+      entityType: 'payment', entityId: novo.id,
+      metadata: {
+        bookingId: assinatura.bookingId, subscriptionId: assinatura.id, dueDate,
+        amountCents: valorCents, expectedAmountCents: assinatura.amountCents,
+        amountMismatch: valorCents !== assinatura.amountCents,
+      },
+    });
+  }
+  return linha;
+}
+
+/**
+ * Próxima cobrança da assinatura = o vencimento mais antigo ainda em aberto;
+ * sem nada em aberto, um mês depois da última paga. Recalculado a cada
+ * evento de cobrança — é o que mantém "Próxima cobrança" na tela e o
+ * lembrete de vencimento certos mês após mês (antes da Fase 23, o valor
+ * gravado no checkout nunca avançava).
+ */
+async function recalcNextDueDate(tx: Tx, subscriptionId: string): Promise<void> {
+  await tx.execute(sql`
+    UPDATE subscriptions s SET
+      next_due_date = COALESCE(
+        (SELECT min(p.due_date) FROM payments p
+          WHERE p.subscription_id = s.id AND p.status IN ('pending', 'overdue')),
+        (SELECT (max(p.due_date) + interval '1 month')::date FROM payments p
+          WHERE p.subscription_id = s.id AND p.status IN ('confirmed', 'received')),
+        s.next_due_date
+      ),
+      updated_at = now()
+    WHERE s.id = ${subscriptionId}
+  `);
+}
+
+/** Cobrança de renovação = o aluguel já tinha começado antes dela. */
+function isRenewal(booking: BookingRow): boolean {
+  return booking.activatedAt != null;
+}
 
 async function handleEvent(
   tx: Tx,
@@ -201,6 +330,8 @@ async function handleEvent(
   payload: AsaasWebhookPayload,
 ): Promise<PushJob[]> {
   switch (event) {
+    case 'PAYMENT_CREATED':
+      return handleCreated(tx, pagamento, booking, payload);
     case 'PAYMENT_CONFIRMED':
       return handleConfirmed(tx, pagamento, booking, payload);
     case 'PAYMENT_RECEIVED':
@@ -213,6 +344,27 @@ async function handleEvent(
       return handleRefunded(tx, pagamento, booking);
     case 'PAYMENT_DELETED':
       return handleDeleted(tx, pagamento);
+  }
+  return [];
+}
+
+/**
+ * Cobrança criada (Fase 23). Não avisa ninguém: o lembrete de vencimento
+ * (7 e 1 dia antes, cron diário) já cuida disso sem duplicar. Só completa o
+ * link de pagamento se ainda não havia, e registra na auditoria se a
+ * cobrança nasceu depois de o aluguel acabar (não deveria acontecer: a
+ * assinatura é cancelada no gateway ao encerrar).
+ */
+async function handleCreated(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
+  const link = payload.payment?.invoiceUrl;
+  if (!pagamento.invoiceUrl && typeof link === 'string' && link.startsWith('https://')) {
+    await tx.update(payments).set({ invoiceUrl: link.slice(0, 500), updatedAt: new Date() }).where(eq(payments.id, pagamento.id));
+  }
+  if (booking.status === 'ended' || booking.status === 'cancelled') {
+    await tx.insert(auditLogs).values({
+      actorId: null, actorRole: 'system', action: 'payment.created_after_end',
+      entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id, bookingStatus: booking.status },
+    });
   }
   return [];
 }
@@ -248,18 +400,26 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
     }
   }
 
+  // Fase 23: mensalidade de um aluguel que já estava rodando = renovação.
+  const renovacao = !primeiraAtivacao;
   const jobs = await insertNotifications(tx, [
     // dedupeKey por COBRANCA: CONFIRMED e RECEIVED da mesma cobranca (eventos
     // diferentes, ids diferentes) nao viram dois avisos iguais (Fase 21).
     {
-      userId: booking.renterId, type: 'payment_confirmed', title: 'Pagamento confirmado',
-      body: 'Seu pagamento foi confirmado. O aluguel segue ativo.',
+      userId: booking.renterId, type: 'payment_confirmed',
+      title: renovacao ? 'Renovação confirmada' : 'Pagamento confirmado',
+      body: renovacao
+        ? 'O pagamento da renovação foi confirmado. Seu aluguel segue ativo por mais um mês.'
+        : 'Seu pagamento foi confirmado. O aluguel segue ativo.',
       linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
     {
-      userId: booking.ownerId, type: 'payment_confirmed', title: 'Pagamento recebido',
-      body: 'O pagamento deste aluguel foi confirmado pelo locatário.',
+      userId: booking.ownerId, type: 'payment_confirmed',
+      title: renovacao ? 'Renovação paga' : 'Pagamento recebido',
+      body: renovacao
+        ? 'O locatário pagou a renovação deste mês.'
+        : 'O pagamento deste aluguel foi confirmado pelo locatário.',
       linkPath: '/meus-espacos/financeiro', data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
@@ -385,11 +545,16 @@ async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow)
 
   // Os dois lados ficam sabendo (Fase 21): o proprietario tambem precisa
   // saber que o aluguel do espaco dele esta em atraso.
+  const renovacao = isRenewal(booking);
   const jobsAtraso = await insertNotifications(tx, [
     {
-      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento em atraso',
-      body: 'O pagamento deste mês está atrasado. Regularize para manter o aluguel ativo.',
-      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      userId: booking.renterId, type: 'payment_failed',
+      title: renovacao ? 'Não conseguimos processar sua renovação' : 'Pagamento em atraso',
+      body: renovacao
+        ? 'A cobrança da renovação venceu sem pagamento. Pague pelo link na reserva para manter o aluguel ativo.'
+        : 'O pagamento deste mês está atrasado. Regularize para manter o aluguel ativo.',
+      linkPath: renovacao ? `/reservas/${booking.id}#renovacao` : `/reservas/${booking.id}`,
+      data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_overdue:${pagamento.id}`,
     },
     {
@@ -413,11 +578,16 @@ async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow):
     .set({ status: 'failed', failureReason: 'Recusado na analise de risco do gateway.', updatedAt: new Date() })
     .where(eq(payments.id, pagamento.id));
 
+  const renovacao = isRenewal(booking);
   const jobsRecusa = await insertNotifications(tx, [
     {
-      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento recusado',
-      body: 'Seu pagamento não foi aprovado. Tente novamente com outro cartão ou meio de pagamento.',
-      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      userId: booking.renterId, type: 'payment_failed',
+      title: renovacao ? 'Não conseguimos processar sua renovação' : 'Pagamento recusado',
+      body: renovacao
+        ? 'O pagamento da renovação não foi aprovado. Abra a reserva e pague pelo link com outro cartão ou meio de pagamento.'
+        : 'Seu pagamento não foi aprovado. Tente novamente com outro cartão ou meio de pagamento.',
+      linkPath: renovacao ? `/reservas/${booking.id}#renovacao` : `/reservas/${booking.id}`,
+      data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_failed:${pagamento.id}`,
     },
     {

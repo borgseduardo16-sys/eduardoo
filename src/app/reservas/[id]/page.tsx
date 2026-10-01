@@ -9,6 +9,8 @@ import { findConversation } from '@/lib/messaging/queries';
 import { hasReviewedBooking } from '@/lib/reviews/queries';
 import { getRatingSummaries } from '@/lib/reviews/reputation';
 import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
+import { getRenewalInfo } from '@/lib/bookings/renewal';
+import { RenewalPanel } from '@/components/bookings/renewal-panel';
 import { isUuid } from '@/lib/profiles/queries';
 import { displayNameOr } from '@/lib/profiles/format';
 import { signImagePaths } from '@/lib/storage/signed-urls';
@@ -68,7 +70,7 @@ export default async function ReservaPage({
   const outra = papel === 'renter' ? b.owner : b.renter;
   const kindAvaliacao = papel === 'renter' ? 'renter_to_space' : 'owner_to_renter';
 
-  const [urls, endereco, conversa, jaAvaliou, reputacao, respostaDono] = await Promise.all([
+  const [urls, endereco, conversa, jaAvaliou, reputacao, respostaDono, renovacao] = await Promise.all([
     signImagePaths([b.spaceCoverPath, outra.avatarPath].filter(Boolean) as string[]),
     papel === 'renter' ? getBookingAddressForRenter(b.id, user.id) : Promise.resolve(null),
     findConversation(b.spaceId, b.renterId),
@@ -77,7 +79,12 @@ export default async function ReservaPage({
     getRatingSummaries([outra.id], papel === 'renter' ? 'renter_to_space' : 'owner_to_renter'),
     // Como o proprietário responde — só interessa a quem está do lado de quem pede.
     papel === 'renter' ? getOwnerResponseStats(outra.id) : Promise.resolve(null),
+    // Fase 23: renovação mensal (só existe depois do checkout, com assinatura).
+    getRenewalInfo(b.id, user.id),
   ]);
+  // Com aluguel rodando (ou encerrado), a renovação ganha seção própria e
+  // substitui o resumo de pagamento — mesma informação, mais completa.
+  const mostrarRenovacao = renovacao != null && ['active', 'past_due', 'ended'].includes(b.status);
 
   const status = BOOKING_STATUS_INFO[b.status as keyof typeof BOOKING_STATUS_INFO] ?? {
     label: b.status,
@@ -211,6 +218,7 @@ export default async function ReservaPage({
             )}
           </dl>
 
+          {!mostrarRenovacao && (
           <div className="border-t pt-3 space-y-1.5 text-[0.875rem]">
             <p className="font-medium">Pagamento</p>
             {b.subscriptionStatus || b.lastPaymentStatus ? (
@@ -262,7 +270,10 @@ export default async function ReservaPage({
               </Link>
             )}
           </div>
+          )}
         </section>
+
+        {mostrarRenovacao && renovacao && <RenewalPanel info={renovacao} />}
 
         {/* Ações da reserva — cada componente decide sozinho se aparece pelo status */}
         <section aria-label="Ações da reserva" className="space-y-3">

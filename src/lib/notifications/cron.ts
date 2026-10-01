@@ -3,6 +3,7 @@ import { and, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { subscriptions, bookings, spaces, notifications, favorites, conversations, promotions } from '@/db/schema';
 import { notifyUser, notifyUsers } from './dispatch';
+import { formatBRL } from '@/lib/money';
 
 /**
  * Jobs agendados (Vercel Cron — ver src/app/api/cron/notificacoes/route.ts).
@@ -34,6 +35,10 @@ type RentDueNotificationData = {
  * do próprio cron rodar 2x no mesmo dia (retry, disparo manual), não para o
  * avanço normal dos dias.
  */
+function dataBr(iso: string): string {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+}
+
 export async function runRentDueReminders(): Promise<{ sent: number }> {
   const candidatos = await db
     .select({
@@ -42,6 +47,21 @@ export async function runRentDueReminders(): Promise<{ sent: number }> {
       nextDueDate: subscriptions.nextDueDate,
       renterId: bookings.renterId,
       spaceTitle: spaces.title,
+      /*
+       * Valor real da renovação: o da cobrança já gerada para essa data (o
+       * que o gateway vai cobrar) ou, se ela ainda não existe, o da
+       * assinatura. `subscriptions.*` vai LITERAL: interpolado, sairia "id"
+       * sem tabela e o Postgres ligaria ao `p.id` da cobrança.
+       */
+      amountCents: sql<number>`COALESCE(
+        (SELECT p.amount_cents FROM payments p
+          WHERE p.subscription_id = subscriptions.id AND p.due_date = subscriptions.next_due_date
+            AND p.status IN ('pending', 'overdue')
+          ORDER BY p.created_at DESC LIMIT 1),
+        subscriptions.amount_cents)`,
+      chargeReady: sql<boolean>`EXISTS (
+        SELECT 1 FROM payments p
+        WHERE p.subscription_id = subscriptions.id AND p.due_date = subscriptions.next_due_date AND p.status = 'pending')`,
       milestone: sql<'7d' | '1d'>`(
         CASE
           WHEN ${subscriptions.nextDueDate} = (CURRENT_DATE + INTERVAL '7 days')::date THEN '7d'
@@ -87,12 +107,12 @@ export async function runRentDueReminders(): Promise<{ sent: number }> {
     pendentes.map((c) => ({
       userId: c.renterId,
       type: 'payment_upcoming' as const,
-      title: c.milestone === '7d' ? 'Aluguel vence em 7 dias' : 'Aluguel vence amanhã',
-      body:
-        c.milestone === '7d'
-          ? `O aluguel de "${c.spaceTitle}" vence em 7 dias.`
-          : `O aluguel de "${c.spaceTitle}" vence amanhã.`,
-      linkPath: `/reservas/${c.bookingId}`,
+      // Fase 23: o lembrete diz espaço, data, valor e situação da renovação.
+      title: c.milestone === '7d' ? 'Sua renovação está próxima' : 'Sua renovação é amanhã',
+      body: `Renovação de "${c.spaceTitle}" ${c.milestone === '7d' ? 'em 7 dias' : 'amanhã'} (${dataBr(String(c.nextDueDate))}): ${formatBRL(Number(c.amountCents))}. ${
+        c.chargeReady ? 'A cobrança já está disponível para pagamento.' : 'A cobrança é gerada automaticamente.'
+      }`,
+      linkPath: `/reservas/${c.bookingId}#renovacao`,
       dedupeKey: `payment_upcoming:${c.subscriptionId}:${c.milestone}:${c.nextDueDate}`,
       data: {
         subscriptionId: c.subscriptionId,

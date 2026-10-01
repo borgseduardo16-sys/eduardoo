@@ -77,10 +77,12 @@ const donoStatsId = uuid();
 const donoStatsOutroId = uuid();
 const donoStatsVazioId = uuid();
 const visitanteId = uuid();
+const donoRenovId = uuid();
+const locatarioRenovId = uuid();
 const todos = [
   donoId, locatarioId, outroId, favAId, favBId, esperaId, bloqueadoId, alertaAId, alertaBId, alertaPremiumId,
   donoIaId, donoIaFalhaId, donoIaLimiteId, donoIaIntervaloId, donoIaTetoId,
-  donoStatsId, donoStatsOutroId, donoStatsVazioId, visitanteId,
+  donoStatsId, donoStatsOutroId, donoStatsVazioId, visitanteId, donoRenovId, locatarioRenovId,
 ];
 
 type Identidade = { id: string; role: 'user' | 'owner' | 'admin'; fullName: string };
@@ -148,6 +150,7 @@ async function limpar() {
   await sql`DELETE FROM user_blocks WHERE blocker_id IN ${sql(todos)} OR blocked_id IN ${sql(todos)}`;
   await sql`DELETE FROM conversations WHERE renter_id IN ${sql(todos)} OR owner_id IN ${sql(todos)}`;
   await sql`DELETE FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id IN ${sql(todos)})`;
+  await sql`DELETE FROM webhook_events WHERE provider_event_id LIKE ${'%' + tag + '%'}`;
   await sql`DELETE FROM subscriptions WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id IN ${sql(todos)})`;
   await sql`DELETE FROM bookings WHERE owner_id IN ${sql(todos)}`;
   await sql`DELETE FROM promotions WHERE owner_id IN ${sql(todos)}`;
@@ -1882,6 +1885,135 @@ async function main() {
   const paginaFonte = await import('node:fs').then((fs) => fs.readFileSync('src/app/espacos/[slug]/page.tsx', 'utf8'));
   assert('link compartilhado é a URL estável do anúncio (/espacos/slug)',
     paginaFonte.includes('const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`'));
+
+  // =========================================================================
+  secao('12. Renovação mensal: cobranças da assinatura, estados, avisos e isolamento');
+  // =========================================================================
+  const { processAsaasWebhook } = await import('../src/lib/payments/webhook');
+  const { getRenewalInfo } = await import('../src/lib/bookings/renewal');
+  const { computeRenewal, addMonthsIso } = await import('../src/lib/bookings/renewal-state');
+
+  // ---- 12a. Regras puras ----
+  expect('mês seguinte de 31/01 é 28/02 (mês curto)', addMonthsIso('2026-01-31', 1), '2026-02-28');
+  expect('mês seguinte de 15/12 vira o ano', addMonthsIso('2026-12-15', 1), '2027-01-15');
+  const base12 = { bookingStatus: 'active', subscriptionStatus: 'active', subscriptionNextDueDate: '2026-11-10', subscriptionAmountCents: 30900 };
+  expect('tudo pago: em dia, pago até a véspera do próximo mês', computeRenewal({ ...base12, charges: [
+    { id: 'a', dueDate: '2026-10-10', amountCents: 30900, status: 'confirmed', paidAt: null, invoiceUrl: null },
+  ] }, '2026-10-20'), { state: 'em_dia', next: { dueDate: '2026-11-10', amountCents: 30900, invoiceUrl: null, generated: false }, paidThrough: '2026-11-09' });
+  expect('cobrança recusada: estado "recusada" com o link para pagar de novo', computeRenewal({ ...base12, charges: [
+    { id: 'a', dueDate: '2026-10-10', amountCents: 30900, status: 'failed', paidAt: null, invoiceUrl: 'https://pagar/a' },
+  ] }, '2026-10-11').state, 'recusada');
+  expect('vencida sem pagamento: "atrasada"', computeRenewal({ ...base12, charges: [
+    { id: 'a', dueDate: '2026-10-10', amountCents: 30900, status: 'pending', paidAt: null, invoiceUrl: null },
+  ] }, '2026-10-12').state, 'atrasada');
+  expect('aluguel encerrado: sem próxima cobrança', computeRenewal({ ...base12, bookingStatus: 'ended', charges: [] }, '2026-10-12').next, null);
+
+  // ---- 12b. Cenário real: aluguel ativo com assinatura ----
+  await sql`UPDATE profiles SET role='owner', full_name='Dono Renovação' WHERE id=${donoRenovId}`;
+  const espacoRenov = await criarPublicado({ ownerId: donoRenovId });
+  const hoje12 = todayInSaoPaulo();
+  const primeiroVenc = addDaysIso(hoje12, -35);
+  const fees12 = (await sql<{ r: number; o: number }[]>`
+    SELECT (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.renter_fee_bps') AS r,
+           (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.owner_fee_bps') AS o`)[0]!;
+  const v12 = computeBookingAmounts(30000, { renterFeeBps: Number(fees12.r ?? 300), ownerFeeBps: Number(fees12.o ?? 300) });
+  const [reserva12] = await sql<{ id: string }[]>`
+    INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+      monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
+      total_charged_cents, owner_payout_cents, requested_at, activated_at)
+    VALUES (${`MP-${tag}-renov`}, ${espacoRenov.id}, ${locatarioRenovId}, ${donoRenovId}, 'active', ${primeiroVenc}::date,
+      ${v12.monthlyRentCents}, ${v12.renterFeeBps}, ${v12.ownerFeeBps}, ${v12.renterFeeCents}, ${v12.ownerFeeCents},
+      ${v12.totalChargedCents}, ${v12.ownerPayoutCents}, now() - interval '40 days', now() - interval '35 days')
+    RETURNING id`;
+  const idAssinatura = `sub_${tag}`;
+  const [assin12] = await sql<{ id: string }[]>`
+    INSERT INTO subscriptions (booking_id, provider, provider_subscription_id, method, status, amount_cents, billing_day, next_due_date)
+    VALUES (${reserva12!.id}, 'asaas', ${idAssinatura}, 'pix', 'active', ${v12.totalChargedCents}, ${Math.min(Number(primeiroVenc.slice(8, 10)), 28)}, ${primeiroVenc}::date)
+    RETURNING id`;
+  await sql`INSERT INTO payments (booking_id, subscription_id, provider, provider_payment_id, status, method, amount_cents, due_date, paid_at)
+    VALUES (${reserva12!.id}, ${assin12!.id}, 'asaas', ${`pay_${tag}_1`}, 'confirmed', 'pix', ${v12.totalChargedCents}, ${primeiroVenc}::date, now() - interval '35 days')`;
+  const proximaDe = async () => (await sql<{ d: string }[]>`SELECT next_due_date::text AS d FROM subscriptions WHERE id=${assin12!.id}`)[0]!.d;
+  expect('antes: "próxima cobrança" parada na data do checkout (o defeito que a Fase 23 corrige)', await proximaDe(), primeiroVenc);
+
+  // Asaas gera a 2ª mensalidade: chega PAYMENT_CREATED com payment.subscription.
+  const venc2 = addDaysIso(hoje12, 3);
+  const rRenov2 = await processAsaasWebhook({ event: 'PAYMENT_CREATED', payment: {
+    id: `pay_${tag}_2`, subscription: idAssinatura, value: v12.totalChargedCents / 100, dueDate: venc2, invoiceUrl: `https://sandbox.asaas.test/i/${tag}2`,
+  } });
+  expect('webhook da renovação processado', rRenov2.ok, true);
+  const [cob2] = await sql<{ status: string; amount_cents: number; due_date: string; invoice_url: string | null; subscription_id: string }[]>`
+    SELECT status::text, amount_cents, due_date::text, invoice_url, subscription_id FROM payments WHERE provider_payment_id=${`pay_${tag}_2`}`;
+  expect('cobrança da renovação registrada com os dados do gateway', [cob2?.status, cob2?.amount_cents, cob2?.due_date, cob2?.subscription_id],
+    ['pending', v12.totalChargedCents, venc2, assin12!.id]);
+  expect('próxima cobrança avançou para o vencimento em aberto', await proximaDe(), venc2);
+  expect('cobrança criada não gera aviso (o lembrete de 7/1 dia já cobre)',
+    await contarNotificacoes(locatarioRenovId, 'payment_confirmed') + await contarNotificacoes(locatarioRenovId, 'payment_failed'), 0);
+  await processAsaasWebhook({ event: 'PAYMENT_CREATED', payment: { id: `pay_${tag}_2`, subscription: idAssinatura, value: 1, dueDate: venc2 } });
+  const [{ n: copias } = { n: 0 }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM payments WHERE provider_payment_id=${`pay_${tag}_2`}`;
+  expect('reentrega do mesmo evento não duplica nem muda o valor', [copias, (await sql<{ a: number }[]>`SELECT amount_cents AS a FROM payments WHERE provider_payment_id=${`pay_${tag}_2`}`)[0]?.a], [1, v12.totalChargedCents]);
+
+  const infoLocatario = await getRenewalInfo(reserva12!.id, locatarioRenovId);
+  expect('locatário: aguardando pagamento, com link para pagar', [infoLocatario?.state, infoLocatario?.next?.dueDate, infoLocatario?.next?.invoiceUrl],
+    ['aguardando', venc2, `https://sandbox.asaas.test/i/${tag}2`]);
+  expect('pago até a véspera de um mês depois do 1º vencimento', infoLocatario?.paidThrough, addDaysIso(addMonthsIso(primeiroVenc, 1), -1));
+  const infoDono = await getRenewalInfo(reserva12!.id, donoRenovId);
+  expect('proprietário vê a situação e o que recebe, sem o link de pagamento do locatário',
+    [infoDono?.role, infoDono?.state, infoDono?.ownerPayoutCents, infoDono?.history.every((c) => c.invoiceUrl === null)],
+    ['owner', 'aguardando', v12.ownerPayoutCents, true]);
+  expect('outra pessoa não vê nada da renovação (IDOR)', await getRenewalInfo(reserva12!.id, outroId), null);
+
+  // Pagou a renovação.
+  await processAsaasWebhook({ event: 'PAYMENT_CONFIRMED', payment: { id: `pay_${tag}_2` } });
+  const [avisoRenov] = await sql<{ title: string }[]>`
+    SELECT title FROM notifications WHERE user_id=${locatarioRenovId} AND type='payment_confirmed' ORDER BY created_at DESC LIMIT 1`;
+  expect('locatário recebe "Renovação confirmada"', avisoRenov?.title, 'Renovação confirmada');
+  const [avisoDonoRenov] = await sql<{ title: string }[]>`
+    SELECT title FROM notifications WHERE user_id=${donoRenovId} AND type='payment_confirmed' ORDER BY created_at DESC LIMIT 1`;
+  expect('proprietário recebe "Renovação paga"', avisoDonoRenov?.title, 'Renovação paga');
+  expect('próxima cobrança = um mês depois da paga', await proximaDe(), addMonthsIso(venc2, 1));
+  const emDia = await getRenewalInfo(reserva12!.id, locatarioRenovId);
+  expect('em dia, pago até a véspera do próximo vencimento', [emDia?.state, emDia?.paidThrough, emDia?.next?.generated],
+    ['em_dia', addDaysIso(addMonthsIso(venc2, 1), -1), false]);
+
+  // 3ª mensalidade chega direto como vencida (o PAYMENT_CREATED se perdeu).
+  const venc3 = addMonthsIso(venc2, 1);
+  await processAsaasWebhook({ event: 'PAYMENT_OVERDUE', payment: {
+    id: `pay_${tag}_3`, subscription: idAssinatura, value: v12.totalChargedCents / 100, dueDate: venc3, invoiceUrl: `https://sandbox.asaas.test/i/${tag}3`,
+  } });
+  const [estado3] = await sql<{ pay: string; booking: string; sub: string }[]>`
+    SELECT (SELECT status::text FROM payments WHERE provider_payment_id=${`pay_${tag}_3`}) AS pay,
+      (SELECT status::text FROM bookings WHERE id=${reserva12!.id}) AS booking,
+      (SELECT status::text FROM subscriptions WHERE id=${assin12!.id}) AS sub`;
+  expect('renovação vencida: cobrança registrada e marcada, aluguel e assinatura em atraso', [estado3?.pay, estado3?.booking, estado3?.sub],
+    ['overdue', 'past_due', 'past_due']);
+  const [falha] = await sql<{ title: string; link_path: string }[]>`
+    SELECT title, link_path FROM notifications WHERE user_id=${locatarioRenovId} AND type='payment_failed' ORDER BY created_at DESC LIMIT 1`;
+  expect('locatário avisado na hora, com o caminho para resolver', [falha?.title, falha?.link_path],
+    ['Não conseguimos processar sua renovação', `/reservas/${reserva12!.id}#renovacao`]);
+  assert('proprietário também é avisado', (await contarNotificacoes(donoRenovId, 'payment_failed')) >= 1);
+  const atrasada = await getRenewalInfo(reserva12!.id, locatarioRenovId);
+  expect('tela: em atraso, com o link da cobrança vencida', [atrasada?.state, atrasada?.next?.invoiceUrl], ['atrasada', `https://sandbox.asaas.test/i/${tag}3`]);
+
+  // Regularizou.
+  await processAsaasWebhook({ event: 'PAYMENT_CONFIRMED', payment: { id: `pay_${tag}_3` } });
+  const [voltaRenov] = await sql<{ booking: string; sub: string; ciclos: number }[]>`
+    SELECT (SELECT status::text FROM bookings WHERE id=${reserva12!.id}) AS booking,
+      (SELECT status::text FROM subscriptions WHERE id=${assin12!.id}) AS sub,
+      (SELECT failed_cycles FROM subscriptions WHERE id=${assin12!.id}) AS ciclos`;
+  expect('pagou a vencida: aluguel e assinatura voltam a ativos', [voltaRenov?.booking, voltaRenov?.sub, voltaRenov?.ciclos], ['active', 'active', 0]);
+  expect('próxima cobrança avança de novo', await proximaDe(), addMonthsIso(venc3, 1));
+
+  // ---- 12c. Segurança do registro automático ----
+  const rDesconhecida = await processAsaasWebhook({ event: 'PAYMENT_CREATED', payment: { id: `pay_${tag}_x`, subscription: `sub_desconhecida_${tag}`, value: 999 } });
+  const [{ n: criadas } = { n: 0 }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM payments WHERE provider_payment_id=${`pay_${tag}_x`}`;
+  expect('assinatura que não é nossa: nada é criado', [rDesconhecida.ok, criadas], [true, 0]);
+  await processAsaasWebhook({ event: 'PAYMENT_CREATED', payment: { id: `pay_${tag}_4`, subscription: idAssinatura, value: 1234.56, dueDate: addMonthsIso(venc3, 1) } });
+  const [divergente] = await sql<{ amount_cents: number }[]>`SELECT amount_cents FROM payments WHERE provider_payment_id=${`pay_${tag}_4`}`;
+  const [auditoriaDiv] = await sql<{ metadata: { amountMismatch?: boolean } }[]>`
+    SELECT metadata FROM audit_logs WHERE action='payment.renewal_registered' AND metadata->>'subscriptionId' = ${assin12!.id}
+    ORDER BY created_at DESC LIMIT 1`;
+  expect('valor diferente do combinado: grava o que o gateway cobrou e marca na auditoria', [divergente?.amount_cents, auditoriaDiv?.metadata?.amountMismatch], [123456, true]);
+  expect('cobrança criada com link inválido (não https) não guarda link', (await sql<{ u: string | null }[]>`SELECT invoice_url AS u FROM payments WHERE provider_payment_id=${`pay_${tag}_4`}`)[0]?.u ?? null, null);
 
   // =========================================================================
   await limpar();
