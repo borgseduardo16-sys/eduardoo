@@ -346,14 +346,14 @@ conclusão sempre coerentes.
 
 ## Descoberta, disponibilidade e desempenho (Fase 23)
 
-Migrações `0025` a `0029`. Toda tabela nova tem RLS ligada **sem política
+Migrações `0025` a `0030`. Toda tabela nova tem RLS ligada **sem política
 nenhuma** e `REVOKE` para `anon`/`authenticated`: o navegador não lê nem
 escreve direto; tudo passa pelo servidor, que filtra pelo dono logado.
 
 | Tabela | Para quê | O que o banco garante |
 |---|---|---|
 | `space_price_history` | cada mudança de preço depois da publicação | gravada **por gatilho** (`spaces_record_price_change`), nunca pelo app; imutável (`space_price_history_immutable`: UPDATE/DELETE recusados, só sai em cascata com o anúncio); só mudança real (`space_price_history_real_change`), preços positivos |
-| `waitlist_entries` | lista de espera de espaço indisponível | uma entrada ativa por pessoa e espaço; não entra em espaço disponível nem no próprio (`waitlist_entries_guard`); datas coerentes com o estado |
+| `waitlist_entries` | lista de espera de espaço indisponível | uma entrada ativa por pessoa e espaço; o dono não entra no próprio espaço e quem tem bloqueio com o dono também não (`waitlist_entries_guard`); datas coerentes com o estado. Se o espaço está mesmo indisponível quem confere é o servidor, na hora de entrar — a disponibilidade muda com reserva, pausa e calendário, e o banco não trava isso na fila |
 | `space_availability_blocks` | bloqueios manuais do calendário | início antes do fim, até 366 dias, nota curta; bloqueio não pode cair em cima de reserva vigente e reserva não começa antes de um bloqueio (`space_availability_blocks_guard`, `bookings_guard_blocked_period`, com trava da linha do espaço contra corrida) |
 | `saved_searches` / `saved_search_matches` | alertas de busca e o que já casou com cada um | critérios como objeto JSON, rótulo curto, sem alerta repetido (`saved_searches_user_criteria_key`); limite de alertas ativos por plano (`saved_searches_active_limit`, lê `alerts.saved_search_max_*` e trava o perfil contra corrida); um anúncio casa uma vez por alerta |
 | `listing_suggestions` | sugestões da IA para o anúncio | guarda o texto sugerido; aplicar copia **do banco** (não do navegador) e fica registrado na auditoria |
@@ -372,6 +372,11 @@ escreve direto; tudo passa pelo servidor, que filtra pelo dono logado.
 - `guard_delete_photo_of_published` (já existia, Fase 2) — passa a valer
   também para espaço `rented`: anúncio no ar, alugado ou não, não fica com
   menos fotos que o mínimo.
+- `0030` — as duas travas do calendário deixam datas invertidas para o CHECK
+  de sempre (`space_availability_blocks_dates_ordered`,
+  `bookings_dates_ordered`). Antes, o `daterange` delas estourava primeiro e a
+  recusa saía com um erro cru do Postgres, sem o nome da regra. Nada que era
+  recusado passou a ser aceito.
 
 **Configurações (`platform_settings`) novas:** `alerts.*` (limites e
 intervalos dos alertas), `ai.*` (tetos de IA), `analytics.views_counting_since`
@@ -391,9 +396,10 @@ Nada acima é promessa. Os scripts rodam contra um **Postgres real**,
 provando que cada regra citada aqui bloqueia mesmo o dado inválido:
 
 ```bash
-pnpm tsx scripts/verify-schema.ts        # 99 — cada CHECK, trigger e índice único
+pnpm tsx scripts/verify-schema.ts        # 136 — cada CHECK, trigger e índice único
 pnpm tsx scripts/verify-safety.ts        # 77 — segurança entre usuários
-pnpm tsx scripts/verify-confianca.ts     # 158 — perfil, avaliações, verificações, RLS
+pnpm tsx scripts/verify-confianca.ts     # 176 — perfil, avaliações, verificações, RLS
+pnpm tsx scripts/verify-descoberta.ts    # 373 — tudo da Fase 23, inclusive IDOR entre usuários
 pnpm verify                              # todos os scripts de servidor
 pnpm verify:integracoes                  # o app de verdade num navegador real
 ```

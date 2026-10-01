@@ -505,6 +505,14 @@ na tela, só por evento do gateway.
 (título, tipo, preço, bairro e cidade) sai da mesma consulta pública que
 nem seleciona rua, número ou complemento.
 
+**Tabelas novas fora do alcance do navegador.** As 8 tabelas da fase
+(histórico de preço, lista de espera, bloqueios do calendário, alertas e o
+que casou com eles, sugestões da IA, contadores diários e uso de IA) têm RLS
+ligada sem nenhuma política **e** nenhum privilégio para `anon` e
+`authenticated` — duas travas que não dependem uma da outra. O
+`verify-schema` (seção 15) tenta ler cada uma pelo papel do navegador e
+confere as duas travas.
+
 ---
 
 ## Estado de cada peça

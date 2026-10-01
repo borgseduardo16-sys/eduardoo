@@ -120,21 +120,29 @@ Nenhuma credencial sai das suas mãos.
 3. Cole o arquivo **inteiro** e clique em **Run**
 
 **Já rodou o schema antes e só quer a parte nova?** Existe um arquivo menor
-com apenas as migrações recentes — hoje `supabase/atualizacao-0010.sql`, com
-tudo o que veio depois da `0009` (a última confirmada no seu projeto, em
-18/09). Ele é gerado do mesmo lugar e guardado pelo mesmo hash, então dá no
-mesmo — e colar o `setup.sql` completo também continua seguro:
+com apenas as migrações recentes — hoje `supabase/atualizacao-0025.sql`, com
+tudo o que veio depois da `0024` (a última confirmada no seu projeto, em
+29/09): as migrações `0025` a `0030`, da Fase 23. Ele é gerado do mesmo lugar
+e guardado pelo mesmo hash, então dá no mesmo — e colar o `setup.sql`
+completo também continua seguro:
 
 ```bash
-pnpm tsx scripts/build-supabase-setup.ts --desde 10
+pnpm tsx scripts/build-supabase-setup.ts --desde 25
 ```
+
+*Verificado em 01/10/2026:* o `setup.sql` antigo (até a `0024`) seguido do
+`atualizacao-0025.sql` produz o **mesmo schema**, linha por linha (2.121
+linhas de `pg_dump`, com permissões), que o `setup.sql` novo num banco vazio
+e que o `pnpm db:migrate`. Rodar a atualização duas vezes pula as 6 migrações
+na segunda, e as checagens de banco (`verify-schema`, `verify-descoberta`)
+passam no banco atualizado por esse caminho.
 
 *Verificado:* colar o `setup.sql` antigo e depois a atualização produz um
 schema **byte a byte idêntico** ao de um banco novo com o `setup.sql`
 completo, e idêntico ao que o `pnpm db:migrate` gera (comparado com `pg_dump`,
 1300 linhas).
 
-Pronto: 30 tabelas, índices geoespaciais, triggers, RLS, as políticas do
+Pronto: 38 tabelas, índices geoespaciais, triggers, RLS, as políticas do
 bucket de fotos e as taxas iniciais.
 
 **É seguro rodar mais de uma vez.** Cada migração só é aplicada se ainda não
@@ -162,7 +170,7 @@ O arquivo também mantém a tabela de controle do Drizzle em dia, então um
 Confira o resultado com:
 
 ```sql
-SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 25 (uma por migração)
+SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 31 (uma por migração)
 SELECT key, value FROM platform_settings ORDER BY key;        -- taxas 3%+3%
 SELECT PostGIS_Version();                                     -- extensão ativa
 ```
@@ -179,7 +187,7 @@ nunca sai da sua máquina:
 cp .env.example .env.local     # preencha com os valores acima
 pnpm install
 pnpm db:migrate
-pnpm tsx scripts/verify-schema.ts   # 99 passaram
+pnpm tsx scripts/verify-schema.ts   # 136 passaram
 pnpm tsx scripts/verify-safety.ts   # 77 passaram
 pnpm dev
 ```
@@ -404,11 +412,16 @@ isso exige uma URL alcançável pela internet, **não funciona com
   1. **Configurações → Integrações → Webhooks** → **Novo Webhook**
   2. **URL:** `https://SEU-DOMINIO/api/webhooks/asaas`
   3. **Token de acesso:** cole o MESMO valor de `ASAAS_WEBHOOK_TOKEN` (§4.1)
-  4. **Eventos:** marque ao menos `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED`,
-     `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED`, `PAYMENT_DELETED` e
-     `PAYMENT_REPROVED_BY_RISK_ANALYSIS` — são os que o código de hoje já
-     sabe tratar (`src/lib/payments/webhook.ts`). Outros eventos chegam sem
-     erro, mas ficam marcados como "não tratado ainda".
+  4. **Eventos:** marque ao menos `PAYMENT_CREATED`, `PAYMENT_CONFIRMED`,
+     `PAYMENT_RECEIVED`, `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED`,
+     `PAYMENT_DELETED` e `PAYMENT_REPROVED_BY_RISK_ANALYSIS` — são os que o
+     código de hoje já sabe tratar (`src/lib/payments/webhook.ts`). Outros
+     eventos chegam sem erro, mas ficam marcados como "não tratado ainda".
+     O `PAYMENT_CREATED` é o da renovação mensal (Fase 23): é ele que avisa
+     quando o Asaas gera a mensalidade seguinte, e com ele o locatário vê
+     "Pagar agora" e o lembrete antes do vencimento. Sem ele, a renovação
+     ainda é registrada quando for paga ou atrasar, mas o botão de pagar só
+     aparece se ela atrasar.
 
 ### 4.4 Conta de produção — só depois do sandbox validado de ponta a ponta
 

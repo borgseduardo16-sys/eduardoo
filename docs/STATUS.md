@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas)**
+> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas); falta rodar no Supabase o `supabase/atualizacao-0025.sql`**
 
 Estados usados:
 
@@ -1494,6 +1494,36 @@ tela diz que não há.
 4. **Aba ativa escondida no celular** no painel do proprietário (a lista de
    abas rola de lado e a atual podia ficar fora da tela).
 
+Achados pelo teste de ponta a ponta das 23 etapas, que cadastra o anúncio
+pela tela como uma pessoa faria:
+
+5. **"Longitude fora do Brasil." para quem esqueceu o pino** — na etapa
+   "Onde fica o espaço?", o campo oculto vazio virava 0 e a mensagem era essa.
+   Agora: "Marque a localização no mapa."
+6. **Etapas do anúncio apagavam o que a pessoa digitou** quando o servidor
+   recusava a etapa: número, complemento, metragem, altura, regras, data de
+   disponibilidade — e o estado voltava para "UF" (o React 19 limpa o
+   formulário depois de toda action). Agora nada some.
+7. **Tela de preço dizia que a cobrança "ainda não está ativa"** — texto da
+   Fase 2, falso desde a Fase 5. Saiu.
+8. **Carrosséis sem margem no celular** ("Recomendados para você" e
+   "Espaços semelhantes"): o primeiro card encostava na borda da tela.
+9. **Datas invertidas recusadas com erro cru** pelas travas do calendário
+   (migração `0030`): agora quem recusa é a regra com nome. Nada que era
+   recusado passou a ser aceito.
+10. **Dois avisos iguais** em "Melhorar anúncio" quando a IA falha — agora um
+    só.
+
+### Observado e não corrigido nesta fase
+
+- **Mês dos benefícios Premium em UTC** (Fase 13): Destaques e Turbo do mês
+  viram às 21h (Brasília) do último dia, e nessas 3 horas `/premium` mostra a
+  renovação do mês seguinte. Mexer nisso muda a trava de benefício no banco;
+  fica como sugestão.
+- **Erro abaixo da dobra no celular**: na etapa de localização, "Marque a
+  localização no mapa." aparece junto do mapa, fora da área visível depois de
+  tocar em "Continuar"; a página não rola até o primeiro erro.
+
 ### O que ficou fora, e por quê
 
 | Item | Por quê |
@@ -1509,11 +1539,26 @@ tela diz que não há.
 
 | Suíte | Resultado |
 |-------|-----------|
-| `scripts/verify-descoberta.ts` (nova, 12 seções) | {{N_DESCOBERTA}} checagens |
-| `scripts/verify-integracoes.ts` — TESTE Q (novo): as 23 etapas de ponta a ponta no navegador | {{N_Q}} |
+| `scripts/verify-descoberta.ts` (nova, 12 seções) | 373 checagens, 0 falhas — também no banco montado pelo SQL do Supabase (setup antigo + `atualizacao-0025.sql`) |
+| `scripts/verify-integracoes.ts` — TESTE Q (novo): as 23 etapas de ponta a ponta no navegador | 23 etapas, 35 checagens, 0 falhas — cadastro pela tela, anúncio pelo assistente com CEP e pino no mapa, fotos reais, busca, favorito, aviso de preço, alerta, busca por necessidade, compatibilidade, disponibilidade, lista de espera, notificação, queda de preço, compartilhar, painel, IA (dublê local), reserva e pagamento pelo fluxo de sempre e renovação pelo webhook real |
 | `scripts/verify-integracoes.ts` — TESTE J (compartilhar, atualizado) | menu, WhatsApp, cópia real e contagem |
-| Demais suítes (`pnpm verify`) | {{N_VERIFY}} |
-| `scripts/verify-schema.ts` | {{N_SCHEMA}} checagens (inclui gatilhos e restrições novos) |
+| `pnpm verify:integracoes` completo (testes A a Q, Chromium de verdade) | 262 checagens, 0 falhas |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ sem erro |
+| `pnpm verify` completo (14 suítes, incluindo as duas desta tabela) | 1.382 checagens, 0 falhas |
+| `scripts/verify-schema.ts` | 136 checagens, 0 falhas — seção 15 nova, com ocupação, calendário, histórico de preço, favoritos, lista de espera, alertas, contadores, tabelas fora do alcance do navegador e configurações |
+
+### Banco no seu Supabase — falta rodar
+
+O SQL desta fase é `supabase/atualizacao-0025.sql` (migrações `0025` a
+`0030`, 983 linhas). **Ainda não foi rodado no seu projeto**: sem ele, as
+telas novas (alertas, desempenho, calendário, lista de espera, melhorar
+anúncio) quebram em produção, porque as tabelas não existem. Validado aqui
+em bancos vazios: o `setup.sql` antigo seguido dele dá o mesmo schema que o
+`setup.sql` novo e que o `pnpm db:migrate`; rodar duas vezes pula tudo na
+segunda; e as checagens de banco passam no banco montado desse jeito. Além
+da estrutura, ele acerta dois dados que já existem: espaço com aluguel em
+andamento passa a "alugado", e o preço de hoje vira a referência do aviso
+de queda dos favoritos.
 
 ---
 
@@ -1607,7 +1652,7 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 224 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 262 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
 aceitar e cancelar aluguel, o de configurar recebimento e pagar, o chat
 com e-mail de aviso e mensagem de sistema, o painel administrativo, e
