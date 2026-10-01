@@ -261,6 +261,9 @@ async function main() {
   const textoContagem = (await contagem.textContent()) ?? '';
   assert('Meus aluguéis: "Tempo restante" do aluguel em uso', /Tempo restante: 1 h 5\d min/.test(textoContagem), textoContagem);
   assert('com opção de renovar', (await pLoc.getByRole('button', { name: 'Renovar aluguel' }).count()) === 1);
+  // O total da renovação é o que será cobrado: R$ 20/h × 2 h + 3% de taxa de serviço.
+  assert('renovar mostra o total que será cobrado, com a taxa de serviço',
+    /Total: R\$\s?41,20 \(aluguel R\$\s?40,00 \+ taxa de serviço R\$\s?1,20\)/.test(textoContagem), textoContagem.slice(-120));
   await foto_(pLoc, '05-meus-alugueis-em-uso');
 
   // =========================================================================

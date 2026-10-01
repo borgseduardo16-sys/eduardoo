@@ -1627,6 +1627,8 @@ webhook do Asaas confirma pagamento.
 9. Ocupação no painel de desempenho contava aluguel de 2 horas "até hoje".
 10. Meus aluguéis mostrava o prazo final em vez da janela atual do pagamento
     pendente.
+11. "Renovar aluguel" mostrava só o aluguel, sem a taxa de serviço — agora
+    mostra o total que será cobrado, calculado no servidor.
 
 ### Não implementado, por pedido explícito
 

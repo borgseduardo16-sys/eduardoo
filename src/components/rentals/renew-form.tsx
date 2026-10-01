@@ -4,7 +4,7 @@ import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { RotateCw } from 'lucide-react';
 import { renewTemporaryAction, type RentalActionState } from '@/lib/rentals/actions';
-import type { DurationOption } from '@/lib/rentals/pricing';
+import type { PricedDurationOption } from '@/lib/rentals/pricing';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 
@@ -24,17 +24,21 @@ function Enviar() {
  * "Renovar aluguel" (Parte 12): mais um período na MESMA unidade, a partir
  * do fim do atual. A chave do formulário evita renovar duas vezes num
  * duplo toque; e o banco só aceita UMA renovação viva por reserva.
+ *
+ * O total (aluguel + taxa de serviço) vem calculado do servidor, pela mesma
+ * conta da cobrança: a pessoa vê aqui o valor que vai pagar.
  */
 export function RenewForm({
   bookingId, durations, idempotencyKey,
 }: {
   bookingId: string;
-  durations: DurationOption[];
+  durations: PricedDurationOption[];
   idempotencyKey: string;
 }) {
   const [state, action] = useActionState<RentalActionState | undefined, FormData>(renewTemporaryAction, undefined);
   const [duracao, setDuracao] = useState(durations[0] ? `${durations[0].units}:${durations[0].unit}` : '');
   if (durations.length === 0) return null;
+  const escolhida = durations.find((d) => `${d.units}:${d.unit}` === duracao) ?? durations[0]!;
   return (
     <form action={action} className="space-y-2">
       <input type="hidden" name="bookingId" value={bookingId} />
@@ -57,6 +61,10 @@ export function RenewForm({
         </select>
         <Enviar />
       </div>
+      <p className="text-[0.8125rem] text-[var(--content-muted)]">
+        Total: <span className="font-medium text-[var(--content)] tabular-nums">{brl(escolhida.totalCents)}</span>{' '}
+        (aluguel {brl(escolhida.rentCents)} + taxa de serviço {brl(escolhida.feeCents)})
+      </p>
     </form>
   );
 }

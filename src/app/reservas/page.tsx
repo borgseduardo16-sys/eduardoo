@@ -17,7 +17,8 @@ import {
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { settingInt } from '@/lib/settings';
 import { getGroupRules } from '@/lib/rentals/queries';
-import { RENEWAL_WINDOW_MINUTES, paymentWindowState, temporaryDurationOptions, type DurationOption } from '@/lib/rentals/pricing';
+import { RENEWAL_WINDOW_MINUTES, paymentWindowState, temporaryDurationOptions, type PricedDurationOption } from '@/lib/rentals/pricing';
+import { pricedDurationOptions } from '@/lib/rentals/booking';
 import {
   endReasonLabel,
   formatRentalDuration,
@@ -82,12 +83,12 @@ export default async function ReservasPage() {
     if (r.kind !== 'temporary' || r.status !== 'active' || !r.renewalAllowed || r.renewalId || !r.endsAt) return false;
     return agora.getTime() < r.endsAt.getTime() + RENEWAL_WINDOW_MINUTES * 60_000;
   });
-  const duracoesPorReserva = new Map<string, DurationOption[]>();
+  const duracoesPorReserva = new Map<string, PricedDurationOption[]>();
   await Promise.all(
     renovaveis.map(async (r) => {
       if (!r.groupId) return;
       const g = await getGroupRules(r.spaceId, r.groupId);
-      if (g) duracoesPorReserva.set(r.id, temporaryDurationOptions(g.rules, minCharge));
+      if (g) duracoesPorReserva.set(r.id, await pricedDurationOptions(temporaryDurationOptions(g.rules, minCharge)));
     }),
   );
 
@@ -176,7 +177,7 @@ function AluguelCard({
   agora: Date;
   coverUrl: string | null;
   jaAvaliada: boolean;
-  duracoesRenovar: DurationOption[];
+  duracoesRenovar: PricedDurationOption[];
 }) {
   const fase = rentalPhaseOf(r, agora);
   const s = rentalBadge(r.status, fase);

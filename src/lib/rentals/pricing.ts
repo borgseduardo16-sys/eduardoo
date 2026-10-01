@@ -189,6 +189,9 @@ export type DurationOption = {
   label: string;
 };
 
+/** Duração com o que a pessoa paga de fato — aluguel + taxa de serviço —, calculado no servidor. */
+export type PricedDurationOption = DurationOption & { feeCents: number; totalCents: number };
+
 /**
  * Todas as durações válidas do grupo, já sem as que ficam abaixo do valor
  * mínimo por cobrança. Lista vazia = o grupo não tem como ser alugado por

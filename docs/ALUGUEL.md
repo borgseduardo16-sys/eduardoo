@@ -162,7 +162,7 @@ cancelamento da recorrência no Asaas e estornos.
 |---|---|
 | Página do anúncio | "Como alugar": quantas unidades há, livres e ocupadas ("3 vagas · 3 disponíveis · 0 ocupadas"), mensal por grupo e reserva por tempo com só as durações válidas; "Falar com o proprietário" pelo chat |
 | Pagar (`/reservas/[id]/pagar`) | Pix na tela (QR e "copia e cola" do Asaas) com o prazo de 15 min correndo — "A vaga fica segura para você até 13:21"; cartão abre a fatura segura do Asaas; confirma sozinha quando o webhook chega |
-| Meus aluguéis (`/reservas`) | seções **Pagamento pendente · Em andamento · Próximos · Aguardando · Histórico**. Temporário: "Começa em…", "Tempo restante: 1 h 59 min — termina às 15:06", janela de renovação e "Renovar aluguel". Mensal: "R$ 309,00/mês · Renovação automática ativa (cartão)" — o total que é cobrado todo mês, já com a taxa de serviço (aluguel de R$ 300) —, "Próxima cobrança", **sem contagem regressiva**, e "Cancelar aluguel" |
+| Meus aluguéis (`/reservas`) | seções **Pagamento pendente · Em andamento · Próximos · Aguardando · Histórico**. Temporário: "Começa em…", "Tempo restante: 1 h 59 min — termina às 15:06", janela de renovação e "Renovar aluguel" com o total que será cobrado ("Total: R$ 41,20 (aluguel R$ 40,00 + taxa de serviço R$ 1,20)", calculado no servidor). Mensal: "R$ 309,00/mês · Renovação automática ativa (cartão)" — o total que é cobrado todo mês, já com a taxa de serviço (aluguel de R$ 300) —, "Próxima cobrança", **sem contagem regressiva**, e "Cancelar aluguel" |
 | Detalhe do aluguel (`/reservas/[id]`) | o mesmo tempo restante, próximos passos, resumo (unidade, período, valores), como terminou, link para a renovação |
 | Pagamento pendente (`/reservas/[id]/pendente`) | o texto pedido, "Tempo restante" (1ª janela) ou "Último prazo" (2ª), valor em aberto, motivo informado pelo gateway, **Pagar agora** (a mesma cobrança: Pix na tela ou cartão) e **Cancelar aluguel**; pergunta de novo ao servidor a cada 8 s |
 | Aviso ao abrir o app | antes de tudo, o aviso "Pagamento pendente" com o texto, a unidade, o tempo restante, "Pagar agora", "Cancelar aluguel" e um **X**. Fechou: não volta nesta sessão para a mesma pendência. Abriu o app de novo: aparece de novo enquanto não resolver. Não aparece nas telas do próprio aluguel com problema |
@@ -273,6 +273,9 @@ encerrar, ou na rodada diária.
 10. **Meus aluguéis mostrava o prazo final** (1 h 40) no lugar da janela
     atual (40 min) no pagamento pendente — diferente do aviso e da tela de
     pendência.
+11. **"Renovar aluguel" mostrava só o aluguel** ("Mais 2 horas — R$ 40,00")
+    ao lado de "R$ 41,20 pagos": agora mostra também o total que será
+    cobrado, com a taxa de serviço, pela mesma conta da cobrança.
 
 ---
 

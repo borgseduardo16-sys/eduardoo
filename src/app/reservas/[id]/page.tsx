@@ -26,12 +26,13 @@ import {
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { settingInt } from '@/lib/settings';
 import { getGroupRules } from '@/lib/rentals/queries';
+import { pricedDurationOptions } from '@/lib/rentals/booking';
 import { sweepExpiredRentals } from '@/lib/rentals/maintenance';
 import {
   RENEWAL_WINDOW_MINUTES,
   paymentWindowState,
   temporaryDurationOptions,
-  type DurationOption,
+  type PricedDurationOption,
   type TemporaryPhase,
 } from '@/lib/rentals/pricing';
 import {
@@ -120,13 +121,13 @@ export default async function ReservaPage({
   const podeRenovar =
     papel === 'renter' && temporario && b.status === 'active' && b.renewalAllowed && !b.renewalId && b.groupId != null &&
     (fase === 'upcoming' || fase === 'in_use' || fase === 'renewal_window');
-  let duracoesRenovar: DurationOption[] = [];
+  let duracoesRenovar: PricedDurationOption[] = [];
   if (podeRenovar && b.groupId) {
     const [grupo, minCharge] = await Promise.all([
       getGroupRules(b.spaceId, b.groupId),
       settingInt('booking.min_rent_cents', 3500),
     ]);
-    if (grupo) duracoesRenovar = temporaryDurationOptions(grupo.rules, minCharge);
+    if (grupo) duracoesRenovar = await pricedDurationOptions(temporaryDurationOptions(grupo.rules, minCharge));
   }
   // Com aluguel rodando (ou encerrado), a renovação ganha seção própria e
   // substitui o resumo de pagamento — mesma informação, mais completa.

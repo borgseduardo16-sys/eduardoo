@@ -11,7 +11,7 @@ import * as asaas from '@/lib/payments/asaas';
 import { saveProfileDocument } from '@/lib/payments/document';
 import { getOwnerPayoutAccount, getRenterBillingProfile } from '@/lib/payments/queries';
 import { unitNounFor, type UnitNoun } from '@/lib/spaces/types';
-import { checkTemporaryRequest, type RentalTimeUnit } from './pricing';
+import { checkTemporaryRequest, type DurationOption, type PricedDurationOption, type RentalTimeUnit } from './pricing';
 import { getGroupRules } from './queries';
 import { brDate } from './time';
 
@@ -119,6 +119,24 @@ async function currentFees() {
     settingInt('fees.owner_fee_bps', 300),
   ]);
   return { renterFeeBps, ownerFeeBps };
+}
+
+/**
+ * Durações com o total que a pessoa paga (aluguel + taxa de serviço), pela
+ * mesma conta da cobrança — a tela de renovar mostra o valor que será cobrado.
+ */
+export async function pricedDurationOptions(opcoes: DurationOption[]): Promise<PricedDurationOption[]> {
+  if (opcoes.length === 0) return [];
+  const fees = await currentFees();
+  return opcoes.flatMap((d) => {
+    try {
+      const valores = computeBookingAmounts(d.rentCents, fees);
+      return [{ ...d, feeCents: valores.renterFeeCents, totalCents: valores.totalChargedCents }];
+    } catch {
+      // Taxa mal configurada: a duração não é oferecida (a cobrança também recusaria).
+      return [];
+    }
+  });
 }
 
 /**
