@@ -24,6 +24,7 @@ req.cache[req.resolve('server-only')] = {
 
 import { createECDH, randomBytes } from 'node:crypto';
 import postgres from 'postgres';
+import { configPrecoMensal, garantirUnidadePadrao, mudarPrecoMensal, unidadeLivre } from './lib/unidades';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
 import { startPushTestbed } from './testbed/push-server';
@@ -142,6 +143,7 @@ async function criarPublicado(
   const id = row!.id;
   await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES
     (${id}, ${`${ownerId}/${id}/f0.jpg`}, 0), (${id}, ${`${ownerId}/${id}/f1.jpg`}, 1), (${id}, ${`${ownerId}/${id}/f2.jpg`}, 2)`;
+  await garantirUnidadePadrao(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return id;
 }
@@ -273,7 +275,8 @@ async function main() {
   await favoritar(fav1Id, espaco1Id);
   await favoritar(fav2Id, espaco1Id);
   const precoReal = async (de: number, para: number) => {
-    await sql`UPDATE spaces SET price_monthly_cents=${para} WHERE id=${espaco1Id}`;
+    // Parte 12: o preço muda no grupo de unidades; o anúncio só espelha.
+    await mudarPrecoMensal(sql, espaco1Id, para);
     await alertFavoritersOfPriceDrop({ id: espaco1Id, title: 'Espaço 1', slug: slug1! }, de, para);
   };
 
@@ -384,6 +387,8 @@ async function main() {
     WHERE id=${draft6Id}`;
   await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES
     (${draft6Id}, ${`x/${draft6Id}/f0.jpg`}, 0), (${draft6Id}, ${`x/${draft6Id}/f1.jpg`}, 1), (${draft6Id}, ${`x/${draft6Id}/f2.jpg`}, 2)`;
+  // Parte 12: a etapa "Como alugar" cria o grupo e a unidade antes de publicar.
+  await garantirUnidadePadrao(sql, draft6Id);
 
   entrarComo(dono3Id, 'owner', 'Dono 3');
   const fdPub = new FormData();
@@ -410,8 +415,8 @@ async function main() {
   const fdPreco = new FormData();
   fdPreco.set('spaceId', espaco6Id);
   fdPreco.set('step', 'preco');
-  fdPreco.set('price', '400,00'); // R$500,00 -> R$400,00 = -20%, bem acima do limiar
-  fdPreco.set('availableFrom', new Date().toISOString().slice(0, 10));
+  // R$500,00 -> R$400,00 = -20%, bem acima do limiar (Parte 12: pela configuração dos grupos).
+  fdPreco.set('rentalConfig', await configPrecoMensal(sql, espaco6Id, '400,00'));
   const rPreco = await saveStepAction(undefined, fdPreco);
   assert('saveStepAction(preco) foi aceito', rPreco.ok, JSON.stringify(rPreco));
 
@@ -445,13 +450,14 @@ async function main() {
     const espacoId = await criarRascunhoMinimo(ownerId, `sub-${sufixo}`, `Espaço vencimento ${sufixo}`);
     const precoCents = 30000;
     const amounts = computeBookingAmounts(precoCents, { renterFeeBps: 300, ownerFeeBps: 300 });
+    const u = await unidadeLivre(sql, espacoId);
     const [booking] = await sql<{ id: string }[]>`
       INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
         monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
-        total_charged_cents, owner_payout_cents)
+        total_charged_cents, owner_payout_cents, group_id, unit_id)
       VALUES (${`MP-${tag}-${sufixo}`}, ${espacoId}, ${renterId}, ${ownerId}, 'active', CURRENT_DATE - INTERVAL '30 days',
         ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps}, ${amounts.renterFeeCents},
-        ${amounts.ownerFeeCents}, ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})
+        ${amounts.ownerFeeCents}, ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents}, ${u.groupId}, ${u.unitId})
       RETURNING id`;
     const [subscription] = await sql<{ id: string }[]>`
       INSERT INTO subscriptions (booking_id, method, status, amount_cents, billing_day, next_due_date)

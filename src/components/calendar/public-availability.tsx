@@ -46,7 +46,7 @@ export function PublicAvailability({
         </ul>
       )}
       <p className="text-[0.75rem] text-[var(--content-subtle)]">
-        O aluguel é mensal e sem data para terminar: você fica com o espaço até encerrar.
+        O aluguel mensal não tem data para terminar: você fica com o espaço até cancelar.
       </p>
       <details className="rounded-[var(--radius-card)] border group">
         <summary className="cursor-pointer select-none px-4 py-3 text-[0.875rem] font-medium">

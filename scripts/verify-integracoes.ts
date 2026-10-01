@@ -47,6 +47,7 @@ import { chromium, type Browser, type Page, type Locator } from 'playwright';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { formatBRL } from '../src/lib/money';
 import { startTestbed, sessionCookie, fakeJwt, type Testbed } from './testbed/server';
+import { garantirUnidadePadrao } from './lib/unidades';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
@@ -348,6 +349,7 @@ async function publicarDireto(
       VALUES (${id}, ${`${donoId}/${id}/f${n}.jpg`}, ${n})`;
   }
   await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, ${feature})`;
+  await garantirUnidadePadrao(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return id;
 }
@@ -377,6 +379,8 @@ async function criarRascunhoPromovivel(ownerId: string, slug: string, titulo: st
     await sql`INSERT INTO space_images (space_id, storage_path, position)
       VALUES (${id}, ${`${ownerId}/${id}/f${n}.jpg`}, ${n})`;
   }
+  // Parte 12: rascunho "pronto" já passou pela etapa "Como alugar".
+  await garantirUnidadePadrao(sql, id);
   return id;
 }
 
@@ -405,6 +409,8 @@ async function seed() {
          CURRENT_DATE, 25000, 18.5, ${step},
          ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326))
       RETURNING id`;
+    // Parte 12: quem já passou da etapa "Como alugar" tem grupo e unidade.
+    if (step >= 7) await garantirUnidadePadrao(sql, row!.id);
     return row!.id;
   };
 
@@ -1801,7 +1807,7 @@ async function testeLPagamento() {
     route.fulfill({ status: 200, contentType: 'text/plain', body: 'Fatura simulada do Asaas (dublê de teste).' }));
 
   await pageOutro.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
-  await pageOutro.getByRole('button', { name: 'Confirmar e ir para o pagamento' }).click();
+  await pageOutro.getByRole('button', { name: 'Confirmar e cadastrar o cartão' }).click();
   await pageOutro.waitForURL(/fake-invoice/, { timeout: 20_000 });
   ok('checkout confirmado redireciona pra fatura do gateway (interceptada no teste)');
 
@@ -2591,7 +2597,7 @@ async function testeQFase23() {
     ok('2. proprietária cria o espaço pelo assistente (tipo, local pelo CEP, características, 3 fotos, descrição)');
 
     // ---- 3. Define preço ----
-    await pageDono.locator('#price').fill('320,00');
+    await pageDono.locator('#g0-monthlyPrice').fill('320,00');
     await pageDono.locator('form button[type="submit"]').last().click();
     await pageDono.waitForURL(/\/regras$/, { timeout: 30_000 });
     const [precoQ] = await sql<{ p: number }[]>`SELECT price_monthly_cents AS p FROM spaces WHERE id=${espacoQ}`;
@@ -2694,7 +2700,7 @@ async function testeQFase23() {
 
     // ---- 14. Proprietário altera preço ----
     await pageDono.goto(`${baseUrl}/anunciar/${espacoQ}/preco`, { waitUntil: 'domcontentloaded' });
-    await pageDono.locator('#price').fill('290,00');
+    await pageDono.locator('#g0-monthlyPrice').fill('290,00');
     await pageDono.locator('form button[type="submit"]').last().click();
     await pageDono.waitForURL(/\/regras$|\/revisao$/, { timeout: 30_000 });
     const [novoPreco] = await sql<{ p: number }[]>`SELECT price_monthly_cents AS p FROM spaces WHERE id=${espacoQ}`;
@@ -2789,7 +2795,7 @@ async function testeQFase23() {
     await pageLoc.getByRole('link', { name: 'Pagar agora' }).first().click();
     await pageLoc.waitForURL(/\/pagar$/, { timeout: 20_000 });
     await pageLoc.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
-    await pageLoc.getByRole('button', { name: 'Confirmar e ir para o pagamento' }).click();
+    await pageLoc.getByRole('button', { name: 'Confirmar e cadastrar o cartão' }).click();
     await pageLoc.waitForURL(/fake-invoice/, { timeout: 20_000 });
 
     const [reservaQ] = await sql<{ id: string }[]>`SELECT id FROM bookings WHERE space_id=${espacoQ} AND renter_id=${locQ} ORDER BY requested_at DESC LIMIT 1`;

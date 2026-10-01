@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas); falta rodar no Supabase o `supabase/atualizacao-0025.sql`**
+> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23, Parte 12 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas); falta rodar no Supabase o `supabase/atualizacao-0025.sql`** · **Parte 12 (unidades, aluguel por hora/dia/semana e mensal, Meus aluguéis, pagamento pendente com 40 min + 1 h, aviso ao abrir o app) funciona de ponta a ponta contra o dublê do Asaas; falta rodar no Supabase o `supabase/atualizacao-0031.sql`, configurar o agendador por minuto e a chave Pix, e a cobrança real depende da credencial Asaas**
 
 Estados usados:
 
@@ -1562,6 +1562,110 @@ de queda dos favoritos.
 
 ---
 
+## Parte 12 — Unidades, aluguel por tempo e contínuo, pagamento pendente ✅ *(01/10/2026)*
+
+Construída em cima do que já existia (reserva mensal, assinatura no Asaas,
+webhook idempotente, "Encerrar aluguel") — nada foi substituído. Arquitetura,
+telas, prazos e limitações em [ALUGUEL.md](./ALUGUEL.md); tabelas e regras do
+banco em [BANCO-DE-DADOS.md](./BANCO-DE-DADOS.md#unidades-aluguel-por-tempo-e-prazos-de-pagamento-parte-12).
+Nenhum valor é calculado no navegador e nenhuma cobrança é fingida: só o
+webhook do Asaas confirma pagamento.
+
+### O que foi construído
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Unidades e grupos por anúncio | ✅ | "10 vagas · 7 disponíveis · 3 ocupadas", contado pelo banco; grupos com regras diferentes; unidade com aluguel em andamento não é desativada nem apagada |
+| Categorias | ✅ | vaga de carro, vaga de moto, estacionamento, garagem, depósito (box), galpão, sala, escritório, loja, oficina, terreno, espaço para eventos, área de lazer, quarto e "Outro" (continua valendo), com busca por lupa |
+| Configuração progressiva do proprietário | ✅ | "Como alugar": quantas unidades, mensal, por tempo ou os dois, preço por período ou pacotes, horário de funcionamento; o resto só aparece quando faz sentido |
+| Aluguel por hora, dia ou semana | ✅ | com máximo ("Máximo permitido: 5 horas."), horário ("O espaço fecha às 21:00."), proporcional ou pacotes; calculado em centavos no servidor e recalculado pelo banco |
+| Aluguel contínuo (mensal) | ✅ | cobrança mensal recorrente, nunca total anual; cartão = cobrança automática; Pix = mensalidade paga pelo app |
+| Cancelar aluguel | ✅ | imediato: a recorrência para no Asaas **antes** de o banco mudar; a unidade é liberada na hora |
+| Meus aluguéis | ✅ | Pagamento pendente · Em andamento · Próximos · Aguardando · Histórico. Temporário: tempo restante e "Renovar aluguel". Mensal: "R$ 309,00/mês · Renovação automática ativa · Próxima cobrança", sem contagem regressiva |
+| Tempo restante só em Meus aluguéis | ✅ | observação da etapa 14: nenhum tempo na tela principal (provado no navegador: 0 contagens) |
+| Janela de renovação (7 min) e aviso de 10 min | ✅ | pelo relógio do banco; o aviso na hora depende do agendador por minuto (abaixo) |
+| Falha da cobrança automática | ✅ | 40 min + 1 h; notificação com o texto pedido; tela "Pagamento pendente" com "Pagar agora" (a mesma cobrança, nunca outra) e "Cancelar aluguel"; sem pagamento, encerra, para a cobrança e libera a unidade |
+| Aviso ao abrir o app | ✅ | primeiro de tudo, com X; fechado não volta na mesma sessão; ponto em "Meus aluguéis" e "!" **só no aluguel com problema**, até o pagamento ser confirmado |
+| Estados e histórico | ✅ | estados existentes reaproveitados, sem sinônimos; "próximo", "em uso" e "janela de renovação" derivados do relógio; motivo do fim gravado; auditoria |
+| Robustez | ✅ | chave de idempotência por formulário, dois toques = uma chamada ao gateway, exclusão por unidade no banco, fuso de Brasília |
+| Premium | ✅ | R$ 79,90/mês e R$ 759,05/ano preservados; selo com a estrela verde de quatro pontas |
+| Agendador por minuto | 🔑 | rota `/api/cron/minuto` pronta e testada; falta um agendador chamar a cada minuto — [SETUP.md §15](./SETUP.md#15-agendador-por-minuto-parte-12) |
+| QR do Pix na tela | 🔑 | exige chave Pix cadastrada na conta Asaas — [SETUP.md §4.7](./SETUP.md#47-chave-pix-na-conta--para-o-qr-aparecer-na-tela-parte-12) |
+| Cobrança real | ⚙️ | código e testes contra o dublê prontos; falta a credencial Asaas (a mesma pendência das Fases 5 e 7) |
+| Estorno com split | 🚧 | como o Asaas desfaz a parte já repassada ao proprietário precisa ser confirmado com eles |
+| Pix Automático no mensal | ⬜ | não implementado: no Pix, cada mensalidade é paga pela pessoa |
+
+**Decisões tomadas onde o pedido deixava espaço** (todas fáceis de mudar):
+
+- reserva por tempo é **imediata** — sem aceite do proprietário; a unidade
+  fica segura por 15 minutos enquanto a pessoa paga, e expira se não pagar;
+- o mínimo de **R$ 35 vale por cobrança**: durações abaixo disso nem
+  aparecem;
+- o valor por mês mostrado ao locatário é o **total cobrado**, já com a
+  taxa de serviço (aluguel de R$ 300 → R$ 309,00/mês);
+- o aviso fechado volta quando a pessoa abre o app de novo (nova sessão do
+  navegador), enquanto a pendência existir.
+
+### Defeitos encontrados pelos testes desta etapa (corrigidos)
+
+1. **Pix nunca ativava a reserva** — defeito antigo, de antes desta etapa: o
+   Asaas manda só `PAYMENT_RECEIVED` para Pix, e o código só ativava no
+   `PAYMENT_CONFIRMED`. Valia para o checkout mensal, as renovações, a compra
+   de Destaque/Turbo e a caução. Corrigido nos três tratadores.
+2. Pagamento que chega depois do encerramento gerava repasse ao proprietário
+   — agora é só estornado.
+3. CPF gravado antes das validações e **erro 500** com CPF de outra conta.
+4. Dois toques em "Pagar agora" faziam duas chamadas ao Asaas.
+5. Erro de publicação sem mensagem (o Drizzle embrulha o erro do Postgres):
+   também consertou "anúncio incompleto" e "marque a localização".
+6. **Todos os modais do app abriam no canto de cima, à esquerda** (o preflight
+   do Tailwind zera a margem que centraliza o `<dialog>`).
+7. "Falar com o proprietário" sumiu da página do anúncio na parte 1 desta
+   etapa — regressão minha, restaurada.
+8. Recusa automática com texto errado ("Todas as vagas foram alugadas" com
+   uma vaga só; "Todas as boxes").
+9. Ocupação no painel de desempenho contava aluguel de 2 horas "até hoje".
+10. Meus aluguéis mostrava o prazo final em vez da janela atual do pagamento
+    pendente.
+
+### Não implementado, por pedido explícito
+
+`/admin/dashboard`, investimento, valuation, Premora, contrato anual, dados
+fictícios e chatbot de IA — nada disso foi criado. O `/admin` da Fase 11 não
+foi mexido.
+
+### Verificação automatizada
+
+| Suíte | Resultado |
+|-------|-----------|
+| `scripts/verify-alugueis.ts` (nova, 13 seções) | 106 checagens, 0 falhas — também no banco montado pelo SQL do Supabase, com o papel sem superusuário |
+| `scripts/verify-alugueis-navegador.ts` (nova — Chromium, build de produção) | 27 checagens, 0 falhas: configurar e publicar pela tela, reservar 2 h com Pix, tempo só em Meus aluguéis, recusa do cartão → aviso com X, ponto, "!" só no aluguel com problema, pago some tudo |
+| `scripts/verify-schema.ts` (seção 16 nova) | 218 checagens, 0 falhas |
+| `pnpm verify` (15 suítes) | 1.573 checagens, 0 falhas |
+| `pnpm verify:integracoes` (testes A a Q, Chromium) | 262 checagens, 0 falhas |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ sem erro |
+| SQL do Supabase | `setup.sql` antigo + `atualizacao-0031.sql` = `setup.sql` novo = `pnpm db:migrate` (6.353 linhas de `pg_dump`); rodar de novo pula tudo; entra sem erro com papel sem superusuário e PostGIS/`btree_gist` no schema `extensions` |
+
+**O que NÃO foi testado** (não diga que foi): nenhuma chamada ao Asaas de
+verdade — nem sandbox — e nenhum pagamento real com Pix ou cartão; os
+testes usam um dublê local que segue o contrato HTTP documentado. Também não
+foram testados o projeto Supabase real (a rede deste ambiente bloqueia
+`*.supabase.co`), um agendador externo de verdade (só a rota) e o push em
+aparelho de verdade.
+
+### Banco no seu Supabase — falta rodar
+
+O SQL desta etapa é `supabase/atualizacao-0031.sql` (migrações `0031` e
+`0032`, 1.191 linhas). **Sem ele, o app quebra em produção** — reservas,
+anúncios e Meus aluguéis passam a ler colunas e tabelas que ainda não
+existem. Se a `atualizacao-0025.sql` (Fase 23) também ainda não foi rodada,
+cole o `setup.sql` completo: ele aplica só o que falta. Antes, ative o
+`btree_gist` no painel ([SETUP.md §1.2](./SETUP.md#12-ativar-o-postgis)). Se
+houver algum aluguel em atraso no banco nessa hora, ele ganha o prazo novo
+(40 min + 1 h) a partir dali.
+
+---
+
 ## Fases 7 e 8 — ⬜ não implementadas
 
 | Fase | Escopo | Depende de |
@@ -1809,8 +1913,9 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 652 checagens contra o Postgres real
-pnpm verify:integracoes              # 224 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium)
+pnpm verify                          # 1.573 checagens contra o Postgres real (15 suítes)
+pnpm verify:integracoes              # 262 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium, as 23 etapas da Fase 23)
+pnpm verify:alugueis-navegador       # 27 checagens em Chromium real (Parte 12: reserva por tempo, Meus aluguéis, pagamento pendente)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real
 pnpm dev                             # http://localhost:3000

@@ -50,9 +50,13 @@ export async function handleDepositEvent(
   switch (event) {
     case 'PAYMENT_CONFIRMED':
       return handleDepositConfirmed(tx, deposito);
-    case 'PAYMENT_RECEIVED':
+    case 'PAYMENT_RECEIVED': {
+      // Pix e boleto chegam direto como RECEIVED (sem CONFIRMED): confirma antes
+      // (a função não faz nada se a caução já estava confirmada).
+      const jobs = await handleDepositConfirmed(tx, deposito);
       await tx.update(bookingDeposits).set({ status: 'received', updatedAt: new Date() }).where(eq(bookingDeposits.id, deposito.id));
-      return [];
+      return jobs;
+    }
     case 'PAYMENT_OVERDUE':
       await tx.update(bookingDeposits).set({ status: 'overdue', updatedAt: new Date() }).where(eq(bookingDeposits.id, deposito.id));
       return [];

@@ -18,6 +18,7 @@ req.cache[req.resolve('server-only')] = {
 } as never;
 
 import postgres from 'postgres';
+import { configPrecoMensal, garantirUnidadePadrao, mudarPrecoMensal, unidadeLivre } from './lib/unidades';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
 const url = process.env.DATABASE_URL;
@@ -116,6 +117,7 @@ async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairr
   for (let n = 0; n < (opts?.fotos ?? 3); n++) {
     await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${id}, ${`${dono}/${id}/f${n}.jpg`}, ${n})`;
   }
+  await garantirUnidadePadrao(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return { id, slug };
 }
@@ -241,11 +243,11 @@ async function main() {
 
   async function mudarPreco(spaceId: string, reais: string) {
     entrarComo(donoId, 'owner', 'Dona Descoberta');
+    // Parte 12: a etapa "Como alugar" manda a configuração dos grupos, como o formulário real.
     const fd = new FormData();
     fd.set('spaceId', spaceId);
     fd.set('step', 'preco');
-    fd.set('price', reais);
-    fd.set('availableFrom', new Date().toISOString().slice(0, 10));
+    fd.set('rentalConfig', await configPrecoMensal(sql, spaceId, reais));
     return saveStepAction(undefined, fd);
   }
 
@@ -767,7 +769,8 @@ async function main() {
   const moto = regra('Preciso guardar uma moto perto do centro.');
   expect('"guardar uma moto" sem tipo dito: vaga de moto, garagem ou vaga de carro',
     [moto.interpretation.types, moto.interpretation.purpose, moto.interpretation.location],
-    [['vaga_moto', 'garagem', 'vaga_carro'], 'guardar_veiculo', 'Centro']);
+    // Parte 12: estacionamento entrou como categoria — também guarda moto.
+    [['vaga_moto', 'garagem', 'vaga_carro', 'estacionamento'], 'guardar_veiculo', 'Centro']);
   const vaga = regra('vaga coberta em Vila Velha até R$ 200');
   expect('"até R$ 200" vira teto em centavos; "em Vila Velha" vira local',
     [vaga.interpretation.priceMaxCents, vaga.interpretation.location, vaga.interpretation.types],
@@ -1221,6 +1224,8 @@ async function main() {
       await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${row!.id}, ${`${donoId}/${row!.id}/f${n}.jpg`}, ${n})`;
     }
     for (const f of caracteristicasRasc) await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${row!.id}, ${f})`;
+    // Parte 12: o rascunho "pronto" já passou pela etapa "Como alugar".
+    await garantirUnidadePadrao(sql, row!.id);
     return row!.id;
   }
   async function publicar(spaceId: string) {
@@ -1815,7 +1820,7 @@ async function main() {
   expect('explicação em palavras, só do que é verdade', mesmoSim.reasons, ['Mesmo tipo', 'Preço parecido', '2 características em comum']);
   expect('sem ponto no mapa: mesma cidade/bairro vira o critério de região',
     similarityScore(baseSim, { ...baseSim, distanceMeters: null }).reasons.includes('No mesmo bairro'), true);
-  expect('tipos parecidos de garagem', similarTypes('garagem'), ['garagem', 'vaga_carro']);
+  expect('tipos parecidos de garagem', similarTypes('garagem'), ['garagem', 'vaga_carro', 'estacionamento']);
   expect('tipo desconhecido: só ele mesmo', similarTypes('nave_espacial'), ['nave_espacial']);
   expect('faixa de preço em centavos inteiros (50% e 160%)',
     [scaleCentsByBps(39999, 5000, 'baixo'), scaleCentsByBps(39999, 16000, 'cima')], [19999, 63999]);
@@ -1917,13 +1922,16 @@ async function main() {
     SELECT (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.renter_fee_bps') AS r,
            (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.owner_fee_bps') AS o`)[0]!;
   const v12 = computeBookingAmounts(30000, { renterFeeBps: Number(fees12.r ?? 300), ownerFeeBps: Number(fees12.o ?? 300) });
+  await mudarPrecoMensal(sql, espacoRenov.id, 30000);
+  const u12 = await unidadeLivre(sql, espacoRenov.id);
   const [reserva12] = await sql<{ id: string }[]>`
     INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
       monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
-      total_charged_cents, owner_payout_cents, requested_at, activated_at)
+      total_charged_cents, owner_payout_cents, requested_at, activated_at, group_id, unit_id)
     VALUES (${`MP-${tag}-renov`}, ${espacoRenov.id}, ${locatarioRenovId}, ${donoRenovId}, 'active', ${primeiroVenc}::date,
       ${v12.monthlyRentCents}, ${v12.renterFeeBps}, ${v12.ownerFeeBps}, ${v12.renterFeeCents}, ${v12.ownerFeeCents},
-      ${v12.totalChargedCents}, ${v12.ownerPayoutCents}, now() - interval '40 days', now() - interval '35 days')
+      ${v12.totalChargedCents}, ${v12.ownerPayoutCents}, now() - interval '40 days', now() - interval '35 days',
+      ${u12.groupId}, ${u12.unitId})
     RETURNING id`;
   const idAssinatura = `sub_${tag}`;
   const [assin12] = await sql<{ id: string }[]>`
@@ -1988,8 +1996,10 @@ async function main() {
     ['overdue', 'past_due', 'past_due']);
   const [falha] = await sql<{ title: string; link_path: string }[]>`
     SELECT title, link_path FROM notifications WHERE user_id=${locatarioRenovId} AND type='payment_failed' ORDER BY created_at DESC LIMIT 1`;
+  // Parte 12: a falha abre a janela de regularização (40 min + 1 h) e o
+  // aviso leva direto à tela "Pagamento pendente".
   expect('locatário avisado na hora, com o caminho para resolver', [falha?.title, falha?.link_path],
-    ['Não conseguimos processar sua renovação', `/reservas/${reserva12!.id}#renovacao`]);
+    ['Pagamento pendente', `/reservas/${reserva12!.id}/pendente`]);
   assert('proprietário também é avisado', (await contarNotificacoes(donoRenovId, 'payment_failed')) >= 1);
   const atrasada = await getRenewalInfo(reserva12!.id, locatarioRenovId);
   expect('tela: em atraso, com o link da cobrança vencida', [atrasada?.state, atrasada?.next?.invoiceUrl], ['atrasada', `https://sandbox.asaas.test/i/${tag}3`]);

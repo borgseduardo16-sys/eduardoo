@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { StartConversationButton } from '@/components/messaging/start-conversation-button';
 import { formatBRL } from '@/lib/money';
 import { operatingHoursLabel, temporaryRuleLines, type GroupRules } from '@/lib/rentals/pricing';
 import type { UnitNoun } from '@/lib/spaces/types';
@@ -119,9 +120,26 @@ export function RentalPanel({
             </div>
           ) : (
             <p className="text-[0.875rem] text-[var(--content-muted)]">
-              Todas as {noun.plural} para aluguel mensal estão ocupadas no momento.
+              {noun.feminino ? 'Todas as' : 'Todos os'} {noun.plural} para aluguel mensal estão {noun.feminino ? 'ocupadas' : 'ocupados'} no momento.
             </p>
           )}
+        </div>
+      )}
+
+      {/* Tirar dúvida antes de alugar — sempre pelo chat da plataforma. */}
+      {!ownerView && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t pt-4">
+          {loggedIn ? (
+            <StartConversationButton spaceId={spaceId} />
+          ) : (
+            <Link
+              href={`/entrar?next=${encodeURIComponent(`/espacos/${slug}`)}`}
+              className={buttonVariants({ variant: 'secondary', size: 'lg' })}
+            >
+              Entrar para conversar
+            </Link>
+          )}
+          <p className="text-[0.8125rem] text-[var(--content-muted)]">Tire dúvidas antes de alugar, pelo chat.</p>
         </div>
       )}
     </section>

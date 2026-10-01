@@ -21,7 +21,8 @@ import { addDaysIso, daysBetweenInclusive, monthRange } from './period';
  * - receita: SÓ pagamentos confirmados ou recebidos no período, a parte do
  *   proprietário (já sem a taxa da plataforma). Nada de estimativa;
  * - ocupação: dias em que houve aluguel ativo ÷ dias com o anúncio no ar,
- *   só com pelo menos 14 dias para analisar.
+ *   só com pelo menos 14 dias para analisar. Aluguel por tempo conta os
+ *   dias que tocou (2 horas numa terça = a terça), nunca "até hoje".
  *
  * Anúncio arquivado (excluído depois de ter reserva) continua entrando nos
  * totais: o dinheiro que ele rendeu não some do relatório porque o anúncio
@@ -138,7 +139,10 @@ export async function getOwnerPerformance(
       (SELECT count(DISTINCT dia) FROM bookings b,
         generate_series(
           GREATEST(${from}::date, b.start_date, s.publicado_em),
-          LEAST(${fim}::date, COALESCE((COALESCE(b.ended_at, b.cancelled_at) AT TIME ZONE 'America/Sao_Paulo')::date - 1, ${fim}::date)),
+          -- Parte 12: aluguel por tempo ocupa só os dias que tocou (end_date é exclusivo);
+          -- o mensal vai até o dia anterior ao fim (ou até hoje, se segue ativo).
+          LEAST(${fim}::date, CASE WHEN b.kind = 'temporary' THEN b.end_date - 1
+            ELSE COALESCE((COALESCE(b.ended_at, b.cancelled_at) AT TIME ZONE 'America/Sao_Paulo')::date - 1, ${fim}::date) END),
           interval '1 day') AS dia
         WHERE b.space_id = s.id AND b.owner_id = ${ownerId} AND b.activated_at IS NOT NULL)::int AS occupied_days
     FROM s

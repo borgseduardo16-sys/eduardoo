@@ -329,7 +329,7 @@ function GroupEditor({
       {multiple && (
         <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
           <Field label="Nome do grupo" htmlFor={id('name')} error={err('name')} hint={`Aparece no anúncio. Ex.: "${capital(unitNoun.plural)} rápidas"`}>
-            <Input value={g.name} maxLength={60} onChange={(e) => onChange({ name: e.target.value })} />
+            <Input id={id('name')} value={g.name} maxLength={60} onChange={(e) => onChange({ name: e.target.value })} />
           </Field>
           <div className="space-y-1.5">
             <span className="text-sm font-medium block">Quantidade</span>
@@ -408,7 +408,7 @@ function GroupEditor({
               </Field>
               <Field label={`Máximo de ${unitWord(un, true)} por aluguel`} htmlFor={id('tempMaxUnits')} error={err('tempMaxUnits')}>
                 <Input
-                  value={String(g.tempMaxUnits)} inputMode="numeric" placeholder="5"
+                  id={id('tempMaxUnits')} value={String(g.tempMaxUnits)} inputMode="numeric" placeholder="5"
                   onChange={(e) => onChange({ tempMaxUnits: e.target.value.replace(/\D/g, '').slice(0, 3) })}
                 />
               </Field>

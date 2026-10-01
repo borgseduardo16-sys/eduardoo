@@ -46,7 +46,7 @@ export function MobileBottomNav({ isOwner, rentalsAlert = false }: { isOwner: bo
               <span className="absolute -top-0.5 -right-1 size-2 rounded-full bg-[var(--color-critical)] ring-2 ring-[var(--surface)]" aria-hidden />
             )}
           </span>
-          <span className="text-[0.6875rem] font-medium leading-none">{item.label}</span>
+          <span className="px-0.5 text-center text-[0.6875rem] font-medium leading-[1.15]">{item.label}</span>
         </Link>
       ))}
     </nav>

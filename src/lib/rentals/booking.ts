@@ -8,6 +8,7 @@ import { settingInt } from '@/lib/settings';
 import { isIntegrationConfigured } from '@/lib/env';
 import { buildBookingReference } from '@/lib/bookings/reference';
 import * as asaas from '@/lib/payments/asaas';
+import { saveProfileDocument } from '@/lib/payments/document';
 import { getOwnerPayoutAccount, getRenterBillingProfile } from '@/lib/payments/queries';
 import { unitNounFor, type UnitNoun } from '@/lib/spaces/types';
 import { checkTemporaryRequest, type RentalTimeUnit } from './pricing';
@@ -284,7 +285,8 @@ export async function ensureAsaasCustomer(user: { id: string; email: string; ful
   if (existente) return { ok: true as const, customerId: existente.providerCustomerId };
   if (!cpfCnpj) return { ok: false as const, needsCpf: true, message: 'Informe seu CPF para gerar a cobrança.' };
 
-  await db.update(profiles).set({ cpfCnpj }).where(eq(profiles.id, user.id));
+  const documento = await saveProfileDocument(user.id, cpfCnpj);
+  if (!documento.ok) return { ok: false as const, needsCpf: true, message: documento.message };
   const [perfil] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
   let cliente: asaas.AsaasCustomer;
   try {
@@ -308,6 +310,28 @@ export async function ensureAsaasCustomer(user: { id: string; email: string; ful
     .onConflictDoNothing();
   const salvo = await getRenterBillingProfile(user.id);
   return { ok: true as const, customerId: salvo?.providerCustomerId ?? cliente.id };
+}
+
+/**
+ * Desfaz uma reserva temporária que nasceu mas não chegou a ter cobrança
+ * (o cliente do Asaas não pôde ser criado): a unidade volta a ficar livre na
+ * hora e nada fica "meio criado". Reserva com cobrança nunca é apagada.
+ */
+export async function discardUnchargedBooking(bookingId: string, renterId: string, motivo: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [cobranca] = await tx.select({ id: payments.id }).from(payments).where(eq(payments.bookingId, bookingId)).limit(1);
+    if (cobranca) return;
+    const apagadas = await tx
+      .delete(bookings)
+      .where(and(eq(bookings.id, bookingId), eq(bookings.renterId, renterId), eq(bookings.status, 'awaiting_payment')))
+      .returning({ reference: bookings.reference });
+    if (apagadas.length > 0) {
+      await tx.insert(auditLogs).values({
+        actorId: renterId, actorRole: 'user', action: 'booking.temporary_discarded',
+        entityType: 'booking', entityId: bookingId, metadata: { reference: apagadas[0]!.reference, motivo },
+      });
+    }
+  });
 }
 
 /** Prazo do QR do Asaas ("2026-10-02 23:59:59", hora de Brasília) → instante. */

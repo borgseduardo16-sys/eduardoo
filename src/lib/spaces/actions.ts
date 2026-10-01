@@ -550,7 +550,13 @@ export async function publishSpaceAction(
       })
       .where(and(eq(spaces.id, spaceId), eq(spaces.ownerId, user.id)));
   } catch (err) {
-    const msg = err instanceof Error ? err.message : '';
+    // O Drizzle embrulha o erro do Postgres: a regra violada fica em `cause`.
+    const causa = err instanceof Error && err.cause ? err.cause : err;
+    const regra = (causa as { constraint_name?: string } | null)?.constraint_name ?? '';
+    const msg = `${regra} ${err instanceof Error ? err.message : ''} ${causa instanceof Error ? causa.message : ''}`;
+    if (msg.includes('spaces_published_requires_units')) {
+      return { ok: false, message: 'Falta preencher: como alugar (unidades e preços).' };
+    }
     if (msg.includes('spaces_published_requires_complete')) {
       return { ok: false, message: 'O anúncio ainda está incompleto. Revise as etapas anteriores.' };
     }

@@ -74,6 +74,8 @@ export type AsaasWebhookPayload = {
     subscription?: string;
     dueDate?: string;
     invoiceUrl?: string;
+    /** Forma de pagamento da cobrança no gateway (PIX, CREDIT_CARD, BOLETO…) — só informativo. */
+    billingType?: string;
   };
 };
 
@@ -544,8 +546,25 @@ async function requestLateRefund(tx: Tx, pagamento: PaymentRow, booking: Booking
  * `gatewayFeeCents`/`netAmountCents` so ficam conhecidos aqui (o valor bruto
  * cobrado ja era sabido desde a criacao da cobranca, mas a tarifa do gateway
  * so o proprio gateway informa, e so depois de liquidar).
+ *
+ * Pix (e boleto) NÃO passam por PAYMENT_CONFIRMED: o Asaas manda
+ * PAYMENT_CREATED → PAYMENT_RECEIVED (documentação, "Eventos para
+ * cobranças"). Para essas cobranças o RECEIVED é o primeiro aviso de que
+ * houve pagamento, e por isso faz antes o que o CONFIRMED faria: ativar a
+ * reserva, regularizar o pagamento pendente, reativar a reserva expirada ou
+ * mandar estornar o que chegou tarde. Sem isso, um aluguel pago por Pix
+ * nunca ficava ativo.
  */
-async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
+async function handleReceived(tx: Tx, pagamentoRecebido: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
+  let pagamento = pagamentoRecebido;
+  let jobs: PushJob[] = [];
+  if (pagamento.status === 'pending' || pagamento.status === 'overdue' || pagamento.status === 'failed') {
+    jobs = await handleConfirmed(tx, pagamento, booking, payload);
+    // A confirmação pode ter mandado estornar (pagamento depois do fim): relê.
+    const [relida] = await tx.select().from(payments).where(eq(payments.id, pagamento.id)).limit(1);
+    if (relida) pagamento = relida;
+  }
+
   const valorBrutoCents = typeof payload?.payment?.value === 'number'
     ? Math.round(payload.payment.value * 100)
     : pagamento.amountCents;
@@ -562,7 +581,8 @@ async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow
     : null;
 
   // Cobrança já estornada (pagamento que chegou depois do fim) não volta a
-  // "recebida": o evento só completa tarifa e valor líquido.
+  // "recebida": o evento só completa tarifa e valor líquido — e não gera
+  // repasse ao proprietário (o dinheiro volta inteiro para quem pagou).
   const estornada = pagamento.status === 'refunded' || pagamento.status === 'partially_refunded' || pagamento.refundRequestedAt != null;
   await tx
     .update(payments)
@@ -570,7 +590,7 @@ async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow
       ...(estornada ? {} : { status: 'received' as const }),
       creditedAt: new Date(),
       gatewayFeeCents: tarifaGatewayCents, netAmountCents: valorLiquidoCents,
-      platformNetCents: netPlataformaCents, updatedAt: new Date(),
+      platformNetCents: estornada ? null : netPlataformaCents, updatedAt: new Date(),
     })
     .where(eq(payments.id, pagamento.id));
 
@@ -581,7 +601,9 @@ async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow
     .limit(1);
 
   let payoutId: string | null = null;
-  if (contaDoDono?.providerWalletId) {
+  if (estornada) {
+    // Sem repasse: o pagamento está sendo devolvido.
+  } else if (contaDoDono?.providerWalletId) {
     const [jaTemPayout] = await tx.select({ id: payouts.id }).from(payouts).where(eq(payouts.paymentId, pagamento.id)).limit(1);
     if (!jaTemPayout) {
       const [novo] = await tx
@@ -623,20 +645,22 @@ async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow
         type: 'gateway_fee', bookingId: booking.id, paymentId: pagamento.id,
         userId: null, amountCents: -tarifaGatewayCents, description: 'Tarifa do gateway (Asaas)',
       },
-      {
-        type: 'owner_payout', bookingId: booking.id, paymentId: pagamento.id, payoutId,
-        userId: null, amountCents: -booking.ownerPayoutCents, description: 'Repasse ao proprietario',
-      },
+      ...(estornada
+        ? []
+        : [{
+            type: 'owner_payout' as const, bookingId: booking.id, paymentId: pagamento.id, payoutId,
+            userId: null, amountCents: -booking.ownerPayoutCents, description: 'Repasse ao proprietario',
+          }]),
     ]);
   }
 
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.received',
     entityType: 'payment', entityId: pagamento.id,
-    metadata: { bookingId: booking.id, gatewayFeeCents: tarifaGatewayCents, payoutId },
+    metadata: { bookingId: booking.id, gatewayFeeCents: tarifaGatewayCents, payoutId, estornada },
   });
 
-  return [];
+  return jobs;
 }
 
 /**
@@ -823,8 +847,11 @@ async function handlePromotionPurchaseEvent(
   switch (event) {
     case 'PAYMENT_CONFIRMED':
       return handlePurchaseConfirmed(tx, compra, payload);
-    case 'PAYMENT_RECEIVED':
-      return handlePurchaseReceived(tx, compra);
+    case 'PAYMENT_RECEIVED': {
+      // Pix e boleto chegam direto como RECEIVED (sem CONFIRMED): ativa antes.
+      const jobs = compra.promotionId ? [] : await handlePurchaseConfirmed(tx, compra, payload);
+      return [...jobs, ...(await handlePurchaseReceived(tx, compra))];
+    }
     case 'PAYMENT_OVERDUE':
       await tx.update(promotionPurchases).set({ status: 'overdue', updatedAt: new Date() }).where(eq(promotionPurchases.id, compra.id));
       return [];

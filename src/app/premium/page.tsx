@@ -84,7 +84,7 @@ export default async function PremiumPage() {
         <section className="px-4 sm:px-6 pt-12 pb-10 sm:pt-16">
           <div className="mx-auto max-w-2xl space-y-4">
             <p className="flex items-center gap-1.5 text-[0.8125rem] font-medium uppercase tracking-wide text-[var(--accent)]">
-              <Sparkle className="size-3.5" aria-hidden fill="currentColor" />
+              <Sparkle className="size-3.5 text-[var(--premium-star)]" aria-hidden fill="currentColor" />
               Premium
             </p>
             <h1 className="text-[2rem] sm:text-[2.5rem] leading-[1.1] font-semibold">

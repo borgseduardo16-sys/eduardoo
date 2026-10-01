@@ -340,6 +340,9 @@ export async function respondToBookingRequestAction(
 
   let preteridos: { id: string; renterId: string }[] = [];
   let unidade: { id: string; label: string } | null = null;
+  // Motivo dito a quem perdeu a vez: com uma unidade só, "outro foi aceito";
+  // com várias, "todas foram alugadas" (com o gênero certo: vagas, boxes).
+  let motivoPreterido = 'Outro interessado foi aceito primeiro.';
   try {
     await db.transaction(async (tx) => {
       await lockSpaceAndSweep(tx, space.id);
@@ -392,11 +395,19 @@ export async function respondToBookingRequestAction(
             or(eq(bookings.groupId, grupo.id), isNull(bookings.groupId)),
           ));
         if (preteridos.length > 0) {
+          const [unidadesDoGrupo] = (await tx.execute(
+            sql`SELECT count(*)::int AS n FROM space_units WHERE group_id = ${grupo.id} AND active`,
+          )) as unknown as { n: number }[];
+          if ((unidadesDoGrupo?.n ?? 1) > 1) {
+            motivoPreterido = noun.feminino
+              ? `Todas as ${noun.plural} foram alugadas.`
+              : `Todos os ${noun.plural} foram alugados.`;
+          }
           await tx
             .update(bookings)
             .set({
               status: 'rejected',
-              ownerResponse: `Todas as ${noun.plural} foram alugadas.`,
+              ownerResponse: motivoPreterido,
               respondedAt: new Date(),
               updatedAt: new Date(),
             })
@@ -451,7 +462,7 @@ export async function respondToBookingRequestAction(
         userId: p.renterId,
         type: 'booking_rejected' as const,
         title: 'Solicitação recusada',
-        body: `Todas as ${noun.plural} de "${space.title}" foram alugadas.`,
+        body: `${motivoPreterido} Anúncio: "${space.title}".`,
         linkPath: `/reservas/${p.id}`,
         data: { bookingId: p.id },
         dedupeKey: `booking_rejected:${p.id}`,

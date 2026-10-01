@@ -17,7 +17,7 @@ import {
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { settingInt } from '@/lib/settings';
 import { getGroupRules } from '@/lib/rentals/queries';
-import { RENEWAL_WINDOW_MINUTES, temporaryDurationOptions, type DurationOption } from '@/lib/rentals/pricing';
+import { RENEWAL_WINDOW_MINUTES, paymentWindowState, temporaryDurationOptions, type DurationOption } from '@/lib/rentals/pricing';
 import {
   endReasonLabel,
   formatRentalDuration,
@@ -294,17 +294,22 @@ function AluguelCard({
       )}
 
       {/* Pagamento pendente: prazo e caminho para resolver. Claro, sem alarde. */}
-      {problema && r.paymentIssueStartedAt && r.paymentIssueDeadlineAt && (
+      {problema && r.paymentIssueStartedAt && r.paymentIssueDeadlineAt && (() => {
+        const janela = paymentWindowState(r.paymentIssueStartedAt, r.paymentIssueDeadlineAt, agora);
+        return (
         <div className="text-[0.875rem] pt-1 border-t space-y-2">
           <p>
-            Não conseguimos concluir a cobrança deste mês. Regularize até {brTime(r.paymentIssueDeadlineAt)} —{' '}
-            <Countdown target={r.paymentIssueDeadlineAt.toISOString()} serverNow={serverNow} className="font-medium" endedText="prazo encerrado" />.
+            Não conseguimos concluir a cobrança deste mês.{' '}
+            {janela.phase === 'first' ? 'Tempo restante: ' : 'Último prazo: '}
+            <Countdown target={janela.phaseEndsAt.toISOString()} serverNow={serverNow} className="font-medium" endedText="prazo encerrado" />
+            <span className="text-[var(--content-muted)]"> — até {brTime(janela.phaseEndsAt)}</span>
           </p>
           <Link href={`/reservas/${r.id}/pendente`} className={buttonVariants({ size: 'sm', className: 'w-fit' })}>
             Resolver pagamento
           </Link>
         </div>
-      )}
+        );
+      })()}
 
       {['awaiting_payment', 'active', 'past_due', 'ended'].includes(r.status) && !temporario && r.lastPaymentStatus && (
         <p className="flex flex-wrap items-center gap-1.5 text-[0.8125rem] text-[var(--content-muted)]">

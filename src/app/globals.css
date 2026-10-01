@@ -111,6 +111,9 @@
     --accent-subtle: var(--color-brand-50);
 
     --ring: var(--color-brand-600);
+
+    /* Estrela do selo Premium: verde, quatro pontas (pedido explícito). */
+    --premium-star: oklch(0.585 0.150 152);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -134,6 +137,8 @@
       --accent-subtle: oklch(0.252 0.032 251);
 
       --ring: var(--color-brand-400);
+
+      --premium-star: oklch(0.760 0.150 152);
     }
   }
 
@@ -157,10 +162,22 @@
     --accent-subtle: oklch(0.252 0.032 251);
 
     --ring: var(--color-brand-400);
+
+    --premium-star: oklch(0.760 0.150 152);
   }
 
   * {
     border-color: var(--border);
+  }
+
+  /*
+   * O preflight do Tailwind zera a margem de tudo — inclusive a `margin: auto`
+   * que o navegador usa para centralizar o <dialog> aberto com showModal().
+   * Sem isto os modais (denúncia, selo Premium, pagamento pendente) abriam
+   * colados no canto de cima, à esquerda.
+   */
+  dialog {
+    margin: auto;
   }
 
   html {

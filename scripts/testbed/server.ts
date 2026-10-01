@@ -19,9 +19,16 @@
  *   - CEP             — GET /api/cep/v2/:cep (formato BrasilAPI)
  *                       GET /ws/:cep/json/   (formato ViaCEP)
  *   - Asaas           — POST /v3/customers, POST /v3/accounts,
- *                       POST /v3/subscriptions, DELETE /v3/subscriptions/:id,
- *                       GET/POST /v3/payments/:id(/refund) — exige header
+ *                       POST /v3/subscriptions, DELETE /v3/subscriptions/:id
+ *                       (remove junto as cobranças em aberto),
+ *                       POST /v3/payments (com split), GET/PUT/DELETE
+ *                       /v3/payments/:id (PUT troca `billingType` na mesma
+ *                       cobrança), GET /v3/payments/:id/pixQrCode,
+ *                       POST /v3/payments/:id/refund — exige header
  *                       `access_token` batendo com o combinado no teste.
+ *                       Recusa o que o Asaas recusa: trocar forma/excluir
+ *                       cobrança paga, estornar cobrança não paga, QR sem
+ *                       chave Pix cadastrada (`asaasSemChavePix`).
  *   - Resend          — POST /emails — exige header `authorization: Bearer
  *                       <chave>` batendo com o combinado no teste.
  *   - Upstash Redis   — POST /pipeline (contrato REST real, confirmado por
@@ -56,6 +63,24 @@ import sharp from 'sharp';
 
 export type TestbedUser = { id: string; email: string; token: string };
 
+/** Cobrança no dublê do Asaas (o que o app lê de volta). */
+export type AsaasStubPayment = {
+  id: string;
+  status: string;
+  value: number;
+  netValue: number | null;
+  invoiceUrl: string | null;
+  dueDate: string;
+  refundedCents: number;
+  subscription: string | null;
+  /** Parte 12: forma de pagamento atual (PUT troca na MESMA cobrança). */
+  billingType?: string;
+  /** Excluída (DELETE /payments/:id ou junto com a assinatura). */
+  deleted?: boolean;
+  split?: { walletId: string; fixedValue?: number; percentualValue?: number }[] | null;
+  externalReference?: string | null;
+};
+
 export type RequestLog = {
   at: number;
   method: string;
@@ -85,10 +110,12 @@ export type Testbed = {
   tilesServidos: () => { z: number; x: number; y: number }[];
   /** Chave que o testbed exige no header `access_token` das chamadas Asaas. */
   asaasApiKey: string;
+  /** Simula conta Asaas sem chave Pix cadastrada: o QR Code é recusado. */
+  asaasSemChavePix: boolean;
   asaasCustomers: Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>;
   asaasSubaccounts: Map<string, { id: string; apiKey: string; walletId: string }>;
   asaasSubscriptions: Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>;
-  asaasPayments: Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number; subscription: string | null }>;
+  asaasPayments: Map<string, AsaasStubPayment>;
   /** Chave que o testbed exige no header `authorization: Bearer <chave>` das chamadas Resend. */
   resendApiKey: string;
   /** Todo e-mail que o app tentou enviar de verdade, na ordem em que chegou. */
@@ -147,14 +174,17 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const assinaturas = new Map<string, { path: string; expiraEm: number }>();
 
   const estado = {
-    cepFora: false, brasilApiFora: false,
+    cepFora: false, brasilApiFora: false, asaasSemChavePix: false,
     asaasApiKey: randomUUID(), resendApiKey: randomUUID(), upstashToken: randomUUID(),
   };
+  // QR Code de verdade (PNG), como o Asaas devolve: base64 sem prefixo.
+  const qrPng = (await sharp({ create: { width: 8, height: 8, channels: 3, background: '#ffffff' } }).png().toBuffer()).toString('base64');
+  const walletExiste = (walletId: string) => [...asaasSubaccounts.values()].some((c) => c.walletId === walletId);
   const redisStore = new Map<string, { count: number; expiresAt: number }>();
   const asaasCustomers = new Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>();
   const asaasSubaccounts = new Map<string, { id: string; apiKey: string; walletId: string }>();
   const asaasSubscriptions = new Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>();
-  const asaasPayments = new Map<string, { id: string; status: string; value: number; netValue: number | null; invoiceUrl: string | null; dueDate: string; refundedCents: number; subscription: string | null }>();
+  const asaasPayments = new Map<string, AsaasStubPayment>();
   const emailsSent: { id: string; from: string; to: string[]; subject: string; html: string; text: string }[] = [];
   const twilio = {
     accountSid: `AC${randomUUID().replace(/-/g, '')}`,
@@ -504,9 +534,11 @@ export async function startTestbed(port = 0): Promise<Testbed> {
               status = json(res, 200, { ...assinatura, firstPaymentId: payId });
             }
           } else if (req.method === 'POST' && rota === '/v3/payments') {
-            // Cobranca UNICA (nao recorrente) — compra avulsa de Destaque/Turbo.
+            // Cobranca UNICA (nao recorrente) — Destaque/Turbo e, na Parte 12,
+            // o aluguel por tempo (com split para a carteira do proprietario).
             const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
-              customer?: string; value?: number; dueDate?: string;
+              customer?: string; value?: number; dueDate?: string; billingType?: string; externalReference?: string;
+              split?: { walletId: string; fixedValue?: number; percentualValue?: number }[];
             };
             if (!corpo.customer || !corpo.value || !corpo.dueDate) {
               status = json(res, 400, {
@@ -514,12 +546,18 @@ export async function startTestbed(port = 0): Promise<Testbed> {
               });
             } else if (!asaasCustomers.has(corpo.customer)) {
               status = json(res, 400, { errors: [{ code: 'invalid_customer', description: 'customer nao existe' }] });
+            } else if (corpo.split?.some((s) => !walletExiste(s.walletId))) {
+              status = json(res, 400, { errors: [{ code: 'invalid_wallet', description: 'walletId do split nao existe' }] });
+            } else if (corpo.split?.some((s) => (s.fixedValue ?? 0) > corpo.value!)) {
+              status = json(res, 400, { errors: [{ code: 'invalid_split', description: 'valor do split maior que a cobranca' }] });
             } else {
               const payId = `pay_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
-              const pagamento = {
+              const pagamento: AsaasStubPayment = {
                 id: payId, status: 'PENDING', value: corpo.value, netValue: null,
                 invoiceUrl: `http://127.0.0.1/fake-invoice/${payId}`, dueDate: corpo.dueDate,
                 refundedCents: 0, subscription: null,
+                billingType: corpo.billingType ?? 'UNDEFINED', deleted: false,
+                split: corpo.split ?? null, externalReference: corpo.externalReference ?? null,
               };
               asaasPayments.set(payId, pagamento);
               status = json(res, 200, pagamento);
@@ -531,6 +569,12 @@ export async function startTestbed(port = 0): Promise<Testbed> {
               status = json(res, 404, { errors: [{ code: 'not_found', description: 'assinatura nao encontrada' }] });
             } else {
               asaasSubscriptions.set(id, { ...existente, status: 'CANCELLED' });
+              // Como no Asaas: remover a assinatura remove as cobranças ainda não pagas dela.
+              for (const p of asaasPayments.values()) {
+                if (p.subscription === id && ['PENDING', 'OVERDUE'].includes(p.status)) {
+                  asaasPayments.set(p.id, { ...p, deleted: true });
+                }
+              }
               status = json(res, 200, { deleted: true, id });
             }
           } else if (req.method === 'GET' && rota === '/v3/payments') {
@@ -543,11 +587,57 @@ export async function startTestbed(port = 0): Promise<Testbed> {
             status = pagamento
               ? json(res, 200, pagamento)
               : json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+          } else if (req.method === 'PUT' && /^\/v3\/payments\/[^/]+$/.test(rota)) {
+            // Troca a forma de pagamento da MESMA cobrança (só enquanto não foi paga).
+            const id = rota.split('/').pop()!;
+            const pagamento = asaasPayments.get(id);
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { billingType?: string };
+            if (!pagamento || pagamento.deleted) {
+              status = json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+            } else if (!['PENDING', 'OVERDUE'].includes(pagamento.status)) {
+              status = json(res, 400, { errors: [{ code: 'invalid_action', description: 'So e possivel alterar cobrancas aguardando pagamento ou vencidas.' }] });
+            } else if (!corpo.billingType || !['PIX', 'CREDIT_CARD', 'BOLETO', 'UNDEFINED'].includes(corpo.billingType)) {
+              status = json(res, 400, { errors: [{ code: 'invalid_billingType', description: 'billingType invalido' }] });
+            } else {
+              const atualizado = { ...pagamento, billingType: corpo.billingType };
+              asaasPayments.set(id, atualizado);
+              status = json(res, 200, atualizado);
+            }
+          } else if (req.method === 'DELETE' && /^\/v3\/payments\/[^/]+$/.test(rota)) {
+            const id = rota.split('/').pop()!;
+            const pagamento = asaasPayments.get(id);
+            if (!pagamento || pagamento.deleted) {
+              status = json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+            } else if (!['PENDING', 'OVERDUE'].includes(pagamento.status)) {
+              status = json(res, 400, { errors: [{ code: 'invalid_action', description: 'Cobranca paga nao pode ser removida; use o estorno.' }] });
+            } else {
+              asaasPayments.set(id, { ...pagamento, deleted: true });
+              status = json(res, 200, { deleted: true, id });
+            }
+          } else if (req.method === 'GET' && /^\/v3\/payments\/[^/]+\/pixQrCode$/.test(rota)) {
+            const id = rota.split('/').slice(-2)[0]!;
+            const pagamento = asaasPayments.get(id);
+            if (!pagamento || pagamento.deleted) {
+              status = json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+            } else if (estado.asaasSemChavePix) {
+              status = json(res, 400, { errors: [{ code: 'invalid_action', description: 'Nao ha chave Pix cadastrada na conta.' }] });
+            } else if (!['PENDING', 'OVERDUE'].includes(pagamento.status) || pagamento.billingType === 'CREDIT_CARD') {
+              status = json(res, 400, { errors: [{ code: 'invalid_action', description: 'QR Code disponivel so para cobranca Pix/boleto em aberto.' }] });
+            } else {
+              status = json(res, 200, {
+                encodedImage: qrPng,
+                payload: `00020126580014br.gov.bcb.pix0136testbed-${id}5204000053039865406${pagamento.value.toFixed(2)}5802BR6304ABCD`,
+                expirationDate: `${pagamento.dueDate} 23:59:59`,
+              });
+            }
           } else if (req.method === 'POST' && /^\/v3\/payments\/[^/]+\/refund$/.test(rota)) {
             const id = rota.split('/').slice(-2)[0]!;
             const pagamento = asaasPayments.get(id);
             if (!pagamento) {
               status = json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+            } else if (!['RECEIVED', 'CONFIRMED'].includes(pagamento.status)) {
+              // Inclui o caso de estorno pedido duas vezes: já está REFUNDED.
+              status = json(res, 400, { errors: [{ code: 'invalid_action', description: `Cobranca com status ${pagamento.status} nao pode ser estornada.` }] });
             } else {
               const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { value?: number };
               const valorReais = corpo.value ?? pagamento.value;
@@ -757,6 +847,12 @@ export async function startTestbed(port = 0): Promise<Testbed> {
       estado.brasilApiFora = v;
     },
     asaasApiKey: estado.asaasApiKey,
+    get asaasSemChavePix() {
+      return estado.asaasSemChavePix;
+    },
+    set asaasSemChavePix(v: boolean) {
+      estado.asaasSemChavePix = v;
+    },
     asaasCustomers,
     asaasSubaccounts,
     asaasSubscriptions,

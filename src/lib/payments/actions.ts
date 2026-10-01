@@ -16,6 +16,7 @@ import {
 } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import * as asaas from './asaas';
+import { DOCUMENT_IN_OTHER_ACCOUNT, documentInUseByOther, saveProfileDocument } from './document';
 import { chargeDeposit } from './deposits';
 import { payoutAccountSchema, checkoutSchema } from './schemas';
 import { getOwnerPayoutAccount, getRenterBillingProfile } from './queries';
@@ -49,6 +50,11 @@ export async function createPayoutAccountAction(
     return { ok: false, message: parsed.error.issues[0]?.message ?? 'Dados inválidos.' };
   }
   const dados = parsed.data;
+
+  // Antes do gateway: documento de outra conta não cria subconta nenhuma.
+  if (await documentInUseByOther(user.id, dados.cpfCnpj)) {
+    return { ok: false, message: DOCUMENT_IN_OTHER_ACCOUNT };
+  }
 
   let subconta: asaas.AsaasSubaccount;
   try {
@@ -143,7 +149,8 @@ export async function startCheckoutAction(
     };
   }
 
-  await db.update(profiles).set({ cpfCnpj }).where(eq(profiles.id, user.id));
+  const documento = await saveProfileDocument(user.id, cpfCnpj);
+  if (!documento.ok) return { ok: false, message: documento.message };
 
   let billing = await getRenterBillingProfile(user.id);
   if (!billing) {

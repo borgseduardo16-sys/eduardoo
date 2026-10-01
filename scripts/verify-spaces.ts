@@ -32,6 +32,7 @@ import { sniffImageType, buildImagePath, ownerFromPath } from '../src/lib/storag
 import { requiresMeasurement, asksMeasurement, priceHintFor } from '../src/lib/spaces/types';
 import { validateMeasurements, contentStepSchema, locationStepSchema } from '../src/lib/spaces/schemas';
 import { parseRentalConfig } from '../src/lib/rentals/config';
+import { garantirUnidadePadrao, mudarPrecoMensal } from './lib/unidades';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -69,7 +70,8 @@ async function mustReject(name: string, fn: () => Promise<unknown>, fragment: st
     await fn();
     bad(name, 'o banco ACEITOU algo que deveria recusar');
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    // Regra de gatilho vem com o nome em `constraint_name` (RAISE ... USING CONSTRAINT), não na mensagem.
+    const msg = `${err instanceof Error ? err.message : String(err)} [${(err as { constraint_name?: string }).constraint_name ?? ''}]`;
     if (msg.toLowerCase().includes(fragment.toLowerCase())) ok(name, `bloqueado: ${fragment}`);
     else bad(name, `recusou por outro motivo: ${msg.slice(0, 150)}`);
   }
@@ -170,6 +172,15 @@ async function main() {
     }
     ok('3 fotos adicionadas ao rascunho');
 
+    // Parte 12: sem unidade alugável, também não publica.
+    await mustReject(
+      'rascunho sem unidade NAO vira publicado',
+      () => sql`UPDATE spaces SET status='published' WHERE id=${spaceId}`,
+      'spaces_published_requires_units',
+    );
+    await garantirUnidadePadrao(sql, spaceId);
+    ok('unidade padrão criada no rascunho (como a etapa "Como alugar" faz)');
+
     await mustReject(
       'rascunho incompleto NAO vira publicado',
       () => sql`UPDATE spaces SET status='published' WHERE id=${spaceId}`,
@@ -187,7 +198,9 @@ async function main() {
       title='Galpao 200 m2 com entrada para caminhao',
       description='Galpao amplo, piso de concreto, portao alto para caminhao truck. Energia trifasica e banheiro.',
       draft_step=6 WHERE id=${spaceId}`;
-    await sql`UPDATE spaces SET price_monthly_cents=180000, available_from=CURRENT_DATE, draft_step=7 WHERE id=${spaceId}`;
+    // Preço agora vem do grupo de unidades (o anúncio só espelha).
+    await mudarPrecoMensal(sql, spaceId, 180000);
+    await sql`UPDATE spaces SET available_from=CURRENT_DATE, draft_step=7 WHERE id=${spaceId}`;
     await sql`INSERT INTO space_features (space_id, feature_key) VALUES
       (${spaceId},'acesso_caminhao'),(${spaceId},'energia'),(${spaceId},'banheiro')`;
 

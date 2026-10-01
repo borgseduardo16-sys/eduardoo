@@ -10,7 +10,8 @@ import { bookings, payments, auditLogs } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { onlyDigits, isValidCpf, isValidCnpj } from '@/lib/safety/documents';
 import * as asaas from '@/lib/payments/asaas';
-import { chargeTemporaryBooking, createTemporaryBooking, ensureAsaasCustomer } from './booking';
+import { getRenterBillingProfile } from '@/lib/payments/queries';
+import { chargeTemporaryBooking, createTemporaryBooking, discardUnchargedBooking, ensureAsaasCustomer } from './booking';
 import { RENEWAL_WINDOW_MINUTES, type RentalTimeUnit } from './pricing';
 import { brInstant } from './time';
 
@@ -70,9 +71,11 @@ export async function reserveTemporaryAction(
 
   const cpf = lerCpf(formData.get('cpfCnpj'));
   if (cpf === 'invalido') return { ok: false, needsCpf: true, message: 'CPF/CNPJ inválido.' };
-  const cliente = await ensureAsaasCustomer(user, cpf);
-  if (!cliente.ok) return { ok: false, needsCpf: cliente.needsCpf, message: cliente.message };
+  if (!cpf && !(await getRenterBillingProfile(user.id))) {
+    return { ok: false, needsCpf: true, message: 'Informe seu CPF para gerar a cobrança.' };
+  }
 
+  // Primeiro todas as regras (e a vaga): só depois o gateway é chamado.
   const reserva = await createTemporaryBooking({
     renterId: user.id,
     spaceId: spaceId.data,
@@ -83,6 +86,12 @@ export async function reserveTemporaryAction(
     idempotencyKey: chave.data,
   });
   if (!reserva.ok) return { ok: false, message: reserva.message };
+
+  const cliente = await ensureAsaasCustomer(user, cpf);
+  if (!cliente.ok) {
+    if (!reserva.reused) await discardUnchargedBooking(reserva.bookingId, user.id, 'cliente_asaas');
+    return { ok: false, needsCpf: cliente.needsCpf, message: cliente.message };
+  }
 
   const cobranca = await chargeTemporaryBooking(reserva.bookingId, cliente.customerId);
   if (!cobranca.ok) return { ok: false, message: cobranca.message };
@@ -191,16 +200,25 @@ export async function choosePaymentMethodAction(
 
   try {
     if (metodo === 'pix') {
-      if (cobranca.method !== 'pix' || !cobranca.pixPayload) {
-        if (cobranca.method !== 'pix') await asaas.updatePaymentBillingType(cobranca.providerPaymentId, 'PIX');
-        const qr = await asaas.getPixQrCode(cobranca.providerPaymentId);
-        await db
-          .update(payments)
-          .set({ method: 'pix', pixPayload: qr.payload, pixQrImage: qr.encodedImage, payerStartedAt: new Date(), updatedAt: new Date() })
-          .where(eq(payments.id, cobranca.id));
-      } else {
-        await db.update(payments).set({ payerStartedAt: new Date(), updatedAt: new Date() }).where(eq(payments.id, cobranca.id));
-      }
+      // Trava a cobrança: dois toques ao mesmo tempo passam aqui um de cada
+      // vez, e o segundo já encontra o Pix pronto (nada repetido no gateway).
+      await db.transaction(async (tx) => {
+        const [atual] = await tx
+          .select({ method: payments.method, pixPayload: payments.pixPayload })
+          .from(payments)
+          .where(eq(payments.id, cobranca.id))
+          .for('update');
+        if (atual?.method !== 'pix' || !atual.pixPayload) {
+          if (atual?.method !== 'pix') await asaas.updatePaymentBillingType(cobranca.providerPaymentId, 'PIX');
+          const qr = await asaas.getPixQrCode(cobranca.providerPaymentId);
+          await tx
+            .update(payments)
+            .set({ method: 'pix', pixPayload: qr.payload, pixQrImage: qr.encodedImage, payerStartedAt: new Date(), updatedAt: new Date() })
+            .where(eq(payments.id, cobranca.id));
+        } else {
+          await tx.update(payments).set({ payerStartedAt: new Date(), updatedAt: new Date() }).where(eq(payments.id, cobranca.id));
+        }
+      });
       await db.insert(auditLogs).values({
         actorId: user.id, actorRole: user.role, action: 'payment.method_pix',
         entityType: 'payment', entityId: cobranca.id, metadata: { bookingId: booking.id },
@@ -212,15 +230,23 @@ export async function choosePaymentMethodAction(
     }
 
     // Cartão (crédito ou débito, conforme a fatura do Asaas oferecer).
-    let fatura = cobranca.invoiceUrl;
-    if (cobranca.method !== 'credit_card') {
-      const atualizada = await asaas.updatePaymentBillingType(cobranca.providerPaymentId, 'CREDIT_CARD');
-      fatura = atualizada.invoiceUrl ?? fatura;
-    }
-    await db
-      .update(payments)
-      .set({ method: 'credit_card', invoiceUrl: fatura, payerStartedAt: new Date(), updatedAt: new Date() })
-      .where(eq(payments.id, cobranca.id));
+    const fatura = await db.transaction(async (tx) => {
+      const [atual] = await tx
+        .select({ method: payments.method, invoiceUrl: payments.invoiceUrl })
+        .from(payments)
+        .where(eq(payments.id, cobranca.id))
+        .for('update');
+      let link = atual?.invoiceUrl ?? null;
+      if (atual?.method !== 'credit_card') {
+        const atualizada = await asaas.updatePaymentBillingType(cobranca.providerPaymentId, 'CREDIT_CARD');
+        link = atualizada.invoiceUrl ?? link;
+      }
+      await tx
+        .update(payments)
+        .set({ method: 'credit_card', invoiceUrl: link, payerStartedAt: new Date(), updatedAt: new Date() })
+        .where(eq(payments.id, cobranca.id));
+      return link;
+    });
     await db.insert(auditLogs).values({
       actorId: user.id, actorRole: user.role, action: 'payment.method_card',
       entityType: 'payment', entityId: cobranca.id, metadata: { bookingId: booking.id },

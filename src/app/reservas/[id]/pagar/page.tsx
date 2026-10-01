@@ -62,7 +62,7 @@ export default async function PagarReservaPage({ params }: { params: Promise<{ i
           linhas={[
             ...(unidade ? [['Unidade', unidade] as const] : []),
             ['Aluguel mensal', formatBRL(booking.monthlyRentCents)],
-            ['Taxa da plataforma', formatBRL(booking.renterFeeCents)],
+            ['Taxa de serviço', formatBRL(booking.renterFeeCents)],
           ]}
           total={['Total, cobrado todo mês', formatBRL(booking.totalChargedCents)]}
           extra={[['A partir de', formatBookingDate(booking.startDate)]]}
@@ -136,7 +136,7 @@ export default async function PagarReservaPage({ params }: { params: Promise<{ i
           ...(periodo ? [['Quando', periodo] as const] : []),
           ...(temporario ? [['Duração', formatRentalDuration(booking.durationUnits, booking.durationUnit)] as const] : []),
           ['Aluguel', formatBRL(booking.monthlyRentCents)],
-          ['Taxa da plataforma', formatBRL(booking.renterFeeCents)],
+          ['Taxa de serviço', formatBRL(booking.renterFeeCents)],
         ]}
         total={['Total', formatBRL(booking.totalChargedCents)]}
       />

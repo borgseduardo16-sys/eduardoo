@@ -47,9 +47,17 @@ domínio.
 
 1. Menu lateral → **Database** → **Extensions**
 2. Procure `postgis` → **Enable**
+3. Procure `btree_gist` → **Enable** (Parte 12). É o que faz o próprio banco
+   recusar duas reservas da mesma vaga no mesmo horário.
 
-> Sem isso a migração falha. O PostGIS é o que faz a busca por distância
-> funcionar.
+> Sem o PostGIS a migração falha — é ele que faz a busca por distância
+> funcionar. O `btree_gist`, se você esquecer, o SQL do passo 1.6 ativa
+> sozinho no schema `public`: funciona igual, só que o *Security Advisor* do
+> Supabase passa a mostrar o aviso "Extension in Public" sobre ele.
+>
+> *Verificado:* o SQL entra sem erro e as checagens de aluguel passam com o
+> `btree_gist` nos dois lugares (`extensions`, ativado pelo painel, ou
+> `public`, ativado pelo SQL).
 
 ### 1.3 Pegar as chaves
 
@@ -119,30 +127,34 @@ Nenhuma credencial sai das suas mãos.
 2. Abra `supabase/setup.sql` deste repositório
 3. Cole o arquivo **inteiro** e clique em **Run**
 
-**Já rodou o schema antes e só quer a parte nova?** Existe um arquivo menor
-com apenas as migrações recentes — hoje `supabase/atualizacao-0025.sql`, com
-tudo o que veio depois da `0024` (a última confirmada no seu projeto, em
-29/09): as migrações `0025` a `0030`, da Fase 23. Ele é gerado do mesmo lugar
-e guardado pelo mesmo hash, então dá no mesmo — e colar o `setup.sql`
-completo também continua seguro:
+**Já rodou o schema antes e só quer a parte nova?** Existem arquivos menores
+com apenas as migrações recentes, gerados do mesmo lugar e guardados pelo
+mesmo hash — então dá no mesmo:
+
+| Arquivo | Migrações | O que traz | Para quem parou em |
+|---|---|---|---|
+| `supabase/atualizacao-0025.sql` | `0025` a `0030` | Fase 23 | `0024` (a última confirmada no seu projeto, em 29/09) |
+| `supabase/atualizacao-0031.sql` | `0031` e `0032` | Parte 12: unidades, aluguel por tempo, pagamento pendente | `0030` |
+
+Cada arquivo parcial supõe que os anteriores já foram aplicados. **Na
+dúvida, cole o `setup.sql` completo**: ele aplica só o que falta e pula o
+resto. Os parciais são gerados com:
 
 ```bash
-pnpm tsx scripts/build-supabase-setup.ts --desde 25
+pnpm tsx scripts/build-supabase-setup.ts --desde 31
 ```
 
-*Verificado em 01/10/2026:* o `setup.sql` antigo (até a `0024`) seguido do
-`atualizacao-0025.sql` produz o **mesmo schema**, linha por linha (2.121
-linhas de `pg_dump`, com permissões), que o `setup.sql` novo num banco vazio
-e que o `pnpm db:migrate`. Rodar a atualização duas vezes pula as 6 migrações
-na segunda, e as checagens de banco (`verify-schema`, `verify-descoberta`)
-passam no banco atualizado por esse caminho.
+*Verificado em 01/10/2026 (Parte 12):* em bancos vazios, o `setup.sql`
+anterior (até a `0030`) seguido do `atualizacao-0031.sql` produz o **mesmo
+schema**, linha por linha (6.353 linhas de `pg_dump`, com permissões), que o
+`setup.sql` novo e que o `pnpm db:migrate`. Rodar a atualização de novo pula
+as 2 migrações. E num banco montado como o Supabase monta — PostGIS no
+schema `extensions` e o SQL rodado por um papel **sem superusuário**, como o
+do SQL Editor — tudo entra sem erro, e as checagens de banco
+(`verify-schema`, 218) e de aluguel (`verify-alugueis`, 106) passam. A
+`atualizacao-0025.sql` passou pela mesma conferência na Fase 23.
 
-*Verificado:* colar o `setup.sql` antigo e depois a atualização produz um
-schema **byte a byte idêntico** ao de um banco novo com o `setup.sql`
-completo, e idêntico ao que o `pnpm db:migrate` gera (comparado com `pg_dump`,
-1300 linhas).
-
-Pronto: 38 tabelas, índices geoespaciais, triggers, RLS, as políticas do
+Pronto: 40 tabelas, índices geoespaciais, triggers, RLS, as políticas do
 bucket de fotos e as taxas iniciais.
 
 **É seguro rodar mais de uma vez.** Cada migração só é aplicada se ainda não
@@ -170,7 +182,7 @@ O arquivo também mantém a tabela de controle do Drizzle em dia, então um
 Confira o resultado com:
 
 ```sql
-SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 31 (uma por migração)
+SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 33 (uma por migração)
 SELECT key, value FROM platform_settings ORDER BY key;        -- taxas 3%+3%
 SELECT PostGIS_Version();                                     -- extensão ativa
 ```
@@ -187,7 +199,7 @@ nunca sai da sua máquina:
 cp .env.example .env.local     # preencha com os valores acima
 pnpm install
 pnpm db:migrate
-pnpm tsx scripts/verify-schema.ts   # 136 passaram
+pnpm tsx scripts/verify-schema.ts   # 218 passaram
 pnpm tsx scripts/verify-safety.ts   # 77 passaram
 pnpm dev
 ```
@@ -414,9 +426,16 @@ isso exige uma URL alcançável pela internet, **não funciona com
   3. **Token de acesso:** cole o MESMO valor de `ASAAS_WEBHOOK_TOKEN` (§4.1)
   4. **Eventos:** marque ao menos `PAYMENT_CREATED`, `PAYMENT_CONFIRMED`,
      `PAYMENT_RECEIVED`, `PAYMENT_OVERDUE`, `PAYMENT_REFUNDED`,
-     `PAYMENT_DELETED` e `PAYMENT_REPROVED_BY_RISK_ANALYSIS` — são os que o
-     código de hoje já sabe tratar (`src/lib/payments/webhook.ts`). Outros
-     eventos chegam sem erro, mas ficam marcados como "não tratado ainda".
+     `PAYMENT_DELETED`, `PAYMENT_REPROVED_BY_RISK_ANALYSIS` e
+     `PAYMENT_CREDIT_CARD_CAPTURE_REFUSED` — são os que o código de hoje já
+     sabe tratar (`src/lib/payments/webhook.ts`). Outros eventos chegam sem
+     erro, mas ficam marcados como "não tratado ainda".
+     - `PAYMENT_RECEIVED` é **indispensável**: Pix e boleto chegam direto
+       nele, sem passar por `PAYMENT_CONFIRMED` (só o cartão passa pelos
+       dois). Sem ele, nada pago por Pix é confirmado.
+     - `PAYMENT_CREDIT_CARD_CAPTURE_REFUSED` (Parte 12) é o cartão recusado
+       na cobrança automática do mês: é ele que abre o "Pagamento pendente"
+       com os 40 minutos + 1 hora para regularizar.
      O `PAYMENT_CREATED` é o da renovação mensal (Fase 23): é ele que avisa
      quando o Asaas gera a mensalidade seguinte, e com ele o locatário vê
      "Pagar agora" e o lembrete antes do vencimento. Sem ele, a renovação
@@ -463,6 +482,19 @@ pessoa antes de apostar dinheiro real:
   sandbox.
 - Não decido política de reembolso/cancelamento — isso é decisão sua (ver
   PAGAMENTOS.md, e a nota sobre mediação em [SEGURANCA.md](./SEGURANCA.md)).
+
+### 4.7 Chave Pix na conta — para o QR aparecer na tela (Parte 12)
+
+**PRECISA DA SUA AÇÃO.** O QR Code e o "copia e cola" que aparecem na tela
+de pagamento (reserva por tempo, "Pagar agora" do pagamento pendente) vêm
+do Asaas, e ele só gera o QR para contas com **chave Pix cadastrada**. No
+painel do Asaas (sandbox e, depois, produção): **Pix → Minhas chaves →
+Cadastrar chave** — a chave aleatória serve.
+
+Sem a chave, nada finge funcionar: a cobrança continua valendo, a tela
+mostra as formas de pagamento, o cartão segue pela página segura do Asaas e
+quem escolher Pix lê o motivo que o Asaas devolver. Só o Pix na própria tela
+não aparece.
 
 ---
 
@@ -630,6 +662,10 @@ máximo 1x/dia, por isso o agendamento é diário (não a cada hora).
 - lembrete de renovação 7 dias e 1 dia antes do vencimento, agora com
   espaço, data, valor e se a cobrança já está disponível.
 
+**Parte 12** — o mesmo `CRON_SECRET` protege o agendador por minuto
+(`/api/cron/minuto`, §15), e o job diário também roda a manutenção dos
+aluguéis, como rede de segurança caso o agendador por minuto pare.
+
 ---
 
 ## 12. VAPID — notificação push no celular (Fase 19)
@@ -766,6 +802,76 @@ deploy.
 
 ---
 
+## 15. Agendador por minuto (Parte 12)
+
+**PRECISA DA SUA AÇÃO.** O aluguel por hora tem coisas que precisam
+acontecer no minuto certo mesmo com o app fechado: o aviso "Seu aluguel
+termina em 10 minutos.", o aviso de último prazo do pagamento pendente, o
+encerramento quando o prazo acaba e o cancelamento da cobrança no Asaas. Quem
+faz isso é a rota `GET /api/cron/minuto`, que precisa ser chamada **a cada
+minuto** com o header `Authorization: Bearer <CRON_SECRET>` (o mesmo
+segredo do §11).
+
+O plano Hobby da Vercel só agenda uma vez por dia — por isso a rota **não**
+está no `vercel.json`. Escolha um dos caminhos:
+
+**A) Supabase (recomendado — nada de conta nova, o segredo fica no Vault).**
+No painel: **Database → Extensions**, ative `pg_cron` e `pg_net`. Depois, no
+**SQL Editor**, troque os dois valores e rode uma vez:
+
+```sql
+-- Guarda o endereço e o segredo no Vault (não ficam no texto do agendamento).
+select vault.create_secret('https://SEU-DOMINIO', 'myplace_site_url');
+select vault.create_secret('COLE_AQUI_O_CRON_SECRET', 'myplace_cron_secret');
+
+-- Chama a rota a cada minuto.
+select cron.schedule(
+  'myplace-aluguel-por-minuto',
+  '* * * * *',
+  $$
+  select net.http_get(
+    url := (select decrypted_secret from vault.decrypted_secrets where name = 'myplace_site_url') || '/api/cron/minuto',
+    headers := jsonb_build_object(
+      'Authorization',
+      'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'myplace_cron_secret')
+    ),
+    timeout_milliseconds := 20000
+  );
+  $$
+);
+```
+
+Para conferir: `select status_code, content from net._http_response order by
+created desc limit 5;` deve mostrar `200` e `{"ok":true,...}`. Para parar:
+`select cron.unschedule('myplace-aluguel-por-minuto');`.
+
+**B) cron-job.org (gratuito).** Crie um job com a URL
+`https://SEU-DOMINIO/api/cron/minuto`, a cada 1 minuto, método GET, e em
+**Advanced → Headers** adicione `Authorization` = `Bearer SEU_CRON_SECRET`.
+O segredo fica guardado num serviço de terceiro — ele só permite disparar a
+manutenção (que é idempotente) e a resposta só traz contagens, mas se vazar,
+troque o `CRON_SECRET`.
+
+**C) Vercel Pro.** Acrescente ao `vercel.json`
+`{ "path": "/api/cron/minuto", "schedule": "* * * * *" }`. A Vercel manda o
+`CRON_SECRET` sozinha, como no job diário.
+
+Teste à mão (qualquer caminho):
+
+```bash
+curl -i -H "Authorization: Bearer SEU_CRON_SECRET" https://SEU-DOMINIO/api/cron/minuto
+# 200 {"ok":true,"released":0,"notices":0,"outbox":{...}}
+# sem o header: 401 · sem CRON_SECRET na Vercel: 503
+```
+
+Chamar duas vezes no mesmo minuto não duplica nada (avisos com chave única,
+um executor por vez no gateway). E se o agendador parar, nada fica
+**errado**: disponibilidade, contagem e prazos são calculados pelo relógio
+do banco na hora de ler, e o job diário roda a mesma manutenção como rede de
+segurança — só os avisos e o cancelamento no Asaas deixam de sair na hora.
+
+---
+
 ## Regras que valem sempre
 
 1. **`.env.local` nunca vai para o Git.** Já está no `.gitignore`.
@@ -793,6 +899,8 @@ verdade) ele lista como lembrete, não como aprovado.
 - [ ] Upstash configurado (rate limiting real)
 - [ ] Sentry recebendo eventos
 - [ ] Asaas em produção, com KYC aprovado
+- [ ] Chave Pix cadastrada na conta Asaas (QR na tela — §4.7)
+- [ ] Agendador por minuto chamando `/api/cron/minuto` (§15)
 - [ ] **Termos de Uso e Política de Privacidade revisados por advogado**
 - [ ] Backup do banco verificado — testando uma restauração, não só confiando
 - [ ] Um administrador criado (`UPDATE profiles SET role='admin' WHERE id='…'`)

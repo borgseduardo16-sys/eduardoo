@@ -40,7 +40,7 @@ export function PremiumBadge({ className }: { className?: string }) {
           className,
         )}
       >
-        <Sparkle className="size-3" aria-hidden fill="currentColor" />
+        <Sparkle className="size-3 text-[var(--premium-star)]" aria-hidden fill="currentColor" />
         Membro Premium
       </button>
 
@@ -60,7 +60,7 @@ export function PremiumBadge({ className }: { className?: string }) {
       >
         <div className="flex items-start justify-between gap-4 p-5 pb-3">
           <div className="flex items-center gap-2">
-            <Sparkle className="size-4 text-[var(--accent)]" aria-hidden fill="currentColor" />
+            <Sparkle className="size-4 text-[var(--premium-star)]" aria-hidden fill="currentColor" />
             <h2 className="text-[1.0625rem] font-semibold">Membro Premium</h2>
           </div>
           <button

@@ -51,3 +51,50 @@ export async function mudarPrecoMensal(sql: Sql, spaceId: string, novoPrecoCents
     UPDATE space_unit_groups SET monthly_price_cents = ${novoPrecoCents}
      WHERE space_id = ${spaceId} AND allows_continuous`;
 }
+
+/**
+ * Uma unidade do grupo padrão sem reserva viva — para os scripts que gravam
+ * reserva direto por SQL: o banco exige grupo e unidade em toda reserva que
+ * ocupa (aceita, aguardando pagamento, ativa, pagamento pendente) e recusa
+ * duas reservas vivas na mesma unidade. Se todas estiverem ocupadas, cria a
+ * próxima unidade do grupo, como o proprietário faria.
+ */
+export async function unidadeLivre(sql: Sql, spaceId: string): Promise<{ groupId: string; unitId: string }> {
+  const { groupId } = await garantirUnidadePadrao(sql, spaceId);
+  const [livre] = await sql<{ id: string }[]>`
+    SELECT u.id FROM space_units u
+     WHERE u.group_id = ${groupId} AND u.active
+       AND NOT EXISTS (
+         SELECT 1 FROM bookings b
+          WHERE b.unit_id = u.id AND b.status IN ('approved', 'awaiting_payment', 'active', 'past_due'))
+     ORDER BY u.position
+     LIMIT 1`;
+  if (livre) return { groupId, unitId: livre.id };
+  const [proxima] = await sql<{ n: number }[]>`
+    SELECT coalesce(max(position), 0)::int + 1 AS n FROM space_units WHERE space_id = ${spaceId}`;
+  const n = proxima!.n;
+  const [u] = await sql<{ id: string }[]>`
+    INSERT INTO space_units (space_id, group_id, label, position)
+    VALUES (${spaceId}, ${groupId}, ${`Unidade ${n}`}, ${n})
+    RETURNING id`;
+  return { groupId, unitId: u!.id };
+}
+
+/**
+ * O que o formulário "Como alugar" mandaria para mudar só o preço mensal:
+ * o grupo que já existe (com o id, para editar e não recriar) ou, num
+ * rascunho ainda sem grupo, um grupo "Padrão" novo com uma unidade.
+ */
+export async function configPrecoMensal(sql: Sql, spaceId: string, precoReais: string): Promise<string> {
+  const [g] = await sql<{ id: string; name: string; n: number }[]>`
+    SELECT g.id, g.name,
+           (SELECT count(*)::int FROM space_units u WHERE u.group_id = g.id AND u.active) AS n
+      FROM space_unit_groups g
+     WHERE g.space_id = ${spaceId} AND g.active
+     ORDER BY g.position
+     LIMIT 1`;
+  const grupo = g
+    ? { id: g.id, name: g.name, unitCount: Math.max(1, g.n), mode: 'continuous', monthlyPrice: precoReais }
+    : { name: 'Padrão', unitCount: 1, mode: 'continuous', monthlyPrice: precoReais };
+  return JSON.stringify({ availableFrom: new Date().toISOString().slice(0, 10), groups: [grupo] });
+}

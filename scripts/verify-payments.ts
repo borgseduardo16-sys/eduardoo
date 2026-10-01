@@ -31,6 +31,7 @@ import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
 import { startTestbed, type Testbed } from './testbed/server';
+import { unidadeLivre } from './lib/unidades';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -149,17 +150,21 @@ async function seedBookingAprovada(
   opts: { status?: string; ownerId?: string; sufixo?: string; depositCents?: number } = {},
 ) {
   const amounts = computeBookingAmounts(precoCents, { renterFeeBps: 300, ownerFeeBps: 300 });
+  // Parte 12: reserva que ocupa precisa de grupo e unidade (e o valor bate com o grupo).
+  const { groupId, unitId } = await unidadeLivre(sql, espacoId);
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO bookings
       (reference, space_id, renter_id, owner_id, status, start_date,
        monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-       owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
+       owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents,
+       group_id, unit_id)
     VALUES
       (${`MP-${tag}${opts.sufixo ?? ''}`}, ${espacoId}, ${renterId}, ${opts.ownerId ?? donoId},
        ${opts.status ?? 'awaiting_payment'}, CURRENT_DATE,
        ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps},
        ${amounts.renterFeeCents}, ${amounts.ownerFeeCents}, ${amounts.totalChargedCents},
-       ${amounts.ownerPayoutCents}, ${opts.depositCents ?? 0})
+       ${amounts.ownerPayoutCents}, ${opts.depositCents ?? 0},
+       ${groupId}, ${unitId})
     RETURNING id`;
   return { bookingId: row!.id, amounts };
 }
@@ -272,7 +277,23 @@ async function main() {
   } as never;
 
   const asaas = await import('../src/lib/payments/asaas');
-  const { processAsaasWebhook } = await import('../src/lib/payments/webhook');
+  const { processAsaasWebhook: processarWebhookReal } = await import('../src/lib/payments/webhook');
+  /*
+   * Um evento do Asaas relata o estado que a cobrança JÁ tem no gateway. O
+   * dublê passa a ter o mesmo estado — senão ele recusaria, como o Asaas
+   * real recusa, estornar uma cobrança que para ele continua "pendente".
+   */
+  const ESTADO_NO_GATEWAY: Record<string, string> = {
+    PAYMENT_CONFIRMED: 'CONFIRMED', PAYMENT_RECEIVED: 'RECEIVED', PAYMENT_OVERDUE: 'OVERDUE', PAYMENT_REFUNDED: 'REFUNDED',
+  };
+  const processAsaasWebhook: typeof processarWebhookReal = async (evento) => {
+    const e = evento as { event?: string; payment?: { id?: string } } | null;
+    const id = e?.payment?.id;
+    const novo = e?.event ? ESTADO_NO_GATEWAY[e.event] : undefined;
+    const atual = id ? testbed.asaasPayments.get(id) : undefined;
+    if (atual && novo) testbed.asaasPayments.set(id!, { ...atual, status: novo });
+    return processarWebhookReal(evento);
+  };
   const { createPayoutAccountAction, startCheckoutAction } = await import('../src/lib/payments/actions');
   const { endBookingAction } = await import('../src/lib/bookings/actions');
   const { createReviewAction } = await import('../src/lib/reviews/actions');
@@ -351,6 +372,15 @@ async function main() {
   const cobranca = await asaas.getPayment(primeiraCobranca);
   expect('getPayment devolve o valor certo', cobranca.value, 206);
 
+  // Como no Asaas: só cobrança paga é estornada (Parte 12 deixou o dublê fiel a isso).
+  try {
+    await asaas.refundPayment(primeiraCobranca);
+    bad('estorno de cobranca ainda nao paga e recusado', 'nao lancou erro');
+  } catch (err) {
+    assert('estorno de cobranca ainda nao paga e recusado', err instanceof asaas.AsaasError && err.status === 400,
+      err instanceof Error ? err.message : String(err));
+  }
+  testbed.asaasPayments.set(primeiraCobranca, { ...testbed.asaasPayments.get(primeiraCobranca)!, status: 'RECEIVED' });
   const estornado = await asaas.refundPayment(primeiraCobranca);
   expect('refundPayment estorna o valor cheio', estornado.status, 'REFUNDED');
 
@@ -574,7 +604,7 @@ async function main() {
 
   entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
   const checkoutSemContaDono = await startCheckoutAction(undefined, formData({
-    bookingId: bookingSemConta, cpfCnpj: cpfLocatario,
+    bookingId: bookingSemConta, cpfCnpj: cpfLocatario, method: 'card',
   }));
   assert('checkout bloqueado quando o proprietario nao tem conta de recebimento',
     !checkoutSemContaDono.ok && (checkoutSemContaDono.message?.includes('não configurou') ?? false),
@@ -602,7 +632,7 @@ async function main() {
 
   entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
   const checkoutOk = await chamarComRedirect(() => startCheckoutAction(undefined, formData({
-    bookingId: bookingSemConta, cpfCnpj: cpfLocatario,
+    bookingId: bookingSemConta, cpfCnpj: cpfLocatario, method: 'card',
   })));
   assert('checkout com proprietario configurado redireciona pra fatura do Asaas', checkoutOk.redirecionou);
 
@@ -623,7 +653,7 @@ async function main() {
     SELECT provider_customer_id FROM renter_billing_profiles WHERE user_id=${renterId}`;
   assert('cliente Asaas do locatario foi criado e gravado', Boolean(billingProfile?.provider_customer_id));
 
-  const checkoutDeNovo = await startCheckoutAction(undefined, formData({ bookingId: bookingSemConta, cpfCnpj: cpfLocatario }));
+  const checkoutDeNovo = await startCheckoutAction(undefined, formData({ bookingId: bookingSemConta, cpfCnpj: cpfLocatario, method: 'card' }));
   assert('checkout de novo na mesma reserva (ja em awaiting_payment) e recusado',
     !checkoutDeNovo.ok && (checkoutDeNovo.message?.includes('aguardando pagamento') ?? false), checkoutDeNovo.message);
 
@@ -633,7 +663,7 @@ async function main() {
   });
   entrarComo(donoSemContaId, 'user', 'Nao E O Locatario', `${tag}-dono-sem-conta@exemplo.invalid`);
   const checkoutDeOutraPessoa = await startCheckoutAction(undefined, formData({
-    bookingId: bookingDeOutraPessoa, cpfCnpj: '11144477735',
+    bookingId: bookingDeOutraPessoa, cpfCnpj: '11144477735', method: 'card',
   }));
   assert('quem nao e o locatario nao consegue pagar a reserva de outra pessoa',
     !checkoutDeOutraPessoa.ok && (checkoutDeOutraPessoa.message?.includes('não encontrada') ?? false),
@@ -782,7 +812,7 @@ async function main() {
 
   entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
   const checkoutComCaucao = await chamarComRedirect(() => startCheckoutAction(undefined, formData({
-    bookingId: bookingCaucao1, cpfCnpj: cpfLocatario,
+    bookingId: bookingCaucao1, cpfCnpj: cpfLocatario, method: 'card',
   })));
   assert('checkout com caução redireciona normalmente (pra fatura do ALUGUEL, não da caução)', checkoutComCaucao.redirecionou);
 
@@ -879,7 +909,7 @@ async function main() {
     status: 'approved', ownerId: donoSemContaId, sufixo: '-caucao2', depositCents: depositoPrecoCents,
   });
   const checkoutCaucao2 = await chamarComRedirect(() => startCheckoutAction(undefined, formData({
-    bookingId: bookingCaucao2, cpfCnpj: cpfLocatario,
+    bookingId: bookingCaucao2, cpfCnpj: cpfLocatario, method: 'card',
   })));
   assert('segundo checkout (2ª reserva, mesmo locatário) também redireciona', checkoutCaucao2.redirecionou);
 

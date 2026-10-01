@@ -145,7 +145,9 @@ andamento continuam com o que foi combinado.
 - `total_charged = aluguel + taxa_locatário` é `CHECK` no banco
 - `owner_payout = aluguel − taxa_proprietário` é `CHECK` no banco
 - locatário não pode ser o proprietário
-- **um espaço não pode ter duas locações vigentes ao mesmo tempo**
+- **uma unidade (vaga, box, sala) não pode ter duas reservas que se
+  sobreponham no tempo** — desde a Parte 12; antes a regra era "uma locação
+  vigente por espaço" (ver a seção da Parte 12, abaixo)
 
 Um bug de aplicação que tentasse gravar total adulterado é recusado pelo
 Postgres. Isso está testado em `scripts/verify-schema.ts`.
@@ -390,16 +392,93 @@ antiga em aberto, ou um mês depois da última paga).
 
 ---
 
+## Unidades, aluguel por tempo e prazos de pagamento (Parte 12)
+
+Migrações `0031` (tabelas e colunas, geradas pelo Drizzle) e `0032` (regras,
+gatilhos, funções e o preenchimento do que já existia). Detalhes do produto
+em [ALUGUEL.md](./ALUGUEL.md). As duas tabelas novas têm RLS ligada **sem
+política nenhuma** e `REVOKE` para `anon`/`authenticated`, como as da Fase 23.
+
+| Tabela | Para quê | O que o banco garante |
+|---|---|---|
+| `space_unit_groups` | um grupo de unidades com as mesmas regras: modos (mensal, por tempo ou os dois), preço mensal, regra de tempo (preço por hora/dia/semana com máximo, ou pacotes), horário de funcionamento, renovação | ao menos um modo (`space_unit_groups_some_mode`); mensal tem preço (`_continuous_price`); regra de tempo completa e coerente (`_temporary_rule`, `_fraction_rule`); horário coerente (`_hours`, `_hours_temporary`); pacotes em ordem, sem duração repetida e sem pacote mais longo mais barato (`_packages_valid`, `_packages_ordered`); nome único no anúncio |
+| `space_units` | cada vaga/box/sala, dentro de um grupo do mesmo anúncio | grupo do mesmo anúncio (chave estrangeira composta `space_units_group_same_space_fk`); rótulo único no anúncio; unidade com aluguel em andamento não é desativada nem apagada (`space_units_keep_live_rental`); unidade com histórico só é desativada |
+
+**`bookings` ganhou** `kind` (`continuous`/`temporary`), `group_id`,
+`unit_id`, `starts_at`/`ends_at`, `occupied_until` (fim + 7 min de janela de
+renovação), a duração comprada, `hold_expires_at` (prazo para pagar),
+`payment_issue_started_at`/`payment_issue_deadline_at` (pagamento
+pendente), `end_reason`, `renewed_from_id` e `idempotency_key`.
+
+**Regras novas em `bookings`:**
+
+- `bookings_unit_no_overlap` — restrição de exclusão (`btree_gist`): duas
+  reservas que ocupam a mesma unidade não têm intervalos sobrepostos. O
+  mensal ocupa do início em diante, sem fim. Substitui o antigo índice
+  `bookings_one_active_per_space`.
+- `bookings_occupying_has_unit` — reserva aceita, aguardando pagamento,
+  ativa ou com pagamento pendente sempre tem grupo e unidade.
+- `bookings_group_same_space_fk`, `bookings_unit_same_group_fk` — a unidade
+  é do grupo, e o grupo é do anúncio da reserva.
+- `bookings_derive_rental_shape` (gatilho) — o **banco** recalcula o valor
+  da reserva por tempo a partir das regras do grupo (`temporary_rent_cents`)
+  e recusa outro (`bookings_rent_matches_group`); confere o máximo, os
+  pacotes e o mínimo por cobrança (`bookings_temporary_rules`,
+  `bookings_temporary_minimum`), o horário de funcionamento
+  (`bookings_operating_hours`), o prazo para pagar (`bookings_temporary_hold`),
+  a janela de 7 minutos (`bookings_temporary_window`) e a renovação (mesma
+  unidade, a partir do fim — `bookings_renewal_rules`); depois de paga, a
+  reserva por tempo não muda de forma (`bookings_temporary_frozen`). O
+  mensal nasce com o preço do grupo.
+- `bookings_temporary_shape`, `bookings_continuous_open_ended`,
+  `bookings_payment_window` (40 min + 1 h, só em `past_due`),
+  `bookings_end_reason_matches` — cada estado com os campos que fazem
+  sentido para ele, e nada mais.
+- `bookings_one_live_renewal` — uma renovação viva por reserva;
+  `bookings_renter_idempotency_key` — o mesmo formulário enviado duas vezes
+  devolve a mesma reserva.
+
+**Funções:** `release_expired_rentals(space)` encerra pelo relógio do banco
+o que venceu (reserva não paga no prazo, janela de renovação, pagamento
+pendente sem pagamento) e devolve quantas mudou — roda na transação de quem
+vai alugar, antes das telas de aluguel e no agendador. O preço que a busca
+mostra (`spaces.price_monthly_cents` e o "a partir de" por tempo) é mantido
+pelos gatilhos `space_unit_groups_sync_summary`/`space_units_sync_summary`
+a partir dos grupos (`space_rental_summary`), e `spaces_price_from_units`
+recusa gravar outro valor direto no anúncio — a vitrine não mente.
+`spaces_publish_requires_units` não deixa publicar anúncio sem unidade
+alugável. A ocupação do anúncio (`rented`) passou a ser por unidade: só fica
+"alugado" quando **todas** as unidades ativas têm aluguel **mensal** vigente
+(`space_fully_rented`); aluguel por tempo nunca tira o anúncio do ar.
+
+**Índices para o agendador:** `bookings_hold_expires_idx`,
+`bookings_temporary_ending_idx`, `bookings_payment_deadline_idx`,
+`payments_outbox_idx` e `subscriptions_cancel_pending_idx` — cada varredura
+por minuto lê só o que está perto de vencer ou esperando o gateway.
+
+**Configurações novas:** `rental.hold_minutes` (15) e
+`rental.max_advance_days` (30). O mínimo por cobrança continua sendo
+`booking.min_rent_cents` (R$ 35).
+
+**Preenchimento:** cada anúncio que já existia ganhou um grupo e uma unidade
+com o mesmo preço mensal de antes, e cada reserva foi ligada a essa unidade —
+nada mudou para eles. **Uma exceção:** reserva que já estivesse em atraso
+(`past_due`) quando a `0032` roda ganha o prazo novo (40 min + 1 h) **a
+partir daquele momento** — antes não havia prazo nenhum.
+
+---
+
 ## Verificação
 
 Nada acima é promessa. Os scripts rodam contra um **Postgres real**,
 provando que cada regra citada aqui bloqueia mesmo o dado inválido:
 
 ```bash
-pnpm tsx scripts/verify-schema.ts        # 136 — cada CHECK, trigger e índice único
+pnpm tsx scripts/verify-schema.ts        # 218 — cada CHECK, trigger e índice único
 pnpm tsx scripts/verify-safety.ts        # 77 — segurança entre usuários
 pnpm tsx scripts/verify-confianca.ts     # 176 — perfil, avaliações, verificações, RLS
 pnpm tsx scripts/verify-descoberta.ts    # 373 — tudo da Fase 23, inclusive IDOR entre usuários
+pnpm tsx scripts/verify-alugueis.ts      # 106 — Parte 12: preço TS = SQL, unidades, prazos, concorrência
 pnpm verify                              # todos os scripts de servidor
 pnpm verify:integracoes                  # o app de verdade num navegador real
 ```
