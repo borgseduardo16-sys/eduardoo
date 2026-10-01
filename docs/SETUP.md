@@ -133,12 +133,15 @@ mesmo hash — então dá no mesmo:
 
 | Arquivo | Migrações | O que traz | Para quem parou em |
 |---|---|---|---|
-| `supabase/atualizacao-0025.sql` | `0025` a `0030` | Fase 23 | `0024` (a última confirmada no seu projeto, em 29/09) |
+| `supabase/atualizacao-0025.sql` | `0025` a `0032` | Fase 23 e Parte 12 | `0024` (a última confirmada no seu projeto, em 29/09) |
 | `supabase/atualizacao-0031.sql` | `0031` e `0032` | Parte 12: unidades, aluguel por tempo, pagamento pendente | `0030` |
 
-Cada arquivo parcial supõe que os anteriores já foram aplicados. **Na
-dúvida, cole o `setup.sql` completo**: ele aplica só o que falta e pula o
-resto. Os parciais são gerados com:
+Cada arquivo parcial confere, antes de tudo, se a migração anterior à
+primeira dele já está no banco. Se não estiver, ele para ali **sem mudar
+nada** e avisa: "Este banco ainda não tem a migração 24 (…). Nada foi
+alterado: rode o supabase/setup.sql completo". **Na dúvida, cole o
+`setup.sql` completo**: ele aplica só o que falta e pula o resto. Os
+parciais são gerados com:
 
 ```bash
 pnpm tsx scripts/build-supabase-setup.ts --desde 31
@@ -153,6 +156,16 @@ schema `extensions` e o SQL rodado por um papel **sem superusuário**, como o
 do SQL Editor — tudo entra sem erro, e as checagens de banco
 (`verify-schema`, 218) e de aluguel (`verify-alugueis`, 106) passam. A
 `atualizacao-0025.sql` passou pela mesma conferência na Fase 23.
+
+*Verificado com dados, no estado do seu projeto:* um banco montado com o
+`setup.sql` de 29/09 (até a `0024`) e com anúncios publicados, pausados,
+arquivados e rascunhos, reservas aguardando resposta, aceitas, ativas, em
+atraso, canceladas, recusadas e encerradas, assinaturas, cobranças e
+favoritos recebeu tanto o `setup.sql` novo quanto a `atualizacao-0025.sql`
+sem erro: as 8 migrações entraram, nenhuma linha foi apagada, cada anúncio
+ganhou seu grupo e sua unidade, anúncio com aluguel passou a "alugado", o
+atraso ganhou o prazo de 1 h 40, e o schema final ficou idêntico ao de um
+banco novo. As checagens de banco (218) e de aluguel (106) passam nele.
 
 Pronto: 40 tabelas, índices geoespaciais, triggers, RLS, as políticas do
 bucket de fotos e as taxas iniciais.

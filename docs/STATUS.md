@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23, Parte 12 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas); falta rodar no Supabase o `supabase/atualizacao-0025.sql`** · **Parte 12 (unidades, aluguel por hora/dia/semana e mensal, Meus aluguéis, pagamento pendente com 40 min + 1 h, aviso ao abrir o app) funciona de ponta a ponta contra o dublê do Asaas; falta rodar no Supabase o `supabase/atualizacao-0031.sql`, configurar o agendador por minuto e a chave Pix, e a cobrança real depende da credencial Asaas**
+> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23, Parte 12 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas)** · **Parte 12 (unidades, aluguel por hora/dia/semana e mensal, Meus aluguéis, pagamento pendente com 40 min + 1 h, aviso ao abrir o app) funciona de ponta a ponta contra o dublê do Asaas; falta configurar o agendador por minuto e a chave Pix, e a cobrança real depende da credencial Asaas** · **Banco no Supabase parado na `0024` (29/09): falta rodar o `supabase/setup.sql`, que aplica as 8 migrações da Fase 23 e da Parte 12 (`0025` a `0032`)**
 
 Estados usados:
 
@@ -1549,8 +1549,10 @@ pela tela como uma pessoa faria:
 
 ### Banco no seu Supabase — falta rodar
 
-O SQL desta fase é `supabase/atualizacao-0025.sql` (migrações `0025` a
-`0030`, 983 linhas). **Ainda não foi rodado no seu projeto**: sem ele, as
+O SQL desta fase são as migrações `0025` a `0030` — hoje dentro do
+`supabase/setup.sql` e da `atualizacao-0025.sql`, que desde a Parte 12 vai
+até a `0032` (ver a seção da Parte 12). **Ainda não foi rodado no seu
+projeto**: sem ele, as
 telas novas (alertas, desempenho, calendário, lista de espera, melhorar
 anúncio) quebram em produção, porque as tabelas não existem. Validado aqui
 em bancos vazios: o `setup.sql` antigo seguido dele dá o mesmo schema que o
@@ -1657,14 +1659,18 @@ aparelho de verdade.
 
 ### Banco no seu Supabase — falta rodar
 
-O SQL desta etapa é `supabase/atualizacao-0031.sql` (migrações `0031` e
-`0032`, 1.191 linhas). **Sem ele, o app quebra em produção** — reservas,
-anúncios e Meus aluguéis passam a ler colunas e tabelas que ainda não
-existem. Se a `atualizacao-0025.sql` (Fase 23) também ainda não foi rodada,
-cole o `setup.sql` completo: ele aplica só o que falta. Antes, ative o
-`btree_gist` no painel ([SETUP.md §1.2](./SETUP.md#12-ativar-o-postgis)). Se
-houver algum aluguel em atraso no banco nessa hora, ele ganha o prazo novo
-(40 min + 1 h) a partir dali.
+O seu projeto parou na `0024` (29/09). Faltam as 8 migrações da Fase 23 e
+desta etapa (`0025` a `0032`). **Sem elas, o app quebra em produção** —
+reservas, anúncios e Meus aluguéis passam a ler colunas e tabelas que ainda
+não existem. O caminho mais simples é colar o `supabase/setup.sql` completo:
+ele aplica só o que falta e pula o resto. A `atualizacao-0025.sql` (agora
+de `0025` a `0032`, 2.135 linhas) dá no mesmo, menor. As duas foram
+conferidas aqui num banco no estado do seu, com dados (ver
+[SETUP.md §1.6](./SETUP.md#16-criar-o-schema--cole-um-sql-não-mande-senha-para-ninguém)).
+Ativar o `btree_gist` no painel antes é opcional
+([SETUP.md §1.2](./SETUP.md#12-ativar-o-postgis)). Se houver algum aluguel
+em atraso no banco nessa hora, ele ganha o prazo novo (40 min + 1 h) a
+partir dali.
 
 ---
 

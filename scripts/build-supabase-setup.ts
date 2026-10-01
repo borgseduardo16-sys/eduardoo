@@ -102,6 +102,19 @@ const migracoes = selecionadas.map((entry) => {
   };
 });
 
+/**
+ * Arquivo parcial: a migracao anterior a primeira dele precisa estar no banco.
+ * Sem ela, o arquivo para ANTES de mudar qualquer coisa e diz o que fazer —
+ * em vez de quebrar no meio com "tabela nao existe".
+ */
+const anterior = parcial ? journal.entries.find((e) => e.idx === desde - 1) : undefined;
+if (parcial && !anterior) {
+  throw new Error(`Migracao ${desde - 1} nao encontrada no journal.`);
+}
+const hashAnterior = anterior
+  ? createHash('sha256').update(readFileSync(join(MIGRATIONS_DIR, `${anterior.tag}.sql`), 'utf8')).digest('hex')
+  : null;
+
 const parts: string[] = [];
 
 parts.push(`-- ============================================================================
@@ -118,8 +131,9 @@ parts.push(`-- =================================================================
     ? `
 --
 -- Este arquivo tem SO as migracoes ${desde} em diante. Ele supoe que as
--- anteriores ja foram aplicadas — se este for um projeto novo, use
--- supabase/setup.sql, que traz o schema completo.`
+-- anteriores ja foram aplicadas: se o banco estiver mais atrasado, ele para
+-- logo no comeco, sem mudar nada. Nesse caso (ou num projeto novo), use
+-- supabase/setup.sql, que aplica tudo o que falta.`
     : ` Projeto novo recebe
 -- tudo; projeto que ja tem parte do schema recebe apenas o que falta.`
 }
@@ -136,7 +150,26 @@ parts.push(`-- =================================================================
 -- Sem isto, o tipo geometry(Point,4326) e o cast ::geography nao sao
 -- encontrados e a criacao das tabelas de espacos falha.
 SET search_path = public, extensions;
-
+${
+  anterior
+    ? `
+-- Este arquivo continua de onde a migracao ${anterior.idx} parou. Banco mais
+-- atrasado que isso: para aqui, antes de mudar qualquer coisa.
+DO $mp_pre$
+BEGIN
+  IF to_regclass('drizzle.__drizzle_migrations') IS NULL THEN
+    RAISE EXCEPTION 'Este banco ainda não tem o schema do MyPlace. Nada foi alterado: rode o supabase/setup.sql completo.';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = '${hashAnterior}'
+  ) THEN
+    RAISE EXCEPTION 'Este banco ainda não tem a migração ${anterior.idx} (${anterior.tag}). Nada foi alterado: rode o supabase/setup.sql completo, que aplica tudo o que falta.';
+  END IF;
+END
+$mp_pre$;
+`
+    : ''
+}
 -- Tabela de controle. Precisa existir antes das checagens abaixo.
 CREATE SCHEMA IF NOT EXISTS drizzle;
 

@@ -10,8 +10,9 @@
 -- estiver registrada em drizzle.__drizzle_migrations.
 --
 -- Este arquivo tem SO as migracoes 31 em diante. Ele supoe que as
--- anteriores ja foram aplicadas — se este for um projeto novo, use
--- supabase/setup.sql, que traz o schema completo.
+-- anteriores ja foram aplicadas: se o banco estiver mais atrasado, ele para
+-- logo no comeco, sem mudar nada. Nesse caso (ou num projeto novo), use
+-- supabase/setup.sql, que aplica tudo o que falta.
 --
 -- Ao terminar, a saida mostra quantas migracoes foram aplicadas agora e
 -- quantas ja estavam no banco.
@@ -25,6 +26,21 @@
 -- Sem isto, o tipo geometry(Point,4326) e o cast ::geography nao sao
 -- encontrados e a criacao das tabelas de espacos falha.
 SET search_path = public, extensions;
+
+-- Este arquivo continua de onde a migracao 30 parou. Banco mais
+-- atrasado que isso: para aqui, antes de mudar qualquer coisa.
+DO $mp_pre$
+BEGIN
+  IF to_regclass('drizzle.__drizzle_migrations') IS NULL THEN
+    RAISE EXCEPTION 'Este banco ainda não tem o schema do MyPlace. Nada foi alterado: rode o supabase/setup.sql completo.';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM drizzle.__drizzle_migrations WHERE hash = 'ca2f97e555d8231f3c3455c45c76b1379188319a62419e4cabf059f3ecc38e25'
+  ) THEN
+    RAISE EXCEPTION 'Este banco ainda não tem a migração 30 (0030_datas_invertidas). Nada foi alterado: rode o supabase/setup.sql completo, que aplica tudo o que falta.';
+  END IF;
+END
+$mp_pre$;
 
 -- Tabela de controle. Precisa existir antes das checagens abaixo.
 CREATE SCHEMA IF NOT EXISTS drizzle;
