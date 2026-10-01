@@ -99,6 +99,23 @@ async function main() {
       state: 'ES', city: 'Colatina', district: 'Centro', street: 'Rua A', number: '1',
       lat: 48.85, lng: 2.35, // Paris
     }).success, false);
+    {
+      // Campo oculto vazio = pessoa não marcou o pino. Antes, Number('') = 0
+      // e a mensagem era "Longitude fora do Brasil."
+      const base = { state: 'ES', city: 'Colatina', district: 'Centro', street: 'Rua A', number: '1' };
+      const semPino = locationStepSchema.safeParse({ ...base, lat: '', lng: '' });
+      expect('sem pino, a mensagem pede para marcar no mapa',
+        semPino.success ? null : [...new Set(semPino.error.issues.map((i) => i.message))],
+        ['Marque a localização no mapa.']);
+      const nulo = locationStepSchema.safeParse({ ...base, lat: null, lng: null });
+      expect('coordenada nula (rascunho sem pino) tambem pede o mapa',
+        nulo.success ? null : [...new Set(nulo.error.issues.map((i) => i.message))],
+        ['Marque a localização no mapa.']);
+      const colatina = locationStepSchema.safeParse({ ...base, lat: '-19.5386', lng: '-40.6295' });
+      expect('pino em Colatina vindo do formulario e aceito',
+        colatina.success ? [colatina.data.lat, colatina.data.lng] : colatina.error.issues[0]?.message,
+        [-19.5386, -40.6295]);
+    }
 
     console.log('\n\x1b[1m2. Slug\x1b[0m');
     expect('acentos viram ascii', slugify('Garagem Coberta Próxima ao Centro'), 'garagem-coberta-proxima-ao-centro');

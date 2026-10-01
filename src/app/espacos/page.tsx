@@ -348,7 +348,7 @@ export default async function EspacosPage({
               de filho, sem embrulhar num <li> extra (que seria <li><li>,
               HTML invalido, o mesmo defeito ja corrigido em PremiumBadge).
             */}
-            <ul className="flex gap-4 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 snap-x snap-mandatory [&>li]:w-[15.5rem] [&>li]:shrink-0 [&>li]:snap-start">
+            <ul className="flex gap-4 overflow-x-auto -mx-4 px-4 scroll-px-4 sm:mx-0 sm:px-0 sm:scroll-px-0 pb-1 snap-x snap-mandatory [&>li]:w-[15.5rem] [&>li]:shrink-0 [&>li]:snap-start">
               {recomendados.map((r) => (
                 <ResultCard
                   key={r.id}

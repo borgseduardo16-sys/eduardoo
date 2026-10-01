@@ -32,6 +32,18 @@ export const cepSchema = z
   .transform((v) => v.replace(/\D/g, ''))
   .refine((v) => v.length === 8, 'CEP precisa ter 8 dígitos.');
 
+/**
+ * Coordenada vazia ('' do campo oculto, null do banco) é "não marcou no
+ * mapa". Sem o pré-processamento, Number('') vira 0 e a pessoa que esqueceu
+ * o pino lia "Longitude fora do Brasil." em vez do que falta fazer.
+ */
+function coordinate(min: number, max: number, outside: string) {
+  return z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.coerce.number({ error: 'Marque a localização no mapa.' }).min(min, outside).max(max, outside),
+  );
+}
+
 export const locationStepSchema = z.object({
   postalCode: cepSchema.optional().or(z.literal('')),
   state: z.enum(UFS, { error: 'Escolha o estado.' }),
@@ -47,14 +59,8 @@ export const locationStepSchema = z.object({
    * a principal forma de alguem encontrar o espaco. Publicar sem coordenada
    * seria publicar um anuncio invisivel.
    */
-  lat: z.coerce
-    .number({ error: 'Marque a localização no mapa.' })
-    .min(-33.75, 'Latitude fora do Brasil.')
-    .max(5.27, 'Latitude fora do Brasil.'),
-  lng: z.coerce
-    .number({ error: 'Marque a localização no mapa.' })
-    .min(-73.99, 'Longitude fora do Brasil.')
-    .max(-34.79, 'Longitude fora do Brasil.'),
+  lat: coordinate(-33.75, 5.27, 'Latitude fora do Brasil.'),
+  lng: coordinate(-73.99, -34.79, 'Longitude fora do Brasil.'),
 });
 
 // ---------------------------------------------------------------------------

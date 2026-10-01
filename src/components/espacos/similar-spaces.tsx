@@ -33,7 +33,7 @@ export function SimilarSpaces({
         <p className="text-[0.875rem] text-[var(--content-muted)]">{description}</p>
       </div>
       {spaces.length > 0 && (
-        <ul className="flex gap-4 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1 snap-x snap-mandatory [&>li]:w-[15.5rem] [&>li]:shrink-0 [&>li]:snap-start">
+        <ul className="flex gap-4 overflow-x-auto -mx-4 px-4 scroll-px-4 sm:mx-0 sm:px-0 sm:scroll-px-0 pb-1 snap-x snap-mandatory [&>li]:w-[15.5rem] [&>li]:shrink-0 [&>li]:snap-start">
           {spaces.map((s) => (
             <ResultCard
               key={s.id}

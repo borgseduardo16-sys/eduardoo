@@ -8,6 +8,7 @@ import { Alert } from '@/components/ui/alert';
 import { formatBRL } from '@/lib/money';
 import { StepActions } from './step-actions';
 import { useAdvanceOnSave } from './use-advance';
+import { keepTypedValues } from './keep-values';
 
 type Initial = {
   allowedItems: string | null; forbiddenItems: string | null;
@@ -39,7 +40,7 @@ export function RulesForm({
   const err = (k: string) => state?.fieldErrors?.[k]?.[0];
 
   return (
-    <form action={action} noValidate>
+    <form action={action} onReset={keepTypedValues} noValidate>
       <input type="hidden" name="spaceId" value={spaceId} />
       <input type="hidden" name="step" value="regras" />
 

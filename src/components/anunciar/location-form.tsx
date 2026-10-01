@@ -13,6 +13,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { StepActions } from './step-actions';
 import { useAdvanceOnSave } from './use-advance';
+import { keepTypedValues } from './keep-values';
 
 type Initial = {
   postalCode: string | null; state: string | null; city: string | null;
@@ -62,7 +63,7 @@ export function LocationForm({ spaceId, initial }: { spaceId: string; initial: I
   const err = (k: string) => state?.fieldErrors?.[k]?.[0];
 
   return (
-    <form action={action} noValidate>
+    <form action={action} onReset={keepTypedValues} noValidate>
       <input type="hidden" name="spaceId" value={spaceId} />
       <input type="hidden" name="step" value="localizacao" />
       <input type="hidden" name="lat" value={pin?.lat ?? ''} />

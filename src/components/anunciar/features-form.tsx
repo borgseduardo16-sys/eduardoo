@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
 import { StepActions } from './step-actions';
 import { useAdvanceOnSave } from './use-advance';
+import { keepTypedValues } from './keep-values';
 import { cn } from '@/lib/utils';
 
 type Feature = { key: string; label: string; icon: string | null; category: string };
@@ -66,7 +67,7 @@ export function FeaturesForm({
   const err = (k: string) => state?.fieldErrors?.[k]?.[0];
 
   return (
-    <form action={action} noValidate>
+    <form action={action} onReset={keepTypedValues} noValidate>
       <input type="hidden" name="spaceId" value={spaceId} />
       <input type="hidden" name="step" value="caracteristicas" />
       {[...selected].map((k) => <input key={k} type="hidden" name="features" value={k} />)}

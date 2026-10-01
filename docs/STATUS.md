@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 29/09/2026 · **Fases concluídas:** 1 a 6, 9 a 22 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém**
+> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas)**
 
 Estados usados:
 
@@ -1452,20 +1452,68 @@ Ctrl+C na caixa já selecionada).
 
 ---
 
-## Fase 23 — Descoberta, alertas e desempenho 🚧 *(em andamento, 30/09/2026)*
+## Fase 23 — Descoberta, disponibilidade, alertas, IA, desempenho e renovação ✅ *(01/10/2026)*
 
-Checkpoint intermediário, salvo para não perder trabalho. O relatório
-completo desta fase entra aqui quando ela terminar.
+Fase grande, construída em cima do que já existia (busca, favoritos,
+notificações, reservas, pagamentos, Destaque/Turbo/Premium) — nada foi
+substituído. Regra de ouro mantida: **nenhum número, preço, disponibilidade,
+porcentagem, notificação ou resultado de IA inventado**. Onde não há dado, a
+tela diz que não há.
+
+### O que foi construído
 
 | Item | Estado | Observação |
 |------|--------|------------|
-| Status `rented` aplicado de verdade | ✅ | antes nunca era usado: espaço ocupado aparecia como disponível. Agora gatilhos no banco sincronizam (reserva vigente → `rented`; encerrou → volta a `published`) |
-| Histórico de preço | ✅ | gravado por gatilho a cada mudança depois da publicação; imutável; mostrado só quando houve mudança real |
-| Lista de espera | ✅ | só em espaço indisponível; aviso quando volta; uma entrada ativa por pessoa |
-| Aviso de queda de preço nos favoritos | ✅ | por favorito, com referência de preço guardada no banco (o navegador não consegue mexer), queda mínima e intervalo mínimo entre avisos |
-| Calendário de disponibilidade + bloqueios manuais | ✅ | concorrência resolvida no banco (trava da linha do espaço + gatilhos); reserva não começa antes de um bloqueio |
-| SQL para colar no Supabase | ⬜ | será gerado no fim da fase, junto com as migrações restantes |
-| Demais itens (busca por necessidade, compatibilidade, alertas salvos, IA no anúncio, desempenho, relatório mensal, compartilhar, renovação) | ⬜ | em andamento |
+| Ocupação real (`rented`) | ✅ | gatilhos no banco: reserva vigente marca o espaço como alugado; terminou, volta ao ar |
+| Histórico de preço | ✅ | gravado por gatilho, imutável; aparece no anúncio só quando o preço mudou de verdade |
+| Lista de espera | ✅ | só em espaço indisponível; aviso quando volta (sem reserva automática); sem aviso duplicado com o do favorito |
+| Calendário + bloqueios manuais | ✅ | o banco resolve conflito com reserva e corrida entre dois pedidos |
+| Aviso de queda de preço nos favoritos | ✅ | por favorito, queda mínima e intervalo mínimo (anti-spam), referência de preço que o navegador não altera |
+| Busca por necessidade | ✅ | regras entendem tipo, veículo, finalidade, características, local, preço, área e data; IA (opcional) só para o que sobra. Falhou ou sem chave → a mensagem pedida e os filtros de sempre |
+| Compatibilidade (% com explicação) | ✅ | pesos fixos e públicos (docs/BUSCA.md); só com 2+ critérios; 100% só se tudo bate; promoção não muda a porcentagem |
+| Alertas de busca ("Meus alertas") | ✅ | criar, pausar, ativar, editar, excluir; limite por plano garantido no banco; avisos agrupados (Premium 1 h, gratuito 24 h) |
+| IA para melhorar anúncio | ✅ | só sugere; filtro de fatos remove o que o anúncio não tem; o dono aceita campo a campo; limites de uso |
+| Estatísticas e painel de desempenho | ✅ | `/meus-espacos/desempenho`: visualização, favorito, solicitação, reserva e receita separados; ocupação real (mín. 14 dias); gráfico com "sem dado" antes da contagem; Destaque/Turbo antes × durante sem afirmar causa |
+| Relatório mensal | ✅ | no painel (mês a mês) e aviso "relatório pronto" pelo cron (dias 1–7, só com movimento) |
+| Compartilhar | ✅ | WhatsApp, copiar link e opções nativas do aparelho; prévia com preço e bairro/cidade, sem endereço |
+| Espaços semelhantes + alternativas | ✅ | tipo, região (até 25 km), faixa de preço e características; espaço ocupado mostra alternativas, lista de espera e atalho para alerta |
+| Renovação mensal | ✅ | o webhook registra as mensalidades geradas pela assinatura; seção "Renovação mensal" na reserva (próxima cobrança, valor, pago até, situação, histórico, "Pagar agora"); lembrete e aviso de falha com caminho para resolver |
+| Premium | ✅ | `/premium` mostra os 6 benefícios definidos e o preço (R$ 79,90/mês ou R$ 759,05/ano, lidos do banco) sem cobrança nova; painel completo e mais alertas para Premium |
+
+### Defeitos antigos corrigidos pelo caminho
+
+1. **`rented` nunca era usado** — espaço alugado aparecia como disponível na
+   busca.
+2. **Renovação mensal ignorada** — a partir do 2º mês, as cobranças que a
+   assinatura gera no Asaas não tinham linha no banco e o webhook as
+   descartava (atraso, confirmação e repasse da renovação não eram
+   registrados). Também a "próxima cobrança" ficava parada na data do
+   checkout e o lembrete de vencimento parava no 1º mês.
+3. **"Hoje" em UTC na página do anúncio** — entre 21h e meia-noite o
+   calendário considerava o dia seguinte.
+4. **Aba ativa escondida no celular** no painel do proprietário (a lista de
+   abas rola de lado e a atual podia ficar fora da tela).
+
+### O que ficou fora, e por quê
+
+| Item | Por quê |
+|------|---------|
+| "Favoritos avançados" do Premium | ainda não existe recurso exclusivo; a página mostra "Em preparação" em vez de fingir (hoje todos já têm aviso de preço e de disponibilidade nos favoritos) |
+| Assinatura paga do Premium | pedido explícito: nenhuma cobrança nova nesta fase |
+| Diária/semanal | pedido explícito: fora desta fase |
+| Visualizações antes de 30/09/2026 | a contagem começou com esta fase; antes disso o painel mostra "sem dado", nunca zero |
+| Resumo de 1 hora dos alertas Premium sem nova publicação | o cron do plano Hobby da Vercel roda 1x/dia; o resumo sai na próxima publicação que bata com o alerta ou na rodada diária |
+| Painel `/admin` | existe desde a Fase 11 (moderação e concessão de Premium) e não foi mexido; nada administrativo foi criado nesta fase. Removê-lo é decisão sua — hoje é o único jeito de conceder Premium |
+
+### Verificação automatizada
+
+| Suíte | Resultado |
+|-------|-----------|
+| `scripts/verify-descoberta.ts` (nova, 12 seções) | {{N_DESCOBERTA}} checagens |
+| `scripts/verify-integracoes.ts` — TESTE Q (novo): as 23 etapas de ponta a ponta no navegador | {{N_Q}} |
+| `scripts/verify-integracoes.ts` — TESTE J (compartilhar, atualizado) | menu, WhatsApp, cópia real e contagem |
+| Demais suítes (`pnpm verify`) | {{N_VERIFY}} |
+| `scripts/verify-schema.ts` | {{N_SCHEMA}} checagens (inclui gatilhos e restrições novos) |
 
 ---
 

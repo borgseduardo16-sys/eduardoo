@@ -45,6 +45,11 @@ async function mustReject(name: string, fn: () => Promise<unknown>, expectFragme
   }
 }
 
+function expectEqual(name: string, actual: unknown, expected: unknown) {
+  if (JSON.stringify(actual) === JSON.stringify(expected)) ok(name, JSON.stringify(actual));
+  else bad(name, `esperava ${JSON.stringify(expected)}, veio ${JSON.stringify(actual)}`);
+}
+
 async function mustAccept(name: string, fn: () => Promise<unknown>) {
   try {
     await fn();
@@ -1133,6 +1138,223 @@ async function main() {
                   VALUES (${ownerId}, 'new_message', 'Nova mensagem'), (${ownerId}, 'new_message', 'Nova mensagem')`,
       );
     }
+
+    console.log('\n\x1b[1m15. Descoberta, disponibilidade e desempenho (Fase 23)\x1b[0m');
+    {
+      const statusDoEspaco = async () =>
+        (await sql<{ status: string }[]>`SELECT status::text AS status FROM spaces WHERE id = ${spaceId}`)[0].status;
+      const reserva = (sufixo: string, renter: string, inicioEmDias: number) => sql<{ id: string }[]>`
+        INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+          monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+          owner_fee_cents, total_charged_cents, owner_payout_cents)
+        VALUES (${`MP-${tag.slice(-6).toUpperCase()}${sufixo}`}, ${spaceId}, ${renter}, ${ownerId},
+          'active', CURRENT_DATE + ${inicioEmDias}::int, ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
+          ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
+          ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})
+        RETURNING id`;
+      const bloquear = (de: number, ate: number) => sql<{ id: string }[]>`
+        INSERT INTO space_availability_blocks (space_id, starts_on, ends_on, reason, created_by)
+        VALUES (${spaceId}, CURRENT_DATE + ${de}::int, CURRENT_DATE + ${ate}::int, 'manutencao', ${ownerId})
+        RETURNING id`;
+
+      // --- Ocupação real: o status do anúncio acompanha a reserva ---
+      const antes = await statusDoEspaco();
+      const [ocupacao] = await reserva('R', strangerId, 0);
+      const durante = await statusDoEspaco();
+      if (antes === 'published' && durante === 'rented') {
+        ok('reserva vigente tira o anúncio do ar sozinha', `${antes} -> ${durante}`);
+      } else {
+        bad('ocupação do espaço', `${antes} -> ${durante}`);
+      }
+      await sql`UPDATE spaces SET status = 'published' WHERE id = ${spaceId}`;
+      expectEqual('republicar com reserva vigente continua "alugado"', await statusDoEspaco(), 'rented');
+      await mustReject(
+        'apagar foto de anúncio alugado abaixo do mínimo é bloqueado',
+        () => sql`DELETE FROM space_images WHERE space_id = ${spaceId} AND position = 2`,
+        'abaixo do minimo',
+      );
+      await mustReject(
+        'bloquear datas por cima de reserva vigente é bloqueado',
+        () => bloquear(100, 110),
+        'Ha uma reserva vigente',
+      );
+      await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${ocupacao.id}`;
+      expectEqual('aluguel encerrado devolve o anúncio ao ar', await statusDoEspaco(), 'published');
+
+      // --- Calendário: bloqueio manual × reserva ---
+      await mustReject('bloqueio que termina antes de começar é bloqueado', () => bloquear(10, 5),
+        'space_availability_blocks_dates_ordered');
+      await mustReject('bloqueio de mais de um ano é bloqueado', () => bloquear(1, 400),
+        'space_availability_blocks_max_length');
+      await mustReject(
+        'reserva vigente que termina antes de começar é bloqueada pela regra de datas',
+        () => sql`
+          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date, end_date,
+            monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+            owner_fee_cents, total_charged_cents, owner_payout_cents)
+          VALUES (${`MP-${tag.slice(-6).toUpperCase()}U`}, ${spaceId}, ${strangerId}, ${ownerId},
+            'active', CURRENT_DATE + 10, CURRENT_DATE + 5, ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
+            ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
+            ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})`,
+        'bookings_dates_ordered',
+      );
+      const [bloqueio] = await bloquear(30, 40);
+      ok('bloqueio de datas futuras é aceito');
+      await mustReject('segundo bloqueio sobre as mesmas datas é bloqueado', () => bloquear(35, 45),
+        'Ja existe um bloqueio');
+      await mustReject('reserva que começa dentro de um bloqueio é bloqueada', () => reserva('S', strangerId, 32),
+        'O proprietario bloqueou o espaco');
+      await sql`UPDATE space_availability_blocks SET cancelled_at = now() WHERE id = ${bloqueio.id}`;
+      let liberada = '';
+      await mustAccept('bloqueio desfeito libera as datas para reserva', async () => {
+        liberada = (await reserva('T', strangerId, 32))[0].id;
+      });
+      if (liberada) await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${liberada}`;
+
+      // --- Histórico de preço: gravado pelo banco, imutável ---
+      await sql.begin(async (tx) => {
+        await tx`SELECT set_config('myplace.actor_id', ${ownerId}, true)`;
+        await tx`UPDATE spaces SET price_monthly_cents = 17000 WHERE id = ${spaceId}`;
+      });
+      const historico = await sql<{ id: string; old_price_cents: number; new_price_cents: number; changed_by: string | null }[]>`
+        SELECT id, old_price_cents, new_price_cents, changed_by FROM space_price_history WHERE space_id = ${spaceId}`;
+      expectEqual('mudança de preço de anúncio publicado vira histórico, com autor',
+        historico.map((h) => [h.old_price_cents, h.new_price_cents, h.changed_by === ownerId]), [[18000, 17000, true]]);
+      await sql`UPDATE spaces SET price_monthly_cents = 9000 WHERE id = ${semGeo.id}`;
+      const [{ n: doRascunho }] = await sql<{ n: number }[]>`
+        SELECT count(*)::int AS n FROM space_price_history WHERE space_id = ${semGeo.id}`;
+      expectEqual('rascunho nunca publicado não gera histórico (preço provisório não é histórico)', doRascunho, 0);
+      await mustReject('linha do histórico de preço não pode ser alterada',
+        () => sql`UPDATE space_price_history SET new_price_cents = 1 WHERE id = ${historico[0]?.id ?? null}`,
+        'historico de preco e imutavel');
+      await mustReject('linha do histórico de preço não pode ser apagada',
+        () => sql`DELETE FROM space_price_history WHERE id = ${historico[0]?.id ?? null}`,
+        'historico de preco e imutavel');
+      await mustReject('histórico sem mudança real de preço é bloqueado',
+        () => sql`INSERT INTO space_price_history (space_id, old_price_cents, new_price_cents, space_status)
+                  VALUES (${spaceId}, 17000, 17000, 'published')`,
+        'space_price_history_real_change');
+
+      // --- Favoritos: preço de referência vem do anúncio, nunca do navegador ---
+      await sql.begin(async (tx) => {
+        await tx`SET LOCAL ROLE authenticated`;
+        await tx`SELECT set_config('request.jwt.claim.sub', ${renterId}, true)`;
+        await tx`INSERT INTO favorites (user_id, space_id, price_cents_at_favorite, price_alert_baseline_cents)
+                 VALUES (${renterId}, ${spaceId}, 1, 1)`;
+      });
+      const [favorito] = await sql<{ p: number; b: number }[]>`
+        SELECT price_cents_at_favorite AS p, price_alert_baseline_cents AS b
+        FROM favorites WHERE user_id = ${renterId} AND space_id = ${spaceId}`;
+      expectEqual('favorito pelo navegador grava o preço do anúncio, não o enviado', [favorito?.p, favorito?.b], [17000, 17000]);
+      await mustReject(
+        'com JWT de usuário, o preço de referência do aviso não muda (trigger, além do GRANT)',
+        () => sql.begin(async (tx) => {
+          await tx`SELECT set_config('request.jwt.claim.sub', ${renterId}, true)`;
+          await tx`UPDATE favorites SET price_alert_baseline_cents = 1 WHERE user_id = ${renterId} AND space_id = ${spaceId}`;
+        }),
+        'Campos calculados pelo servidor',
+      );
+      await mustReject('preço de referência zero é bloqueado',
+        () => sql`UPDATE favorites SET price_alert_baseline_cents = 0 WHERE user_id = ${renterId} AND space_id = ${spaceId}`,
+        'favorites_price_alert_baseline_positive');
+
+      // --- Lista de espera ---
+      await mustReject('proprietário não entra na lista de espera do próprio espaço',
+        () => sql`INSERT INTO waitlist_entries (user_id, space_id) VALUES (${ownerId}, ${spaceId})`,
+        'O proprietario nao entra na lista de espera');
+      await mustAccept('locatário entra na lista de espera',
+        () => sql`INSERT INTO waitlist_entries (user_id, space_id) VALUES (${renterId}, ${spaceId})`);
+      await mustReject('a mesma pessoa não fica duas vezes esperando o mesmo espaço',
+        () => sql`INSERT INTO waitlist_entries (user_id, space_id) VALUES (${renterId}, ${spaceId})`,
+        'waitlist_entries_one_waiting_per_user_space');
+      await mustReject('"saiu da lista" sem a data de saída é bloqueado',
+        () => sql`INSERT INTO waitlist_entries (user_id, space_id, status) VALUES (${strangerId}, ${spaceId}, 'left')`,
+        'waitlist_entries_status_dates');
+      await sql`INSERT INTO user_blocks (blocker_id, blocked_id) VALUES (${ownerId}, ${strangerId})`;
+      await mustReject('quem está bloqueado pelo proprietário não entra na lista de espera',
+        () => sql`INSERT INTO waitlist_entries (user_id, space_id) VALUES (${strangerId}, ${spaceId})`,
+        'Ha bloqueio entre os usuarios');
+      await sql`DELETE FROM user_blocks WHERE blocker_id = ${ownerId} AND blocked_id = ${strangerId}`;
+
+      // --- Alertas de busca salva ---
+      const alerta = (chave: string, status = 'active', label = 'Garagem em Colatina') => sql`
+        INSERT INTO saved_searches (user_id, label, criteria, criteria_key, status)
+        VALUES (${renterId}, ${label}, ${sql.json({ tipo: 'garagem', onde: chave })}, ${`${chave}-${tag}`}, ${status})`;
+      await mustReject('alerta sem nome é bloqueado', () => alerta('sem-nome', 'active', ''),
+        'saved_searches_label_length');
+      await mustReject('critério de alerta que não é objeto é bloqueado',
+        () => sql`INSERT INTO saved_searches (user_id, label, criteria, criteria_key)
+                  VALUES (${renterId}, 'Lista', '[]'::jsonb, ${`lista-${tag}`})`,
+        'saved_searches_criteria_object');
+      const [{ limite }] = await sql<{ limite: number }[]>`
+        SELECT COALESCE((SELECT (value #>> '{}')::int FROM platform_settings
+                         WHERE key = 'alerts.saved_search_max_free'), 2) AS limite`;
+      for (let i = 1; i <= limite; i++) await alerta(`a${i}`);
+      ok(`conta sem Premium cria até ${limite} alertas ativos`);
+      await mustReject(`o alerta ativo nº ${limite + 1} da conta sem Premium é bloqueado pelo banco`,
+        () => alerta('excedente'), 'alertas ativos atingido');
+      await mustAccept('alerta pausado não conta no limite', () => alerta('pausado', 'paused'));
+      await mustReject('a mesma busca salva duas vezes pela mesma pessoa é bloqueada', () => alerta('a1', 'paused'),
+        'saved_searches_user_criteria_key');
+
+      // --- Contadores ---
+      await mustReject('visualização negativa no contador diário é bloqueada',
+        () => sql`INSERT INTO space_daily_stats (space_id, day, views) VALUES (${spaceId}, CURRENT_DATE, -1)`,
+        'space_daily_stats_non_negative');
+      await mustReject('uso negativo de IA no contador é bloqueado',
+        () => sql`INSERT INTO ai_usage_counters (day, feature, calls) VALUES (CURRENT_DATE, ${`verify-${tag}`}, -1)`,
+        'ai_usage_counters_calls_non_negative');
+
+      // --- Nenhuma tabela nova é alcançável pelo navegador ---
+      const tabelasNovas = [
+        'space_price_history', 'waitlist_entries', 'space_availability_blocks', 'saved_searches',
+        'saved_search_matches', 'listing_suggestions', 'space_daily_stats', 'ai_usage_counters',
+      ];
+      const alcancaveis: string[] = [];
+      for (const t of tabelasNovas) {
+        try {
+          await sql.begin(async (tx) => {
+            await tx`SET LOCAL ROLE authenticated`;
+            await tx`SELECT set_config('request.jwt.claim.sub', ${renterId}, true)`;
+            await tx`SELECT 1 FROM ${sql(t)} LIMIT 1`;
+          });
+          alcancaveis.push(t);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.includes('permission denied')) alcancaveis.push(`${t} (${msg.slice(0, 80)})`);
+        }
+      }
+      const semRls = await sql<{ relname: string }[]>`
+        SELECT relname FROM pg_class
+        WHERE relnamespace = 'public'::regnamespace AND relname IN ${sql(tabelasNovas)} AND NOT relrowsecurity`;
+      if (alcancaveis.length === 0 && semRls.length === 0) {
+        ok(`as ${tabelasNovas.length} tabelas novas não são alcançáveis pelo navegador`, 'sem GRANT e com RLS');
+      } else {
+        bad('tabelas novas expostas', JSON.stringify({ alcancaveis, semRls: semRls.map((r) => r.relname) }));
+      }
+
+      // --- Configuração inicial ---
+      const chaves = [
+        'alerts.saved_search_max_free', 'alerts.saved_search_max_premium', 'alerts.digest_hours_free',
+        'alerts.digest_hours_premium', 'alerts.price_drop_min_bps', 'alerts.price_drop_cooldown_hours',
+        'ai.search_daily_limit', 'ai.listing_daily_limit', 'ai.listing_daily_limit_per_owner',
+        'ai.listing_space_cooldown_minutes', 'analytics.views_counting_since',
+        'premium.price_monthly_cents', 'premium.price_yearly_cents',
+      ];
+      const conf = new Map((await sql<{ key: string; value: unknown }[]>`
+        SELECT key, value FROM platform_settings WHERE key IN ${sql(chaves)}`).map((r) => [r.key, r.value]));
+      const faltando = chaves.filter((k) => !conf.has(k));
+      if (faltando.length === 0) ok(`as ${chaves.length} configurações da Fase 23 existem`);
+      else bad('configurações da Fase 23', `faltando: ${faltando.join(', ')}`);
+      expectEqual('preço do Premium continua R$ 79,90/mês e R$ 759,05/ano (em centavos)',
+        [conf.get('premium.price_monthly_cents'), conf.get('premium.price_yearly_cents')], [7990, 75905]);
+      const desde = conf.get('analytics.views_counting_since');
+      if (typeof desde === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(desde)) {
+        ok('data de início da contagem de visualizações gravada', desde);
+      } else {
+        bad('analytics.views_counting_since', JSON.stringify(desde));
+      }
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.
@@ -1146,6 +1368,11 @@ async function main() {
       await tx`SET LOCAL myplace.allow_review_delete = 'on'`;
       await tx`DELETE FROM reviews WHERE author_id IN (${ownerId}, ${renterId}, ${strangerId})`;
     });
+    // Fase 23: o que a seção 15 cria fora do anúncio.
+    await sql`DELETE FROM saved_searches WHERE user_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    await sql`DELETE FROM waitlist_entries WHERE user_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    await sql`DELETE FROM user_blocks WHERE blocker_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    await sql`DELETE FROM ai_usage_counters WHERE feature = ${`verify-${tag}`}`;
     // booking_deposits.booking_id e RESTRICT — precisa sair antes de bookings (Fase 20).
     await sql`DELETE FROM booking_deposits WHERE booking_id IN (
                 SELECT id FROM bookings WHERE owner_id = ${ownerId})`;

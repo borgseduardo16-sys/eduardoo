@@ -344,6 +344,47 @@ conclusão sempre coerentes.
 
 ---
 
+## Descoberta, disponibilidade e desempenho (Fase 23)
+
+Migrações `0025` a `0029`. Toda tabela nova tem RLS ligada **sem política
+nenhuma** e `REVOKE` para `anon`/`authenticated`: o navegador não lê nem
+escreve direto; tudo passa pelo servidor, que filtra pelo dono logado.
+
+| Tabela | Para quê | O que o banco garante |
+|---|---|---|
+| `space_price_history` | cada mudança de preço depois da publicação | gravada **por gatilho** (`spaces_record_price_change`), nunca pelo app; imutável (`space_price_history_immutable`: UPDATE/DELETE recusados, só sai em cascata com o anúncio); só mudança real (`space_price_history_real_change`), preços positivos |
+| `waitlist_entries` | lista de espera de espaço indisponível | uma entrada ativa por pessoa e espaço; não entra em espaço disponível nem no próprio (`waitlist_entries_guard`); datas coerentes com o estado |
+| `space_availability_blocks` | bloqueios manuais do calendário | início antes do fim, até 366 dias, nota curta; bloqueio não pode cair em cima de reserva vigente e reserva não começa antes de um bloqueio (`space_availability_blocks_guard`, `bookings_guard_blocked_period`, com trava da linha do espaço contra corrida) |
+| `saved_searches` / `saved_search_matches` | alertas de busca e o que já casou com cada um | critérios como objeto JSON, rótulo curto, sem alerta repetido (`saved_searches_user_criteria_key`); limite de alertas ativos por plano (`saved_searches_active_limit`, lê `alerts.saved_search_max_*` e trava o perfil contra corrida); um anúncio casa uma vez por alerta |
+| `listing_suggestions` | sugestões da IA para o anúncio | guarda o texto sugerido; aplicar copia **do banco** (não do navegador) e fica registrado na auditoria |
+| `space_daily_stats` | visualizações e compartilhamentos por dia | só contadores (`space_id`, `day`, `views`, `shares`), nunca negativos — **nenhuma coluna de pessoa, IP ou horário** |
+| `ai_usage_counters` | quantas chamadas de IA por dia e função | teto diário global que vale entre todas as instâncias; sem dado de quem chamou |
+
+**Outros gatilhos da fase:**
+
+- `bookings_sync_space_occupancy` — reserva vigente marca o espaço como
+  `rented`; quando ela termina, volta a `published` (antes o status `rented`
+  nunca era usado e espaço ocupado aparecia como disponível).
+- `spaces_published_not_occupied` — não deixa marcar como publicado um
+  espaço com reserva vigente.
+- `favorites_guard_server_fields` — o preço de referência do favorito (base
+  do aviso de queda) é sempre o do anúncio, nunca o que o navegador mandar.
+- `guard_delete_photo_of_published` (já existia, Fase 2) — passa a valer
+  também para espaço `rented`: anúncio no ar, alugado ou não, não fica com
+  menos fotos que o mínimo.
+
+**Configurações (`platform_settings`) novas:** `alerts.*` (limites e
+intervalos dos alertas), `ai.*` (tetos de IA), `analytics.views_counting_since`
+(dia em que a contagem de visualizações começou — antes dele o painel mostra
+"sem dado", nunca zero) e `premium.price_*` (só exibição; não há cobrança).
+
+**Sem tabela nova, mas com regra nova:** a renovação mensal registra em
+`payments` as cobranças que a assinatura gera no gateway, e
+`subscriptions.next_due_date` passa a ser recalculada a cada evento (a mais
+antiga em aberto, ou um mês depois da última paga).
+
+---
+
 ## Verificação
 
 Nada acima é promessa. Os scripts rodam contra um **Postgres real**,

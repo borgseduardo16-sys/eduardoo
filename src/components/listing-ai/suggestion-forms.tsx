@@ -16,11 +16,14 @@ export function RequestSuggestionForm({
   spaceId,
   disabledReason,
   hasPrevious,
+  lastFailed,
 }: {
   spaceId: string;
   /** Por que não dá para pedir agora (limite, intervalo, não configurado). */
   disabledReason: string | null;
   hasPrevious: boolean;
+  /** O último pedido gravado falhou (mostrado só quando não há resposta mais nova nesta tela). */
+  lastFailed: boolean;
 }) {
   const [estado, acao, enviando] = useActionState<ListingAiActionState | undefined, FormData>(
     requestListingSuggestionAction,
@@ -34,8 +37,13 @@ export function RequestSuggestionForm({
           {enviando ? 'Lendo o anúncio…' : hasPrevious ? 'Pedir novas sugestões' : 'Pedir sugestões'}
         </Button>
       </form>
+      {/* Um aviso por vez: a resposta do pedido que acabou de acontecer vale mais que o registro do anterior. */}
+      {estado?.message ? (
+        <Alert tone={estado.ok ? 'success' : 'warning'}>{estado.message}</Alert>
+      ) : lastFailed ? (
+        <Alert tone="warning">Não conseguimos gerar sugestões no último pedido. Nada mudou no anúncio.</Alert>
+      ) : null}
       {disabledReason && !estado && <p className="text-[0.8125rem] text-[var(--content-muted)]">{disabledReason}</p>}
-      {estado?.message && <Alert tone={estado.ok ? 'success' : 'warning'}>{estado.message}</Alert>}
     </div>
   );
 }

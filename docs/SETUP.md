@@ -603,6 +603,20 @@ Sem a variável configurada, `/api/cron/notificacoes` recusa a chamada
 `requireIntegration` de todo o resto do app. Cron do plano **Hobby** roda no
 máximo 1x/dia, por isso o agendamento é diário (não a cada hora).
 
+**Fase 23** — o mesmo job diário também faz, sem configuração nova:
+
+- aviso de queda de preço que ficou esperando o intervalo mínimo entre avisos;
+- rede de segurança da lista de espera (quem ainda não foi avisado de que o
+  espaço voltou);
+- resumo dos alertas de busca salvos (o que chegou dentro do intervalo
+  mínimo e ficou agrupado — Premium: 1 hora; gratuito: 24 horas). No plano
+  Hobby, o resumo de 1 hora do Premium só sai na próxima publicação que
+  bata com o alerta ou na rodada diária — limite do plano, não do código;
+- aviso "seu relatório do mês está pronto" para proprietários com movimento
+  no mês anterior (dias 1 a 7 de cada mês, um por mês);
+- lembrete de renovação 7 dias e 1 dia antes do vencimento, agora com
+  espaço, data, valor e se a cobrança já está disponível.
+
 ---
 
 ## 12. VAPID — notificação push no celular (Fase 19)
@@ -685,6 +699,57 @@ consegue gerar uma conta alta.
 selo "Identidade verificada" **não aparece para ninguém** até existir um de
 verdade (ex.: idwall, unico, Serpro Datavalid). Escolher o provedor é uma
 decisão sua — custo, contrato e LGPD mudam bastante entre eles.
+
+---
+
+## 14. Anthropic — busca por necessidade e sugestões de anúncio (opcional)
+
+> **PRECISO DA SUA AÇÃO** (só se quiser ligar estas duas funções — o resto do
+> app funciona sem elas)
+
+1. **Serviço:** Anthropic (API do Claude). É a mesma chave da seção 10 — se
+   você já configurou `ANTHROPIC_API_KEY` lá, não precisa fazer nada aqui.
+2. **Motivo:** duas funções da Fase 23 usam a IA, e só para *interpretar* ou
+   *sugerir* — nunca muda banco, preço, reserva, pagamento ou permissão:
+   - **Busca por necessidade:** quando a pessoa escreve algo que as regras
+     não entendem sozinhas (ex.: "lugar para minha lancha no inverno"), a IA
+     só traduz o texto para os filtros que já existem. Sem a chave, a busca
+     usa só as regras e, quando a IA seria necessária, mostra "Não
+     conseguimos processar a busca inteligente agora. Você pode continuar
+     usando os filtros tradicionais."
+   - **Melhorar anúncio:** sugestões de título e descrição a partir do que
+     o anúncio já tem. Nada muda até o proprietário clicar em "Usar este
+     título/descrição". Sem a chave, o botão "Pedir sugestões" recusa com
+     mensagem clara — nunca mostra sugestão inventada.
+3. **Onde criar:** [console.anthropic.com](https://console.anthropic.com) →
+   **Settings → API Keys → Create Key** (a organização precisa ter cobrança
+   ativa em **Settings → Billing**).
+4. **Como configurar:** na Vercel, **Project → Settings → Environment
+   Variables**, adicione `ANTHROPIC_API_KEY` para *Production* (e *Preview*,
+   se quiser testar lá) e faça um novo deploy. Localmente, no `.env.local`.
+   Nunca com prefixo `NEXT_PUBLIC_` e nunca no código.
+5. **Credenciais necessárias:** só a chave de API (começa com `sk-ant-`).
+6. **Variável de ambiente:** `ANTHROPIC_API_KEY` (só no servidor).
+   `ANTHROPIC_BASE_URL` existe apenas para os testes automatizados apontarem
+   para o dublê local — **não configure em produção**.
+7. **Como testar:**
+   - Em `/espacos`, escreva "lugar para minha lancha no inverno" e busque:
+     deve aparecer "Resultados para:" com o tipo e o veículo entendidos, sem
+     o aviso de falha.
+   - Em **Meus espaços**, num anúncio publicado, clique em **Melhorar
+     anúncio → Pedir sugestões**: aparecem sugestões, e o anúncio só muda
+     se você clicar em "Usar este título" ou "Usar esta descrição".
+
+**Custo e limites (controlados no banco, `platform_settings`):**
+
+| Função | Modelo | Limite |
+|---|---|---|
+| Busca por necessidade | `claude-haiku-4-5` (rápido e barato; responde em segundos) | `ai.search_daily_limit` = 500 chamadas/dia no total; só chama quando as regras não bastam; mesma pergunta repetida não chama de novo (cache) |
+| Melhorar anúncio | `claude-opus-5-5`, esforço baixo, com o fallback de servidor ligado (se o modelo recusar, o próprio serviço tenta outro modelo — opção da API, não muda nada no app) | `ai.listing_daily_limit_per_owner` = 5 por proprietário/dia, `ai.listing_space_cooldown_minutes` = 10 min por anúncio, `ai.listing_daily_limit` = 300/dia no total |
+
+Os contadores ficam em `ai_usage_counters` (por dia e função, sem dado de
+quem chamou). Trocar um limite é um `UPDATE` em `platform_settings`, sem
+deploy.
 
 ---
 

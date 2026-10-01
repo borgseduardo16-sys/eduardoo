@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
 import { StepActions } from './step-actions';
 import { useAdvanceOnSave } from './use-advance';
+import { keepTypedValues } from './keep-values';
 
 /** Formata o que a pessoa digita como moeda, mantendo só os dígitos. */
 function maskBRL(raw: string): string {
@@ -50,7 +51,7 @@ export function PriceForm({
   const hoje = new Date().toISOString().slice(0, 10);
 
   return (
-    <form action={action} noValidate>
+    <form action={action} onReset={keepTypedValues} noValidate>
       <input type="hidden" name="spaceId" value={spaceId} />
       <input type="hidden" name="step" value="preco" />
 
@@ -105,8 +106,8 @@ export function PriceForm({
             </dl>
             <p className="text-[0.75rem] text-[var(--content-subtle)] leading-relaxed pt-1">
               Quem aluga paga {brl(cents + Math.round((cents * feeRenterBps) / 10_000))} — o aluguel
-              mais {(feeRenterBps / 100).toFixed(0)}% de taxa. A cobrança e o repasse ainda não
-              estão ativos; entram numa fase seguinte.
+              mais {(feeRenterBps / 100).toFixed(0)}% de taxa. O valor que vale é o calculado na
+              hora da reserva.
             </p>
           </div>
         )}

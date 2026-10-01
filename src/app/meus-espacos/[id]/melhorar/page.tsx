@@ -9,7 +9,6 @@ import { getLatestListingSuggestion, getListingAiUsage } from '@/lib/listing-ai/
 import { MISSING_FIELD_STEP, type MissingField } from '@/lib/listing-ai/schema';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
-import { Alert } from '@/components/ui/alert';
 import {
   ApplySuggestionButton,
   DismissSuggestionButton,
@@ -78,7 +77,12 @@ export default async function MelhorarAnuncioPage({ params }: { params: Promise<
             vale acrescentar. Ela não inventa nada: o que o anúncio não diz vira pergunta para você, nunca
             afirmação. <strong className="font-medium">Nada muda no anúncio sem você aceitar.</strong>
           </p>
-          <RequestSuggestionForm spaceId={id} disabledReason={motivoBloqueio} hasPrevious={Boolean(ultima)} />
+          <RequestSuggestionForm
+            spaceId={id}
+            disabledReason={motivoBloqueio}
+            hasPrevious={Boolean(ultima)}
+            lastFailed={ultima?.status === 'failed'}
+          />
           {configurada && (
             <p className="text-[0.75rem] text-[var(--content-subtle)]">
               {uso.usedLast24h} de {uso.limitPerDay} pedidos usados nas últimas 24 horas.
@@ -86,9 +90,6 @@ export default async function MelhorarAnuncioPage({ params }: { params: Promise<
           )}
         </section>
 
-        {ultima?.status === 'failed' && (
-          <Alert tone="warning">Não conseguimos gerar sugestões no último pedido. Tente de novo em alguns minutos.</Alert>
-        )}
         {ultima?.status === 'dismissed' && (
           <p className="text-[0.875rem] text-[var(--content-muted)]">Você descartou as últimas sugestões. O anúncio ficou como estava.</p>
         )}

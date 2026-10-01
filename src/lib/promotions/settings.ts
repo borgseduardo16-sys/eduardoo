@@ -25,3 +25,16 @@ export async function monthlyBenefitLimit(type: 'destaque' | 'turbo'): Promise<n
 export async function featuredSectionLimit(): Promise<number> {
   return settingInt('promotions.featured_section_limit', 8);
 }
+
+/**
+ * Preço do plano Premium (Fase 23) — só para mostrar: a assinatura paga
+ * ainda não existe e nenhuma cobrança parte daqui. Sem a chave no banco,
+ * devolve null e a página não inventa um preço.
+ */
+export async function premiumPlanPrices(): Promise<{ monthlyCents: number; yearlyCents: number } | null> {
+  const [mensal, anual] = await Promise.all([
+    settingInt('premium.price_monthly_cents', -1),
+    settingInt('premium.price_yearly_cents', -1),
+  ]);
+  return mensal > 0 && anual > 0 ? { monthlyCents: mensal, yearlyCents: anual } : null;
+}

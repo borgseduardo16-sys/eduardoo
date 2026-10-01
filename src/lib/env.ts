@@ -101,7 +101,7 @@ const INTEGRATIONS = {
   aiText: {
     label: 'IA de texto (Claude) — busca por necessidade e sugestões para o anúncio',
     vars: ['ANTHROPIC_API_KEY'],
-    doc: 'docs/SETUP.md#14-anthropic-busca-por-necessidade-e-sugestões-de-anúncio',
+    doc: 'docs/SETUP.md#14-anthropic-busca-por-necessidade-e-sugestoes-de-anuncio',
   },
   cron: {
     label: 'Job agendado (Vercel Cron) — notificações de vencimento e resumo do proprietário',

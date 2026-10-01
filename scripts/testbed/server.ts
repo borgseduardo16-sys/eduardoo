@@ -109,6 +109,15 @@ export type Testbed = {
   anthropicQueue: AnthropicStubReply[];
   /** Corpo e headers de cada pedido que chegou ao dublê da Anthropic. */
   anthropicRequests: { headers: Record<string, string | string[] | undefined>; body: Record<string, unknown> }[];
+  /**
+   * Ganchos que o teste liga. `onSignup` é o que o Supabase Auth faz num
+   * cadastro com confirmação de e-mail ligada: grava o usuário em
+   * `auth.users` (o teste faz o INSERT de verdade no banco local, o que
+   * dispara o gatilho real que cria o perfil) e não abre sessão.
+   */
+  hooks: {
+    onSignup: ((input: { email: string; password: string; fullName: string | null }) => Promise<{ id: string } | { error: 'ja_existe' }>) | null;
+  };
   close: () => Promise<void>;
 };
 
@@ -156,6 +165,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const twilioLandlines = new Set<string>();
   const anthropicApiKey = `sk-ant-teste-${randomUUID()}`;
   const anthropicQueue: AnthropicStubReply[] = [];
+  const hooks: Testbed['hooks'] = { onSignup: null };
   const anthropicRequests: { headers: Record<string, string | string[] | undefined>; body: Record<string, unknown> }[] = [];
   /** Uma verificacao aberta por numero, como no Twilio. */
   const twilioVerifs = new Map<string, { sid: string; code: string; status: string; checks: number; expiresAt: number }>();
@@ -227,6 +237,40 @@ export async function startTestbed(port = 0): Promise<Testbed> {
                 created_at: new Date().toISOString(),
               })
             : json(res, 401, { code: 401, msg: 'invalid claim: missing sub claim' });
+        }
+
+        // ---------------------------------------------------------------
+        // Supabase Auth — cadastro (e-mail ainda sem confirmar: sem sessão)
+        // ---------------------------------------------------------------
+        else if (req.method === 'POST' && rota === '/auth/v1/signup') {
+          const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+            email?: string; password?: string; data?: { full_name?: string };
+          };
+          const email = String(corpo.email ?? '').trim().toLowerCase();
+          if (!hooks.onSignup) {
+            status = json(res, 501, { code: 501, msg: 'cadastro nao ligado neste teste (hooks.onSignup)' });
+          } else if (!email || String(corpo.password ?? '').length < 6) {
+            status = json(res, 422, { code: 422, error_code: 'validation_failed', msg: 'Unable to validate email address: invalid format' });
+          } else {
+            const r = await hooks.onSignup({ email, password: String(corpo.password), fullName: corpo.data?.full_name ?? null });
+            if ('error' in r) {
+              status = json(res, 422, { code: 422, error_code: 'user_already_exists', msg: 'User already registered' });
+            } else {
+              const agora = new Date().toISOString();
+              status = json(res, 200, {
+                id: r.id, aud: 'authenticated', role: '', email, phone: '',
+                confirmation_sent_at: agora,
+                app_metadata: { provider: 'email', providers: ['email'] },
+                user_metadata: { full_name: corpo.data?.full_name ?? null, email, email_verified: false, sub: r.id },
+                identities: [{
+                  identity_id: randomUUID(), id: r.id, user_id: r.id,
+                  identity_data: { email, email_verified: false, sub: r.id },
+                  provider: 'email', last_sign_in_at: agora, created_at: agora, updated_at: agora, email,
+                }],
+                created_at: agora, updated_at: agora, is_anonymous: false,
+              });
+            }
+          }
         }
 
         // ---------------------------------------------------------------
@@ -726,6 +770,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     twilioLandlines,
     anthropicApiKey,
     anthropicQueue,
+    hooks,
     anthropicRequests,
     tilesServidos: () => tiles.slice(),
     close: () =>

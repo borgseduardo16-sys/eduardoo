@@ -247,11 +247,25 @@ async function main() {
   await seed();
   await testesDeServidor();
 
+  // TESTE Q (Fase 23): a IA aponta para o dublê da Anthropic, e o cadastro
+  // pela tela grava em auth.users como o Supabase faria (o gatilho real do
+  // banco cria o perfil).
+  process.env.ANTHROPIC_API_KEY = testbed.anthropicApiKey;
+  process.env.ANTHROPIC_BASE_URL = testbed.url;
+  testbed.hooks.onSignup = async ({ email, fullName }) => {
+    const [existe] = await sql<{ id: string }[]>`SELECT id FROM auth.users WHERE email = ${email}`;
+    if (existe) return { error: 'ja_existe' as const };
+    const id = crypto.randomUUID();
+    await sql`INSERT INTO auth.users (id, email, raw_user_meta_data) VALUES (${id}, ${email}, ${sql.json({ full_name: fullName })})`;
+    testbed!.users.set(id, { id, email, token: fakeJwt(id, email) });
+    return { id };
+  };
+
   await subirNext();
   browser = await chromium.launch({ headless: true, executablePath: chromePath() });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNOP').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNOPQ').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -268,6 +282,7 @@ async function main() {
   if (quais.includes('N')) await testeNAdmin();
   if (quais.includes('O')) await testeOPromocoes();
   if (quais.includes('P')) await testePFase14();
+  if (quais.includes('Q')) await testeQFase23();
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -2448,7 +2463,428 @@ async function testePFase14() {
  * novo (Date.now()), entao a sobra nunca colide com a proxima execucao —
  * so acumula como historico inerte no Postgres local de teste.
  */
+/**
+ * TESTE Q — Fase 23 de ponta a ponta: as 23 etapas pedidas, na ordem, pela
+ * interface real (Chromium) contra o app de produção. Os serviços externos
+ * são os dublês de sempre (Supabase Auth/Storage, Asaas, Anthropic) — o
+ * relatório da fase diz isso com todas as letras. Nenhuma etapa é pulada:
+ * cada uma confere o que aparece na tela E o que ficou no banco.
+ */
+const qIds: string[] = [];
+
+async function cadastrarPelaTela(nome: string, email: string, senha: string): Promise<string> {
+  const ctx = await browser!.newContext({ viewport: { width: 430, height: 900 }, userAgent: UA_NAVEGADOR });
+  const page = await ctx.newPage();
+  await page.goto(`${baseUrl}/criar-conta`, { waitUntil: 'domcontentloaded' });
+  await page.getByLabel('Nome completo').fill(nome);
+  await page.getByLabel('E-mail').fill(email);
+  await page.getByLabel('Senha').fill(senha);
+  await page.locator('input[name="acceptTerms"]').check();
+  await page.getByRole('button', { name: 'Criar conta' }).click();
+  await page.getByText('Confira seu e-mail').waitFor({ timeout: 20_000 });
+  await ctx.close();
+  const [perfil] = await sql<{ id: string; full_name: string | null; accepted_terms_at: Date | null }[]>`
+    SELECT p.id, p.full_name, p.accepted_terms_at FROM profiles p JOIN auth.users u ON u.id = p.id WHERE u.email = ${email}`;
+  if (!perfil) throw new Error(`cadastro de ${email} nao criou perfil`);
+  qIds.push(perfil.id);
+  expect(`perfil de ${nome} criado pelo gatilho do banco, com o nome e o aceite dos termos`,
+    [perfil.full_name, Boolean(perfil.accepted_terms_at)], [nome, true]);
+  // Confirmação de e-mail: no Supabase real é o link do e-mail; o efeito no
+  // banco é este campo (e o gatilho que marca o perfil como verificado).
+  await sql`UPDATE auth.users SET email_confirmed_at = now() WHERE id = ${perfil.id}`;
+  return perfil.id;
+}
+
+async function esperarNoBanco<T>(consulta: () => Promise<T>, ok: (v: T) => boolean, timeoutMs = 20_000): Promise<T> {
+  const ate = Date.now() + timeoutMs;
+  let ultimo = await consulta();
+  while (!ok(ultimo) && Date.now() < ate) {
+    await new Promise((r) => setTimeout(r, 300));
+    ultimo = await consulta();
+  }
+  return ultimo;
+}
+
+async function testeQFase23() {
+  secao('TESTE Q (navegador) - Fase 23 de ponta a ponta: as 23 etapas');
+  const senha = 'uma frase longa para o teste da fase 23';
+  const vp = { viewport: { width: 430, height: 900 }, userAgent: UA_NAVEGADOR };
+
+  // ---- 1. Usuário cria conta ----
+  const donoQ = await cadastrarPelaTela('Dona Fase Vinte e Três', `${tag}-q-dono@exemplo.invalid`, senha);
+  const locQ = await cadastrarPelaTela('Locatário Fase Vinte e Três', `${tag}-q-loc@exemplo.invalid`, senha);
+  ok('1. usuário cria conta pela tela de cadastro (duas contas: proprietária e locatário)');
+
+  const pageDono = await novaAba(testbed!.users.get(donoQ)!, vp);
+  const pageLoc = await novaAba(testbed!.users.get(locQ)!, vp);
+  for (const pg of [pageDono, pageLoc]) pg.on('pageerror', (e) => console.log(`  ${FRACO}[Q] erro no navegador: ${e.message}${FIM}`));
+
+  try {
+    // ---- 2. Proprietário cria espaço (assistente de verdade) ----
+    await pageDono.goto(`${baseUrl}/anunciar`, { waitUntil: 'domcontentloaded' });
+    await pageDono.getByText('Garagem', { exact: true }).click();
+    await pageDono.getByRole('button', { name: 'Continuar' }).click();
+    await pageDono.waitForURL(/\/anunciar\/[0-9a-f-]{36}\/localizacao$/, { timeout: 30_000 });
+    const espacoQ = pageDono.url().match(/anunciar\/([0-9a-f-]{36})\//)![1]!;
+
+    await pageDono.locator('#cep').pressSequentially('29700000', { delay: 40 });
+    await pageDono.getByText('Endereço preenchido pelo CEP.', { exact: false }).waitFor({ timeout: 30_000 });
+    await pageDono.locator('input[name="number"]').fill('321');
+
+    // Esquecer o pino é o erro mais comum desta etapa: a mensagem precisa dizer
+    // o que falta, e o que já foi digitado não pode sumir (o React limpa o
+    // formulário depois de toda action).
+    await pageDono.locator('form button[type="submit"]').last().click();
+    await pageDono.getByText('Marque a localização no mapa.', { exact: true }).waitFor({ timeout: 30_000 });
+    expect('sem o pino, o número digitado continua no campo',
+      await pageDono.locator('input[name="number"]').inputValue(), '321');
+    expect('sem o pino, o estado preenchido pelo CEP continua escolhido',
+      await pageDono.locator('select[name="state"]').inputValue(), 'ES');
+    assert('sem o pino, nada de "fora do Brasil"',
+      (await pageDono.getByText('fora do Brasil', { exact: false }).count()) === 0);
+
+    // Como a pessoa faz: o CEP centralizou o mapa, ela toca no ponto do espaço.
+    await pageDono.getByText('Centralizamos o mapa pelo CEP.', { exact: false }).waitFor({ timeout: 10_000 });
+    await pageDono.waitForTimeout(1_500); // fim da animação de recentralizar
+    const mapaQ = pageDono.locator('.maplibregl-canvas').first();
+    await mapaQ.scrollIntoViewIfNeeded();
+    const caixaMapa = (await mapaQ.boundingBox())!;
+    await pageDono.mouse.click(caixaMapa.x + caixaMapa.width / 2, caixaMapa.y + caixaMapa.height / 2);
+    await pageDono.waitForFunction(() => (document.querySelector('input[name="lat"]') as HTMLInputElement | null)?.value !== '');
+    await pageDono.locator('form button[type="submit"]').last().click();
+    await pageDono.waitForURL(/\/caracteristicas$/, { timeout: 40_000 });
+    const [pontoQ] = await sql<{ lat: number; lng: number; number: string; state: string }[]>`
+      SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng, number, state
+      FROM spaces WHERE id = ${espacoQ}`;
+    assert('o ponto tocado no mapa foi gravado em Colatina',
+      haversine({ lat: Number(pontoQ!.lat), lng: Number(pontoQ!.lng) }, PONTO) < 3_000,
+      `${Math.round(haversine({ lat: Number(pontoQ!.lat), lng: Number(pontoQ!.lng) }, PONTO))} m do centro`);
+    expect('número e estado gravados como digitados', [pontoQ!.number, pontoQ!.state], ['321', 'ES']);
+
+    await pageDono.locator('#sizeM2').fill('20');
+    await pageDono.getByText('Coberto', { exact: true }).click();
+    await pageDono.getByText('Portão', { exact: true }).click();
+    await pageDono.locator('form button[type="submit"]').last().click();
+    await pageDono.waitForURL(/\/fotos$/, { timeout: 30_000 });
+
+    const fotos = await Promise.all([1, 2, 3].map(async (n) => {
+      const caminho = join(tmp, `q-garagem-${n}.jpg`);
+      await writeFile(caminho, await fotoDeCelular(`garagem q ${n}`));
+      return caminho;
+    }));
+    await pageDono.getByTestId('input-fotos').setInputFiles(fotos);
+    const nFotos = await esperarNoBanco(
+      async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM space_images WHERE space_id=${espacoQ}`)[0]!.n,
+      (n) => n >= 3, 90_000,
+    );
+    expect('três fotos enviadas pela tela (upload real no Storage)', nFotos, 3);
+    await pageDono.waitForTimeout(1_500);
+    await pageDono.getByTestId('continuar').click();
+    await pageDono.waitForURL(/\/descricao$/, { timeout: 30_000 });
+
+    await pageDono.locator('#title').fill('Garagem para carro no Centro');
+    await pageDono.locator('#description').fill(
+      'Garagem coberta, com portão, seca e iluminada, com acesso fácil pela avenida principal do bairro.',
+    );
+    await pageDono.locator('form button[type="submit"]').last().click();
+    await pageDono.waitForURL(/\/preco$/, { timeout: 30_000 });
+    ok('2. proprietária cria o espaço pelo assistente (tipo, local pelo CEP, características, 3 fotos, descrição)');
+
+    // ---- 3. Define preço ----
+    await pageDono.locator('#price').fill('320,00');
+    await pageDono.locator('form button[type="submit"]').last().click();
+    await pageDono.waitForURL(/\/regras$/, { timeout: 30_000 });
+    const [precoQ] = await sql<{ p: number }[]>`SELECT price_monthly_cents AS p FROM spaces WHERE id=${espacoQ}`;
+    expect('3. preço definido pela tela e gravado em centavos pelo servidor', precoQ?.p, 32000);
+
+    await pageDono.locator('form button[type="submit"]').last().click();
+    await pageDono.waitForURL(/\/revisao$/, { timeout: 30_000 });
+
+    // ---- 4. Publica ----
+    await pageDono.getByRole('button', { name: 'Publicar espaço' }).click();
+    await pageDono.waitForURL(/\/promover$/, { timeout: 30_000 });
+    await pageDono.getByRole('link', { name: 'Não quero promover' }).click();
+    await pageDono.waitForURL(/\/publicado$/, { timeout: 30_000 });
+    const [pub] = await sql<{ status: string; slug: string; title: string }[]>`SELECT status::text, slug, title FROM spaces WHERE id=${espacoQ}`;
+    expect('4. anúncio publicado pela tela', pub?.status, 'published');
+    const slugQ = pub!.slug;
+
+    // ---- 5. Outro usuário encontra ----
+    await pageLoc.goto(`${baseUrl}/espacos?tipo=garagem&onde=Colatina`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.locator(`[data-space-id="${espacoQ}"]`).waitFor({ timeout: 20_000 });
+    ok('5. outro usuário encontra o anúncio na busca');
+
+    // ---- 6. Favorita ----
+    await pageLoc.goto(`${baseUrl}/espacos/${slugQ}`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByRole('button', { name: 'Adicionar aos favoritos' }).first().click();
+    const fav = await esperarNoBanco(
+      async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM favorites WHERE user_id=${locQ} AND space_id=${espacoQ}`)[0]!.n,
+      (n) => n === 1,
+    );
+    expect('6. favoritou pela tela', fav, 1);
+
+    // ---- 7. Ativa alerta de preço ----
+    await pageLoc.reload({ waitUntil: 'domcontentloaded' });
+    const aviso = pageLoc.getByTestId('aviso-preco');
+    await aviso.waitFor({ timeout: 20_000 });
+    if ((await aviso.getAttribute('aria-checked')) !== 'true') await aviso.click();
+    const alertaPreco = await esperarNoBanco(
+      async () => (await sql<{ a: boolean }[]>`SELECT price_alert AS a FROM favorites WHERE user_id=${locQ} AND space_id=${espacoQ}`)[0]?.a,
+      (a) => a === true,
+    );
+    expect('7. aviso de queda de preço ligado pela tela', alertaPreco, true);
+
+    // ---- 8. Cria busca salva ----
+    await pageLoc.goto(`${baseUrl}/espacos?tipo=garagem&onde=Colatina`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByRole('button', { name: 'Criar alerta desta busca' }).click();
+    const buscaSalva = await esperarNoBanco(
+      async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM saved_searches WHERE user_id=${locQ} AND status='active'`)[0]!.n,
+      (n) => n === 1,
+    );
+    expect('8. busca salva como alerta pela tela', buscaSalva, 1);
+
+    // ---- 9. Busca por necessidade ----
+    await pageLoc.goto(`${baseUrl}/espacos`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByPlaceholder('Ex.: vaga coberta para moto no centro').fill('garagem coberta em Colatina');
+    await pageLoc.getByPlaceholder('Bairro, cidade ou CEP').fill('');
+    await pageLoc.locator('form').filter({ has: pageLoc.locator('input[name="q"]') }).locator('button[type="submit"]').click();
+    await pageLoc.getByText('Resultados para:').waitFor({ timeout: 20_000 });
+    await pageLoc.locator(`[data-space-id="${espacoQ}"]`).waitFor({ timeout: 20_000 });
+    assert('9. busca por necessidade interpretada (sem precisar de IA) e o anúncio aparece',
+      (await pageLoc.getByText('Não conseguimos processar a busca inteligente agora').count()) === 0);
+
+    // ---- 10. Vê o match ----
+    const cardQ = pageLoc.locator(`[data-space-id="${espacoQ}"]`);
+    const textoMatch = (await cardQ.textContent()) ?? '';
+    assert('10. o card mostra a compatibilidade com explicação', /\d+% compatível/.test(textoMatch), textoMatch.slice(0, 200));
+
+    // ---- 11. Vê disponibilidade ----
+    await pageLoc.goto(`${baseUrl}/espacos/${slugQ}`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByText(/Disponível para começar a partir de/).waitFor({ timeout: 20_000 });
+    ok('11. vê a disponibilidade na página do anúncio');
+
+    // ---- 12. Entra na lista de espera (o espaço sai do ar) ----
+    await pageDono.goto(`${baseUrl}/meus-espacos`, { waitUntil: 'domcontentloaded' });
+    await pageDono.getByRole('button', { name: 'Pausar' }).first().click();
+    await esperarNoBanco(
+      async () => (await sql<{ s: string }[]>`SELECT status::text AS s FROM spaces WHERE id=${espacoQ}`)[0]!.s,
+      (s) => s === 'paused',
+    );
+    await pageLoc.goto(`${baseUrl}/espacos/${slugQ}`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByText('Indisponível no momento', { exact: true }).waitFor({ timeout: 20_000 });
+    await pageLoc.getByRole('button', { name: 'Entrar na lista de espera' }).click();
+    const naFila = await esperarNoBanco(
+      async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM waitlist_entries WHERE user_id=${locQ} AND space_id=${espacoQ} AND status='waiting'`)[0]!.n,
+      (n) => n === 1,
+    );
+    expect('12. com o espaço fora do ar, entrou na lista de espera pela tela', naFila, 1);
+
+    // ---- 13. Recebe notificação ----
+    await pageDono.goto(`${baseUrl}/meus-espacos`, { waitUntil: 'domcontentloaded' });
+    await pageDono.getByRole('button', { name: 'Reativar' }).first().click();
+    await esperarNoBanco(
+      async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM notifications WHERE user_id=${locQ} AND type='waitlist_available'`)[0]!.n,
+      (n) => n >= 1,
+    );
+    await pageLoc.goto(`${baseUrl}/notificacoes`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByText('O espaço que você esperava está disponível').first().waitFor({ timeout: 20_000 });
+    const [{ n: duplicado } = { n: 0 }] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM notifications WHERE user_id=${locQ} AND type='favorite_available_again'`;
+    expect('13. recebe a notificação na central (e não um segundo aviso igual pelo favorito)', duplicado, 0);
+
+    // ---- 14. Proprietário altera preço ----
+    await pageDono.goto(`${baseUrl}/anunciar/${espacoQ}/preco`, { waitUntil: 'domcontentloaded' });
+    await pageDono.locator('#price').fill('290,00');
+    await pageDono.locator('form button[type="submit"]').last().click();
+    await pageDono.waitForURL(/\/regras$|\/revisao$/, { timeout: 30_000 });
+    const [novoPreco] = await sql<{ p: number }[]>`SELECT price_monthly_cents AS p FROM spaces WHERE id=${espacoQ}`;
+    expect('14. proprietária baixa o preço pela tela', novoPreco?.p, 29000);
+
+    // ---- 15. Usuário recebe alerta de queda ----
+    await esperarNoBanco(
+      async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM notifications WHERE user_id=${locQ} AND type='favorite_price_drop'`)[0]!.n,
+      (n) => n >= 1,
+    );
+    await pageLoc.goto(`${baseUrl}/notificacoes`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByText('Preço baixou em um espaço salvo').first().waitFor({ timeout: 20_000 });
+    ok('15. locatário recebe o aviso de queda de preço');
+
+    // ---- 16. Usuário compartilha ----
+    await pageLoc.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseUrl });
+    await pageLoc.goto(`${baseUrl}/espacos/${slugQ}`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByTestId('botao-compartilhar').click();
+    await pageLoc.getByRole('button', { name: 'Copiar link' }).click();
+    await pageLoc.getByText('Link copiado').waitFor({ timeout: 10_000 });
+    const compartilhou = await esperarNoBanco(() => compartilhamentosDe(espacoQ), (n) => n >= 1);
+    expect('16. locatário compartilha (e o contador do anúncio soma)', compartilhou, 1);
+
+    // ---- 17. Proprietário vê estatísticas ----
+    const [contagem] = await sql<{ v: number; s: number }[]>`
+      SELECT COALESCE(sum(views), 0)::int AS v, COALESCE(sum(shares), 0)::int AS s FROM space_daily_stats WHERE space_id=${espacoQ}`;
+    assert('visitas do locatário contadas (as da proprietária, não)', (contagem?.v ?? 0) >= 1, JSON.stringify(contagem));
+    await pageDono.goto(`${baseUrl}/meus-espacos/desempenho?periodo=7d`, { waitUntil: 'domcontentloaded' });
+    const kpis = pageDono.locator('dl').first();
+    await kpis.waitFor({ timeout: 20_000 });
+    const textoKpis = (await kpis.textContent()) ?? '';
+    assert('17. painel mostra as visualizações e compartilhamentos reais do banco',
+      textoKpis.includes(`Visualizações${contagem!.v}`) && textoKpis.includes(`Compartilhamentos${contagem!.s}`), textoKpis);
+
+    // ---- 18. Proprietário usa IA para melhorar anúncio ----
+    testbed!.anthropicQueue.push({
+      text: JSON.stringify({
+        titulo: 'Garagem coberta com portão no Centro',
+        descricao: null,
+        faltando: [{ campo: 'horario', texto: 'Considere informar o horário de acesso.' }],
+        dicas: ['Comece pelo que a garagem tem de mais útil: cobertura e portão.'],
+      }),
+    });
+    await pageDono.goto(`${baseUrl}/meus-espacos/${espacoQ}/melhorar`, { waitUntil: 'domcontentloaded' });
+    await pageDono.getByRole('button', { name: 'Pedir sugestões' }).click();
+    await pageDono.getByText('Garagem coberta com portão no Centro').first().waitFor({ timeout: 60_000 });
+    const [tituloAntes] = await sql<{ t: string }[]>`SELECT title AS t FROM spaces WHERE id=${espacoQ}`;
+    expect('18. IA sugere (e nada muda no anúncio sozinho)', tituloAntes?.t, 'Garagem para carro no Centro');
+
+    // ---- 19. Aceita sugestão ----
+    await pageDono.getByRole('button', { name: 'Usar este título' }).click();
+    const tituloDepois = await esperarNoBanco(
+      async () => (await sql<{ t: string }[]>`SELECT title AS t FROM spaces WHERE id=${espacoQ}`)[0]!.t,
+      (t) => t === 'Garagem coberta com portão no Centro',
+    );
+    expect('19. proprietária aceita a sugestão de título', tituloDepois, 'Garagem coberta com portão no Centro');
+
+    // ---- 20. Anúncio atualizado ----
+    await pageLoc.goto(`${baseUrl}/espacos/${slugQ}`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByRole('heading', { name: 'Garagem coberta com portão no Centro' }).first().waitFor({ timeout: 20_000 });
+    ok('20. anúncio atualizado aparece para o público');
+
+    // ---- 21. Reserva pelo fluxo existente ----
+    await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
+    await pageDono.getByText('Configurar conta de recebimento').click();
+    await pageDono.getByLabel('Nome completo').fill('Dona Fase Vinte e Três');
+    await pageDono.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
+    await pageDono.getByLabel('E-mail').fill(`${tag}-q-dono@exemplo.invalid`);
+    await pageDono.getByLabel('Celular').fill('27999997777');
+    await pageDono.getByLabel('Renda ou faturamento mensal').fill('5000');
+    await pageDono.getByLabel('CEP').fill('29700000');
+    await pageDono.getByLabel('Número').fill('321');
+    await pageDono.getByLabel('Endereço').fill('Avenida Getulio Vargas');
+    await pageDono.getByLabel('Bairro').fill('Centro');
+    await pageDono.getByRole('button', { name: 'Criar conta de recebimento' }).click();
+    await pageDono.getByText('Conta configurada').waitFor({ timeout: 20_000 });
+
+    await pageLoc.goto(`${baseUrl}/espacos/${slugQ}/solicitar`, { waitUntil: 'domcontentloaded' });
+    const amanhaQ = new Date();
+    amanhaQ.setDate(amanhaQ.getDate() + 1);
+    await pageLoc.getByLabel('A partir de quando?').fill(amanhaQ.toISOString().slice(0, 10));
+    await pageLoc.getByRole('button', { name: 'Enviar solicitação' }).click();
+    await pageLoc.waitForURL(/\/reservas/, { timeout: 20_000 });
+
+    await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes`, { waitUntil: 'domcontentloaded' });
+    await pageDono.getByRole('button', { name: 'Aceitar' }).first().click();
+    await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
+
+    await pageLoc.route('http://127.0.0.1/fake-invoice/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/plain', body: 'Fatura simulada do Asaas (dublê de teste).' }));
+    await pageLoc.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
+    await pageLoc.getByRole('link', { name: 'Pagar agora' }).first().click();
+    await pageLoc.waitForURL(/\/pagar$/, { timeout: 20_000 });
+    await pageLoc.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
+    await pageLoc.getByRole('button', { name: 'Confirmar e ir para o pagamento' }).click();
+    await pageLoc.waitForURL(/fake-invoice/, { timeout: 20_000 });
+
+    const [reservaQ] = await sql<{ id: string }[]>`SELECT id FROM bookings WHERE space_id=${espacoQ} AND renter_id=${locQ} ORDER BY requested_at DESC LIMIT 1`;
+    const [cobrancaQ] = await sql<{ provider_payment_id: string; amount_cents: number }[]>`
+      SELECT provider_payment_id, amount_cents FROM payments WHERE booking_id=${reservaQ!.id}`;
+    const [assinaturaQ] = await sql<{ provider_subscription_id: string }[]>`
+      SELECT provider_subscription_id FROM subscriptions WHERE booking_id=${reservaQ!.id}`;
+    const webhookQ = (event: string, payment: Record<string, unknown>) => fetch(`${baseUrl}/api/webhooks/asaas`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'asaas-access-token': process.env.ASAAS_WEBHOOK_TOKEN! },
+      body: JSON.stringify({ event, payment }),
+    });
+    const conf1 = await webhookQ('PAYMENT_CONFIRMED', { id: cobrancaQ!.provider_payment_id, value: cobrancaQ!.amount_cents / 100 });
+    expect('webhook de confirmação (rota HTTP real) aceito', conf1.status, 200);
+    const [ativaQ] = await sql<{ s: string }[]>`SELECT status::text AS s FROM bookings WHERE id=${reservaQ!.id}`;
+    expect('21. reserva feita pelo fluxo existente (solicitar → aceitar → pagar) e ativa', ativaQ?.s, 'active');
+
+    // ---- 22. Dados aparecem nas estatísticas ----
+    await pageDono.goto(`${baseUrl}/meus-espacos/desempenho?periodo=7d`, { waitUntil: 'domcontentloaded' });
+    const textoKpis2 = (await pageDono.locator('dl').first().textContent()) ?? '';
+    const [esperado] = await sql<{ payout: number }[]>`SELECT owner_payout_cents AS payout FROM bookings WHERE id=${reservaQ!.id}`;
+    const receitaTexto = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(esperado!.payout / 100);
+    assert('22. estatísticas mostram a solicitação, a reserva iniciada e a receita confirmada (parte da proprietária)',
+      textoKpis2.includes('Solicitações1') && textoKpis2.includes('Reservas iniciadas1') && textoKpis2.includes(receitaTexto),
+      `${textoKpis2} | esperado ${receitaTexto}`);
+
+    // ---- 23. Renovação acompanha o sistema existente ----
+    const vencRenov = (() => { const d = new Date(); d.setUTCDate(d.getUTCDate() + 30); return d.toISOString().slice(0, 10); })();
+    const idRenov = `pay_q_${tag}_2`;
+    const criada = await webhookQ('PAYMENT_CREATED', {
+      id: idRenov, subscription: assinaturaQ!.provider_subscription_id,
+      value: cobrancaQ!.amount_cents / 100, dueDate: vencRenov, invoiceUrl: `https://sandbox.asaas.test/i/${tag}-renovacao`,
+    });
+    expect('Asaas gera a mensalidade seguinte (PAYMENT_CREATED com a assinatura)', criada.status, 200);
+    await pageLoc.goto(`${baseUrl}/reservas/${reservaQ!.id}`, { waitUntil: 'domcontentloaded' });
+    const secaoRenov = pageLoc.locator('#renovacao');
+    await secaoRenov.getByText('Aguardando pagamento', { exact: true }).first().waitFor({ timeout: 20_000 });
+    assert('tela da reserva mostra a renovação com "Pagar agora"',
+      (await secaoRenov.getByRole('link', { name: 'Pagar agora' }).count()) === 1);
+    await webhookQ('PAYMENT_CONFIRMED', { id: idRenov });
+    await pageLoc.reload({ waitUntil: 'domcontentloaded' });
+    await pageLoc.locator('#renovacao').getByText('Em dia', { exact: true }).waitFor({ timeout: 20_000 });
+    const [avisoRenovQ] = await sql<{ title: string }[]>`
+      SELECT title FROM notifications WHERE user_id=${locQ} AND type='payment_confirmed' ORDER BY created_at DESC LIMIT 1`;
+    expect('23. renovação acompanha o sistema existente: cobrança registrada, paga e avisada', avisoRenovQ?.title, 'Renovação confirmada');
+
+    await pageLoc.screenshot({ path: join(tmp, 'teste-q-renovacao.png'), fullPage: true });
+  } catch (err) {
+    // Na falha: onde cada um estava e o que a tela dizia — sem isso, um
+    // timeout não conta o motivo.
+    for (const [nome, pg] of [['proprietaria', pageDono], ['locatario', pageLoc]] as const) {
+      const caminho = join(tmp, `teste-q-falha-${nome}.png`);
+      await pg.screenshot({ path: caminho, fullPage: true }).catch(() => {});
+      const avisos = await pg.locator('[role="alert"], [role="status"]').allTextContents().catch(() => []);
+      console.log(`  ${FRACO}[Q] ${nome}: ${pg.url()} | avisos: ${JSON.stringify(avisos).slice(0, 400)} | captura: ${caminho}${FIM}`);
+    }
+    throw err;
+  } finally {
+    await pageDono.context().close().catch(() => {});
+    await pageLoc.context().close().catch(() => {});
+  }
+}
+
+
+/** Limpeza do TESTE Q — só o que ele criou (sem PAYMENT_RECEIVED, então nada fica preso no razão). */
+async function limparQ() {
+  if (qIds.length === 0) return;
+  const tentar = async (nome: string, f: () => Promise<unknown>) => {
+    try { await f(); } catch (err) { console.log(`  ${FRACO}limpeza Q (${nome}): ${String(err).slice(0, 120)}${FIM}`); }
+  };
+  await tentar('cobranças', () => sql`DELETE FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id IN ${sql(qIds)} OR renter_id IN ${sql(qIds)})`);
+  await tentar('assinaturas', () => sql`DELETE FROM subscriptions WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id IN ${sql(qIds)} OR renter_id IN ${sql(qIds)})`);
+  await tentar('conversas', () => sql`DELETE FROM conversations WHERE owner_id IN ${sql(qIds)} OR renter_id IN ${sql(qIds)}`);
+  await tentar('reservas', () => sql`DELETE FROM bookings WHERE owner_id IN ${sql(qIds)} OR renter_id IN ${sql(qIds)}`);
+  await tentar('contas de pagamento', async () => {
+    await sql`DELETE FROM owner_payout_accounts WHERE owner_id IN ${sql(qIds)}`;
+    await sql`DELETE FROM renter_billing_profiles WHERE user_id IN ${sql(qIds)}`;
+  });
+  await tentar('alertas, fila, favoritos e avisos', async () => {
+    await sql`DELETE FROM saved_searches WHERE user_id IN ${sql(qIds)}`;
+    await sql`DELETE FROM waitlist_entries WHERE user_id IN ${sql(qIds)}`;
+    await sql`DELETE FROM favorites WHERE user_id IN ${sql(qIds)}`;
+    await sql`DELETE FROM notifications WHERE user_id IN ${sql(qIds)}`;
+  });
+  await tentar('espaços', () => sql`DELETE FROM spaces WHERE owner_id IN ${sql(qIds)}`);
+  await tentar('contas', () => sql.begin(async (tx) => {
+    await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
+    await tx`DELETE FROM public.audit_logs WHERE actor_id IN ${sql(qIds)}`;
+    await tx`DELETE FROM auth.users WHERE id IN ${sql(qIds)}`;
+    await tx`ALTER TABLE public.audit_logs ENABLE TRIGGER audit_logs_append_only`;
+  }));
+}
+
 async function limpar() {
+  await limparQ();
   try {
     const idsDosBookings = await sql<{ id: string }[]>`
       SELECT id FROM bookings WHERE owner_id IN (${donoId}, ${outroId}) OR renter_id IN (${donoId}, ${outroId})`;

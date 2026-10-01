@@ -459,6 +459,54 @@ nunca apareça inteiro em log, tela de suporte ou mensagem de erro:
 
 ---
 
+## 10. Fase 23 — descoberta, IA, estatísticas e renovação
+
+**Estatísticas sem dado pessoal.** Visualização e compartilhamento viram só
+`+1` num contador por anúncio e dia (`space_daily_stats` não tem coluna de
+pessoa, IP nem horário). Não contam: robôs e pré-visualizadores de link
+(pelo User-Agent), o próprio dono, a mesma pessoa repetindo em 30 minutos
+(o IP entra só num hash do limitador, que expira sozinho), anúncio fora do
+ar. A rota `/api/estatisticas` só aceita pedido do próprio site
+(`Sec-Fetch-Site`), limita o tamanho do corpo e responde **sempre 204** —
+quem chama não descobre se contou nem por quê. O proprietário vê "128
+visualizações", nunca quem.
+
+**Painel e relatório só do próprio dono.** Toda consulta de desempenho e
+de renovação filtra pelo usuário logado no servidor; os testes provam que
+outro proprietário não vê números, promoções nem receita de quem não é dele,
+e que pela API do navegador ninguém lê nem infla os contadores (RLS).
+
+**IA só interpreta ou sugere.** A busca por necessidade devolve uma
+interpretação estruturada (só valores de listas fechadas: tipos,
+características, veículo, finalidade); local, preço e data que não estão no
+texto da pessoa são descartados. A IA do anúncio só sugere; o texto passa
+por um filtro de fatos (`src/lib/listing-ai/guard.ts`) que remove
+afirmação sobre metragem, segurança, câmera, portão, banheiro, internet,
+cobertura, localização, acessibilidade, regras, preço ou disponibilidade
+que o anúncio não tem — e o anúncio só muda quando o dono clica, copiando o
+texto guardado no banco (não o que o navegador manda). O pedido à IA nunca
+leva rua, número, complemento, preço nem dado do proprietário. Tetos de uso
+por pessoa, por anúncio e globais ficam no banco.
+
+**Alertas com limite no banco.** O número de alertas ativos por plano é
+garantido por gatilho com trava (três criações simultâneas: passam
+exatamente as permitidas); os critérios são re-resolvidos no servidor, não
+copiados do navegador.
+
+**Renovação: só cobrança de assinatura nossa.** O webhook só registra uma
+cobrança nova quando `payment.subscription` é uma assinatura que existe no
+nosso banco — id desconhecido não cria nada. Valor e vencimento vêm do
+gateway (servidor a servidor, com o token do webhook); valor diferente do
+combinado é gravado como cobrado e marcado na auditoria; link de pagamento
+só `https` e só para o locatário. O status da reserva nunca muda por clique
+na tela, só por evento do gateway.
+
+**Compartilhar sem vazar.** O link é a URL pública do anúncio; a prévia
+(título, tipo, preço, bairro e cidade) sai da mesma consulta pública que
+nem seleciona rua, número ou complemento.
+
+---
+
 ## Estado de cada peça
 
 | Peça | Banco | Lógica | Interface |
