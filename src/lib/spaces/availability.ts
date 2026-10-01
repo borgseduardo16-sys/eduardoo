@@ -1,17 +1,15 @@
 import 'server-only';
-import { and, asc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { bookings, spaces, spaceAvailabilityBlocks } from '@/db/schema';
-import { OCCUPYING_STATUSES } from '@/lib/bookings/queries';
+import { spaces, spaceAvailabilityBlocks } from '@/db/schema';
 
 /**
  * Disponibilidade de um espaço (Fase 23) — a mesma resposta para a página
  * pública, a lista de espera e a validação de solicitação.
  *
- * O modelo de aluguel é mensal e sem data para terminar (`bookings.end_date`
- * fica NULL): uma reserva vigente ocupa o espaço dali em diante. Por isso
- * "disponível" aqui não é "tem dias livres no calendário" — é "está no ar e
- * ninguém ocupa".
+ * Parte 12: a ocupação é por UNIDADE (ver src/lib/rentals/queries.ts). Aqui
+ * fica o nível do anúncio: está no ar e tem pelo menos uma unidade que não
+ * está com aluguel mensal. Horários livres do temporário são por unidade.
  */
 
 export type SpaceBlockPublic = { startsOn: string; endsOn: string };
@@ -19,7 +17,7 @@ export type SpaceBlockPublic = { startsOn: string; endsOn: string };
 export type SpaceAvailability = {
   status: string;
   availableFrom: string | null;
-  /** Há reserva aceita, aguardando pagamento, ativa ou em atraso. */
+  /** Todas as unidades estão com aluguel mensal (anúncio `rented`). */
   occupied: boolean;
   /** Bloqueios manuais que ainda não terminaram — SEM motivo (motivo é privado). */
   upcomingBlocks: SpaceBlockPublic[];
@@ -39,22 +37,18 @@ export async function getSpaceAvailability(spaceId: string): Promise<SpaceAvaila
     .limit(1);
   if (!space || space.deletedAt) return null;
 
-  const [ocupacao, bloqueios] = await Promise.all([
-    db
-      .select({ id: bookings.id })
-      .from(bookings)
-      .where(and(eq(bookings.spaceId, spaceId), inArray(bookings.status, [...OCCUPYING_STATUSES])))
-      .limit(1),
-    listUpcomingBlocks(spaceId),
-  ]);
+  const bloqueios = await listUpcomingBlocks(spaceId);
 
-  const occupied = ocupacao.length > 0;
+  // Parte 12: o banco marca `rented` só quando TODAS as unidades estão com
+  // aluguel mensal (`space_fully_rented`). Com uma unidade livre que seja,
+  // o anúncio continua no ar e recebendo pedidos.
+  const occupied = space.status === 'rented';
   return {
     status: space.status,
     availableFrom: space.availableFrom,
     occupied,
     upcomingBlocks: bloqueios,
-    openForRequests: space.status === 'published' && !occupied,
+    openForRequests: space.status === 'published',
   };
 }
 

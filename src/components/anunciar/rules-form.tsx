@@ -30,7 +30,8 @@ export function RulesForm({
 }: {
   spaceId: string;
   initial: Initial;
-  priceMonthlyCents: number;
+  /** Preço mensal de referência; NULL quando o anúncio só aluga por hora/dia/semana. */
+  priceMonthlyCents: number | null;
 }) {
   const [state, action] = useActionState<SpaceActionState | undefined, FormData>(
     saveStepAction, undefined,
@@ -82,19 +83,23 @@ export function RulesForm({
         </Field>
 
         <div className="rounded-[var(--radius-card)] border p-4 space-y-2">
-          <label className="flex items-start gap-3 cursor-pointer">
+          <label className={priceMonthlyCents == null ? 'flex items-start gap-3 opacity-60' : 'flex items-start gap-3 cursor-pointer'}>
             <input
               type="checkbox"
               name="depositEnabled"
-              defaultChecked={initial.depositEnabled}
+              defaultChecked={priceMonthlyCents != null && initial.depositEnabled}
+              disabled={priceMonthlyCents == null}
               className="mt-0.5 size-4 shrink-0 rounded accent-[var(--accent)]"
             />
-            <span className="text-[0.9375rem] font-medium">Exigir caução (proteção contra dano)</span>
+            <span className="text-[0.9375rem] font-medium">Exigir caução no aluguel mensal (proteção contra dano)</span>
           </label>
           <p className="text-[0.8125rem] text-[var(--content-muted)] leading-relaxed pl-7">
-            Sempre 1 mês de aluguel — hoje seria {formatBRL(priceMonthlyCents)}. Cobrada junto do
-            primeiro pagamento, devolvida ao locatário quando o aluguel encerrar sem dano
-            registrado, ou parcialmente retida se uma denúncia de dano for confirmada.
+            {priceMonthlyCents == null
+              ? 'A caução vale só para aluguel mensal, e este anúncio aluga apenas por hora, dia ou semana.'
+              : <>Sempre 1 mês de aluguel da unidade alugada — a partir de {formatBRL(priceMonthlyCents)}. Cobrada junto do
+                primeiro pagamento, devolvida ao locatário quando o aluguel encerrar sem dano
+                registrado, ou parcialmente retida se uma denúncia de dano for confirmada. Não vale
+                para aluguel por hora, dia ou semana.</>}
           </p>
         </div>
 

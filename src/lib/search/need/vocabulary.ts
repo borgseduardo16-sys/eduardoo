@@ -62,12 +62,13 @@ export type NeedFeatureKey = (typeof NEED_FEATURE_KEYS)[number];
 /** Tipos que a busca pode pedir. "Outro" não é pedido de ninguém. */
 export const NEED_SPACE_TYPES = [
   'vaga_carro', 'vaga_moto', 'garagem', 'deposito', 'galpao', 'sala', 'escritorio', 'loja', 'terreno', 'quarto',
+  'estacionamento', 'oficina', 'espaco_eventos', 'area_lazer',
 ] as const satisfies readonly SpaceTypeKey[];
 
 /** Onde cada veículo cabe, do mais específico para o mais genérico. */
 export const VEHICLE_TYPES: Record<Vehicle, readonly SpaceTypeKey[]> = {
-  moto: ['vaga_moto', 'garagem', 'vaga_carro'],
-  carro: ['vaga_carro', 'garagem'],
+  moto: ['vaga_moto', 'garagem', 'vaga_carro', 'estacionamento'],
+  carro: ['vaga_carro', 'garagem', 'estacionamento'],
   utilitario: ['garagem', 'vaga_carro', 'galpao', 'terreno'],
   caminhao: ['galpao', 'terreno'],
   bicicleta: ['vaga_moto', 'garagem', 'deposito'],

@@ -52,11 +52,18 @@ export const subscriptions = pgTable(
     failedCycles: integer('failed_cycles').notNull().default(0),
 
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+    /**
+     * Parte 12: quando o GATEWAY confirmou o cancelamento. Assinatura
+     * `cancelled` sem isto = cancelamento ainda pendente no Asaas — o
+     * agendador tenta de novo até confirmar (nada de cobrança depois do fim).
+     */
+    providerCancelledAt: timestamp('provider_cancelled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('subscriptions_provider_id_key').on(t.provider, t.providerSubscriptionId),
+    index('subscriptions_cancel_pending_idx').on(t.cancelledAt).where(sql`status = 'cancelled' AND provider_cancelled_at IS NULL`),
     index('subscriptions_booking_idx').on(t.bookingId),
     index('subscriptions_status_idx').on(t.status),
     index('subscriptions_next_due_idx').on(t.nextDueDate),
@@ -116,11 +123,26 @@ export const payments = pgTable(
     /** Ultimo payload bruto do gateway, para auditoria e suporte. */
     providerPayload: jsonb('provider_payload').$type<Record<string, unknown>>(),
 
+    // ---- Parte 12 ----
+    /** Pix copia e cola e QR Code DO GATEWAY (GET /payments/{id}/pixQrCode), guardados para não pedir de novo a cada clique. */
+    pixPayload: text('pix_payload'),
+    pixQrImage: text('pix_qr_image'),
+    pixExpiresAt: timestamp('pix_expires_at', { withTimezone: true }),
+    /** A pessoa começou a pagar (escolheu Pix ou abriu a fatura): mostra "em processamento" até o gateway confirmar. */
+    payerStartedAt: timestamp('payer_started_at', { withTimezone: true }),
+    /** Estorno pedido (ex.: pagamento chegou depois do prazo). O agendador executa no gateway e repete até confirmar. */
+    refundRequestedAt: timestamp('refund_requested_at', { withTimezone: true }),
+    refundReason: text('refund_reason'),
+    /** Cobrança que não deve mais ser paga (reserva expirou): excluir no gateway. */
+    deleteRequestedAt: timestamp('delete_requested_at', { withTimezone: true }),
+    providerDeletedAt: timestamp('provider_deleted_at', { withTimezone: true }),
+
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex('payments_provider_id_key').on(t.provider, t.providerPaymentId),
+    index('payments_outbox_idx').on(t.updatedAt).where(sql`(refund_requested_at IS NOT NULL AND status NOT IN ('refunded','partially_refunded')) OR (delete_requested_at IS NOT NULL AND provider_deleted_at IS NULL)`),
     index('payments_booking_idx').on(t.bookingId),
     index('payments_subscription_idx').on(t.subscriptionId),
     index('payments_status_idx').on(t.status),

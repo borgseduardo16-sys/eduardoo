@@ -41,7 +41,8 @@ export function CancelBookingButton({
     );
   }
 
-  if (status !== 'requested' && status !== 'approved') {
+  // Parte 12: quem ainda não pagou também pode desistir (o servidor confere o resto).
+  if (status !== 'requested' && status !== 'approved' && status !== 'awaiting_payment') {
     return null;
   }
 

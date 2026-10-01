@@ -96,7 +96,11 @@ export type FavoriteSpace = {
   district: string | null;
   city: string | null;
   state: string | null;
-  priceMonthlyCents: number;
+  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
+  priceMonthlyCents: number | null;
+  tempFromCents: number | null;
+  tempFromUnits: number | null;
+  tempFromUnit: 'hour' | 'day' | 'week' | null;
   status: string;
   approxLat: number | null;
   approxLng: number | null;
@@ -128,6 +132,9 @@ export async function listUserFavoriteSpaces(userId: string): Promise<FavoriteSp
       city: spaces.city,
       state: spaces.state,
       priceMonthlyCents: spaces.priceMonthlyCents,
+      tempFromCents: spaces.tempFromCents,
+      tempFromUnits: spaces.tempFromUnits,
+      tempFromUnit: spaces.tempFromUnit,
       status: sql<string>`${spaces.status}::text`,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),

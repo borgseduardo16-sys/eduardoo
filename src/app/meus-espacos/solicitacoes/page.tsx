@@ -16,7 +16,8 @@ import {
 import { displayNameOr } from '@/lib/profiles/format';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
-import { bookingStatusLabel, formatBookingDate } from '@/lib/bookings/format';
+import { formatBookingDate } from '@/lib/bookings/format';
+import { formatRentalDuration, formatRentalPeriod, rentalBadge, rentalPhaseOf, unitLine } from '@/lib/rentals/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -39,6 +40,7 @@ const FILTROS = [
   { key: 'todas', label: 'Todas', status: undefined },
   { key: 'pendentes', label: 'Pendentes', status: ['requested'] },
   { key: 'aceitas', label: 'Aceitas', status: ['approved'] },
+  { key: 'andamento', label: 'Em andamento', status: ['awaiting_payment', 'active', 'past_due'] },
   { key: 'encerradas', label: 'Encerradas', status: ['rejected', 'expired', 'cancelled', 'ended'] },
 ] as const;
 
@@ -61,6 +63,7 @@ export default async function SolicitacoesPage({
     getOwnerResponseStats(user.id),
   ]);
   const solicitacoes = linhas.slice(0, PAGE_SIZE);
+  const agora = new Date();
   const minhaTaxa = responseRatePercent(minhasRespostas);
   const minhaFaixa = typicalResponseBucket(minhasRespostas);
 
@@ -125,14 +128,16 @@ export default async function SolicitacoesPage({
             <Inbox className="size-6 mx-auto text-[var(--content-subtle)]" aria-hidden />
             <p className="font-medium">Nada por aqui</p>
             <p className="text-[0.9375rem] text-[var(--content-muted)] max-w-sm mx-auto leading-relaxed">
-              Quando alguém solicitar um dos seus espaços, a solicitação aparece aqui.
+              Quando alguém solicitar ou reservar um dos seus espaços, aparece aqui.
             </p>
           </div>
         ) : (
           <ul className="space-y-3">
             {solicitacoes.map((s) => {
               const url = s.spaceCoverPath ? urls.get(s.spaceCoverPath) : null;
-              const info = { label: bookingStatusLabel(s.status) };
+              const info = rentalBadge(s.status, rentalPhaseOf(s, agora));
+              const unidade = unitLine(s.unitLabel, s.groupName, s.spaceGroupCount);
+              const temporario = s.kind === 'temporary';
               return (
                 <li key={s.id} id={`reserva-${s.id}`} className="rounded-[var(--radius-card)] border p-4 space-y-3 scroll-mt-20">
                   <div className="flex gap-3">
@@ -157,21 +162,26 @@ export default async function SolicitacoesPage({
                             {s.spaceCity && ` · ${[s.spaceDistrict, s.spaceCity].filter(Boolean).join(', ')}`}
                           </p>
                         </div>
-                        <Badge tone={
-                          s.status === 'approved' || s.status === 'active' ? 'positive'
-                          : s.status === 'requested' ? 'caution'
-                          : s.status === 'past_due' ? 'critical'
-                          : 'neutral'
-                        } className="shrink-0">
+                        <Badge tone={info.tone} className="shrink-0">
                           {info.label}
                         </Badge>
                       </div>
-                      <p className="text-[0.8125rem] text-[var(--content-muted)]">
-                        {displayNameOr(s.renterPublicName, 'Interessado')} · a partir de {formatBookingDate(s.startDate)} · solicitado em {formatBookingDate(s.requestedAt)}
-                      </p>
+                      {unidade && <p className="text-[0.8125rem] font-medium">{unidade}</p>}
+                      {temporario && s.startsAt && s.endsAt ? (
+                        <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                          {displayNameOr(s.renterPublicName, 'Interessado')} · {formatRentalPeriod(s.startsAt, s.endsAt, agora)} ·{' '}
+                          {formatRentalDuration(s.durationUnits, s.durationUnit)}
+                        </p>
+                      ) : (
+                        <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                          {displayNameOr(s.renterPublicName, 'Interessado')} · a partir de {formatBookingDate(s.startDate)} · solicitado em {formatBookingDate(s.requestedAt)}
+                        </p>
+                      )}
                       <p className="text-[0.9375rem] font-medium tabular-nums">
                         Você recebe {formatBRL(s.ownerPayoutCents)}
-                        <span className="font-normal text-[var(--content-muted)]"> /mês (aluguel {formatBRL(s.monthlyRentCents)})</span>
+                        <span className="font-normal text-[var(--content-muted)]">
+                          {temporario ? ` (aluguel ${formatBRL(s.monthlyRentCents)})` : ` /mês (aluguel ${formatBRL(s.monthlyRentCents)})`}
+                        </span>
                       </p>
                     </div>
                   </div>
@@ -223,7 +233,7 @@ export default async function SolicitacoesPage({
                   >
                     Ver detalhes da reserva
                   </Link>
-                  <EndBookingButton bookingId={s.id} status={s.status} />
+                  <EndBookingButton bookingId={s.id} status={s.status} kind={s.kind} label="Encerrar aluguel" />
                   <ReviewPrompt
                     bookingId={s.id}
                     kind="owner_to_renter"

@@ -10,7 +10,6 @@ import {
 } from 'maplibre-gl';
 import { LoaderCircle, LocateFixed, Map as MapIcon, X } from 'lucide-react';
 import { getTileSource, DEFAULT_CENTER, DEFAULT_ZOOM } from '@/lib/maps/config';
-import { formatBRL } from '@/lib/money';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -20,7 +19,12 @@ export type MapSpace = {
   slug: string;
   title: string;
   typeLabel: string;
-  priceMonthlyCents: number;
+  /**
+   * Preço já em texto, calculado no servidor a partir do resumo do anúncio
+   * (Parte 12): "R$ 300,00" + "/mês", ou "R$ 50,00" + "/hora".
+   */
+  priceAmount: string;
+  priceSuffix: string;
   district: string | null;
   city: string | null;
   /** Ponto APROXIMADO, vindo de `approx_location`. Nunca o exato. */
@@ -117,8 +121,8 @@ export function ResultsMap({
       const el = document.createElement('button');
       el.type = 'button';
       el.className = 'myplace-map-pin';
-      el.setAttribute('aria-label', `${s.title} — ${formatBRL(s.priceMonthlyCents)} por mês`);
-      el.textContent = formatBRL(s.priceMonthlyCents).replace(/\s/g, ' ');
+      el.setAttribute('aria-label', `${s.title} — ${s.priceAmount}${s.priceSuffix}`);
+      el.textContent = s.priceAmount.replace(/\s/g, ' ');
 
       const marker = new Marker({ element: el, anchor: 'bottom' })
         .setLngLat([s.lng, s.lat])
@@ -362,8 +366,8 @@ function popupContent(s: MapSpace): HTMLElement {
   preco.className = 'text-[0.875rem]';
   const valor = document.createElement('span');
   valor.className = 'font-semibold tabular-nums';
-  valor.textContent = formatBRL(s.priceMonthlyCents);
-  preco.append(valor, document.createTextNode(' /mês'));
+  valor.textContent = s.priceAmount;
+  preco.append(valor, document.createTextNode(` ${s.priceSuffix.trim()}`));
 
   const link = document.createElement('a');
   link.href = `/espacos/${s.slug}`;

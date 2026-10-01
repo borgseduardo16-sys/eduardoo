@@ -13,7 +13,7 @@ import {
   date,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
-import { spaceType, spaceStatus } from './enums';
+import { spaceType, spaceStatus, rentalTimeUnit } from './enums';
 import { profiles } from './users';
 import { pointColumn } from './_types';
 
@@ -89,7 +89,23 @@ export const spaces = pgTable(
     ceilingHeightM: numeric('ceiling_height_m', { precision: 5, scale: 2 }),
 
     // ---- Preco ----
-    priceMonthlyCents: integer('price_monthly_cents').notNull(),
+    /**
+     * Preço MENSAL de referência (aluguel contínuo). Parte 12: mantido pelo
+     * banco a partir dos grupos de unidades (o menor preço mensal entre os
+     * grupos ativos que aceitam contínuo) e NULL quando o anúncio só aluga
+     * por hora/dia/semana — nunca um "preço mensal" inventado.
+     */
+    priceMonthlyCents: integer('price_monthly_cents'),
+    /**
+     * Resumo do aluguel temporário, também mantido pelo banco a partir dos
+     * grupos (Parte 12) — é o que cartão, mapa e busca mostram sem precisar
+     * abrir as regras: "R$ 50/hora" (por período, `tempFromUnits` = 1) ou
+     * "R$ 120 por até 5 horas" (pacote mais curto). NULL nos três = não
+     * aluga por hora/dia/semana.
+     */
+    tempFromCents: integer('temp_from_cents'),
+    tempFromUnits: integer('temp_from_units'),
+    tempFromUnit: rentalTimeUnit('temp_from_unit'),
     currency: text('currency').notNull().default('BRL'),
 
     // ---- Regras ----
@@ -137,8 +153,14 @@ export const spaces = pgTable(
     index('spaces_price_idx').on(t.priceMonthlyCents),
     index('spaces_city_state_idx').on(t.city, t.state),
     /** Preco nunca negativo e teto de sanidade (R$ 1.000.000,00/mes). */
-    check('spaces_price_positive', sql`${t.priceMonthlyCents} > 0`),
-    check('spaces_price_sane', sql`${t.priceMonthlyCents} <= 100000000`),
+    check('spaces_price_positive', sql`${t.priceMonthlyCents} IS NULL OR ${t.priceMonthlyCents} > 0`),
+    check('spaces_price_sane', sql`${t.priceMonthlyCents} IS NULL OR ${t.priceMonthlyCents} <= 100000000`),
+    /** Resumo temporário: os três juntos ou nenhum. */
+    check(
+      'spaces_temp_summary_complete',
+      sql`(${t.tempFromCents} IS NULL AND ${t.tempFromUnits} IS NULL AND ${t.tempFromUnit} IS NULL)
+          OR (${t.tempFromCents} > 0 AND ${t.tempFromUnits} > 0 AND ${t.tempFromUnit} IS NOT NULL)`,
+    ),
     check('spaces_size_positive', sql`${t.sizeM2} IS NULL OR ${t.sizeM2} > 0`),
     /** Um anuncio publicado precisa de coordenada, senao nao aparece em busca por distancia. */
     check(

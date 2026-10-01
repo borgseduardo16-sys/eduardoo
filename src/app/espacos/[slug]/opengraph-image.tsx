@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og';
 import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { SPACE_IMAGES_BUCKET } from '@/lib/storage/images';
-import { formatBRL } from '@/lib/money';
+import { priceHeadline } from '@/lib/rentals/pricing';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 
 /**
@@ -100,8 +100,8 @@ export default async function Image({ params }: { params: Promise<{ slug: string
             {space.title}
           </div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, fontSize: 30 }}>
-            <span style={{ display: 'flex', fontWeight: 700 }}>{formatBRL(space.priceMonthlyCents)}</span>
-            <span style={{ display: 'flex', opacity: 0.75 }}>por mês</span>
+            <span style={{ display: 'flex', fontWeight: 700 }}>{priceHeadline(space)?.amount ?? ''}</span>
+            <span style={{ display: 'flex', opacity: 0.75 }}>{(priceHeadline(space)?.suffix ?? '').replace('/', 'por ').trim()}</span>
             {(space.district || space.city) && (
               <span style={{ display: 'flex', opacity: 0.75 }}>
                 · {[space.district, space.city].filter(Boolean).join(', ')}

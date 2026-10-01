@@ -64,7 +64,8 @@ export type MatchSpace = {
   type: string;
   district: string | null;
   city: string | null;
-  priceMonthlyCents: number;
+  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
+  priceMonthlyCents: number | null;
   /** TODAS as características marcadas no anúncio. */
   featureKeys: string[];
   /** `numeric` chega como texto do driver. */
@@ -178,6 +179,10 @@ export function computeMatch(
   // Preço
   if (c.priceMinCents != null || c.priceMaxCents != null) {
     const p = space.priceMonthlyCents;
+    if (p == null) {
+      // O orçamento da busca é mensal; anúncio só por hora não tem como comparar.
+      somar(MATCH_WEIGHTS.preco, 0, { status: 'nao', text: 'Não tem aluguel mensal (só por hora, dia ou semana)' });
+    } else {
     const acima = c.priceMaxCents != null && p > c.priceMaxCents;
     const abaixo = c.priceMinCents != null && p < c.priceMinCents;
     somar(MATCH_WEIGHTS.preco, acima || abaixo ? 0 : 1, acima
@@ -185,6 +190,7 @@ export function computeMatch(
       : abaixo
         ? { status: 'nao', text: `Custa ${formatBRL(p)}, abaixo da faixa informada` }
         : { status: 'sim', text: 'Está dentro do orçamento informado' });
+    }
   }
 
   // Características: proporcional ao que bateu.

@@ -30,7 +30,8 @@ import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { slugify, buildSlug } from '../src/lib/spaces/slug';
 import { sniffImageType, buildImagePath, ownerFromPath } from '../src/lib/storage/images';
 import { requiresMeasurement, asksMeasurement, priceHintFor } from '../src/lib/spaces/types';
-import { validateMeasurements, priceStepSchema, contentStepSchema, locationStepSchema } from '../src/lib/spaces/schemas';
+import { validateMeasurements, contentStepSchema, locationStepSchema } from '../src/lib/spaces/schemas';
+import { parseRentalConfig } from '../src/lib/rentals/config';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -94,7 +95,11 @@ async function main() {
       else bad('validacao de medida', 'aceitou galpao sem altura');
     }
     expect('titulo curto e recusado', contentStepSchema.safeParse({ title: 'Garagem', description: 'x'.repeat(30) }).success, false);
-    expect('preco no passado e recusado', priceStepSchema.safeParse({ priceMonthlyCents: 18000, availableFrom: '2020-01-01' }).success, false);
+    // Parte 12: preço e disponibilidade saíram da etapa antiga e viraram a configuração de aluguel.
+    expect('data de disponibilidade no passado e recusada', parseRentalConfig(
+      { availableFrom: '2020-01-01', groups: [{ unitCount: 1, mode: 'continuous', monthlyPrice: '180,00' }] },
+      { minChargeCents: 3500, today: '2026-01-01' },
+    ).ok, false);
     expect('coordenada fora do Brasil e recusada', locationStepSchema.safeParse({
       state: 'ES', city: 'Colatina', district: 'Centro', street: 'Rua A', number: '1',
       lat: 48.85, lng: 2.35, // Paris

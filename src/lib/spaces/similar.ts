@@ -19,7 +19,7 @@ export async function listSimilarSpaces(
   space: {
     id: string;
     type: string;
-    priceMonthlyCents: number;
+    priceMonthlyCents: number | null;
     city: string | null;
     district: string | null;
     approxLat: number | null;
@@ -36,8 +36,9 @@ export async function listSimilarSpaces(
     point: ponto,
     radiusMeters: ponto ? SIMILAR_LIMITS.maxDistanceMeters : null,
     cityFilter: ponto ? null : space.city,
-    priceMinCents: scaleCentsByBps(space.priceMonthlyCents, SIMILAR_LIMITS.minPriceBps, 'baixo'),
-    priceMaxCents: scaleCentsByBps(space.priceMonthlyCents, SIMILAR_LIMITS.maxPriceBps, 'cima'),
+    // Faixa de preço só para anúncio com preço mensal (Parte 12).
+    priceMinCents: space.priceMonthlyCents != null ? scaleCentsByBps(space.priceMonthlyCents, SIMILAR_LIMITS.minPriceBps, 'baixo') : null,
+    priceMaxCents: space.priceMonthlyCents != null ? scaleCentsByBps(space.priceMonthlyCents, SIMILAR_LIMITS.maxPriceBps, 'cima') : null,
     availableNow: opts.availableNow,
     sort: ponto ? 'distance' : 'recent',
     limit: 40,

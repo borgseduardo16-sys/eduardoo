@@ -3,17 +3,21 @@ import {
   uuid,
   text,
   integer,
+  boolean,
   timestamp,
   date,
   index,
   uniqueIndex,
   check,
   jsonb,
+  foreignKey,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
-import { bookingStatus } from './enums';
+import { bookingEndReason, bookingStatus, rentalKind, rentalTimeUnit } from './enums';
 import { profiles } from './users';
 import { spaces } from './spaces';
+import { spaceUnitGroups, spaceUnits } from './rentals';
 
 /**
  * Reserva/locacao de um espaco.
@@ -54,11 +58,60 @@ export const bookings = pgTable(
 
     status: bookingStatus('status').notNull().default('requested'),
 
+    // ---- Parte 12: unidade, forma e horário exato ----
+    /** Contínuo (mensal, sem data para terminar) ou temporário (horas/dias/semanas). */
+    kind: rentalKind('kind').notNull().default('continuous'),
+    /** Grupo escolhido pelo locatário (do mesmo anúncio — chave composta). */
+    groupId: uuid('group_id'),
+    /**
+     * Unidade ocupada. NULL só enquanto é uma solicitação de aluguel
+     * contínuo: a unidade é escolhida pelo servidor no aceite.
+     */
+    unitId: uuid('unit_id'),
+    /** Início exato. Contínuo: meia-noite (Brasília) de `start_date`. */
+    startsAt: timestamp('starts_at', { withTimezone: true }),
+    /** Fim exato (temporário). Contínuo: NULL. */
+    endsAt: timestamp('ends_at', { withTimezone: true }),
+    /**
+     * Até quando a unidade fica protegida: fim + 7 min de janela de
+     * renovação (quando o grupo aceita renovar). NULL = sem fim (contínuo).
+     * É este intervalo que a restrição `bookings_unit_no_overlap` compara.
+     */
+    occupiedUntil: timestamp('occupied_until', { withTimezone: true }),
+    /** Temporário: quanto foi comprado (ex.: 2 'hour'). */
+    durationUnits: integer('duration_units'),
+    durationUnit: rentalTimeUnit('duration_unit'),
+    /** Cópia da regra do grupo na hora da reserva: esta reserva pode ser renovada. */
+    renewalAllowed: boolean('renewal_allowed').notNull().default(false),
+    /** Reserva que esta renova (a renovação começa onde a anterior termina). */
+    renewedFromId: uuid('renewed_from_id').references((): AnyPgColumn => bookings.id, { onDelete: 'set null' }),
+    /** Temporário aguardando pagamento: a unidade fica segura até aqui. */
+    holdExpiresAt: timestamp('hold_expires_at', { withTimezone: true }),
+    /** Contínuo com pagamento pendente: quando a 1ª janela (40 min) começou. */
+    paymentIssueStartedAt: timestamp('payment_issue_started_at', { withTimezone: true }),
+    /** Fim do prazo total (40 min + 1 h). Passou disso sem pagamento: encerra. */
+    paymentIssueDeadlineAt: timestamp('payment_issue_deadline_at', { withTimezone: true }),
+    /** Por que terminou (`ended`/`expired`). NULL nos encerrados antes da Parte 12. */
+    endReason: bookingEndReason('end_reason'),
+    /** Chave do formulário: o mesmo envio repetido (duplo clique) devolve a mesma reserva. */
+    idempotencyKey: text('idempotency_key'),
+
+    /**
+     * Dia do início (Brasília). No temporário, `start_date`/`end_date` são os
+     * dias que a reserva toca (fim exclusivo) — é o que o calendário de
+     * bloqueios compara.
+     */
     startDate: date('start_date').notNull(),
     /** NULL = contrato por prazo indeterminado, renovando mes a mes. */
     endDate: date('end_date'),
 
     // ---- Valores congelados no aceite (centavos) ----
+    /**
+     * Valor do aluguel de UMA cobrança: no contínuo, o mês; no temporário,
+     * o período inteiro comprado (ex.: 3 horas). O nome ficou do tempo em
+     * que só existia aluguel mensal — renomear mexeria em dezenas de
+     * consultas sem mudar nada no que é gravado.
+     */
     monthlyRentCents: integer('monthly_rent_cents').notNull(),
     renterFeeBps: integer('renter_fee_bps').notNull(),
     ownerFeeBps: integer('owner_fee_bps').notNull(),
@@ -121,18 +174,41 @@ export const bookings = pgTable(
     check('bookings_payout_positive', sql`${t.ownerPayoutCents} > 0`),
     check('bookings_deposit_non_negative', sql`${t.depositCents} >= 0`),
 
-    /**
-     * Um mesmo espaco nao pode ter duas locacoes vigentes ao mesmo tempo.
-     * Indice unico parcial: vale apenas para os status que ocupam o espaco.
+    /*
+     * Parte 12: "uma locação vigente por espaço" deu lugar a "nenhuma
+     * sobreposição por UNIDADE" — restrição de exclusão
+     * `bookings_unit_no_overlap` (migração 0032; o Drizzle não descreve
+     * EXCLUDE). Junto dela, na mesma migração, os CHECKs que dependem do
+     * preenchimento dos dados antigos: forma do temporário, unidade e início
+     * obrigatórios em reserva que ocupa, prazo do pagamento pendente.
      */
-    uniqueIndex('bookings_one_active_per_space')
-      .on(t.spaceId)
-      .where(sql`status IN ('approved','awaiting_payment','active','past_due')`),
+    foreignKey({
+      name: 'bookings_group_same_space_fk',
+      columns: [t.spaceId, t.groupId],
+      foreignColumns: [spaceUnitGroups.spaceId, spaceUnitGroups.id],
+    }),
+    foreignKey({
+      name: 'bookings_unit_same_group_fk',
+      columns: [t.groupId, t.unitId],
+      foreignColumns: [spaceUnits.groupId, spaceUnits.id],
+    }),
+    index('bookings_unit_status_idx').on(t.unitId, t.status),
+    index('bookings_group_idx').on(t.groupId),
+    index('bookings_hold_expires_idx').on(t.holdExpiresAt).where(sql`status = 'awaiting_payment'`),
+    index('bookings_payment_deadline_idx').on(t.paymentIssueDeadlineAt).where(sql`status = 'past_due'`),
+    index('bookings_temporary_ending_idx').on(t.occupiedUntil).where(sql`kind = 'temporary' AND status = 'active'`),
+    uniqueIndex('bookings_renter_idempotency_key').on(t.renterId, t.idempotencyKey).where(sql`idempotency_key IS NOT NULL`),
+    /** No máximo UMA renovação viva por reserva (duas abas renovando ao mesmo tempo: só uma passa). */
+    uniqueIndex('bookings_one_live_renewal')
+      .on(t.renewedFromId)
+      .where(sql`renewed_from_id IS NOT NULL AND status IN ('approved','awaiting_payment','active','past_due')`),
   ],
 );
 
 export const bookingsRelations = relations(bookings, ({ one }) => ({
   space: one(spaces, { fields: [bookings.spaceId], references: [spaces.id] }),
+  group: one(spaceUnitGroups, { fields: [bookings.groupId], references: [spaceUnitGroups.id] }),
+  unit: one(spaceUnits, { fields: [bookings.unitId], references: [spaceUnits.id] }),
   renter: one(profiles, { fields: [bookings.renterId], references: [profiles.id] }),
   owner: one(profiles, { fields: [bookings.ownerId], references: [profiles.id] }),
 }));

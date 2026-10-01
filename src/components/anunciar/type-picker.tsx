@@ -2,9 +2,9 @@
 
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Search } from 'lucide-react';
 import { createDraftAction, type SpaceActionState } from '@/lib/spaces/actions';
-import { spaceTypeOptions } from '@/lib/spaces/types';
+import { searchSpaceTypes, spaceTypeOptions } from '@/lib/spaces/types';
 import { Icon } from '@/components/safety/icon';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
@@ -37,10 +37,29 @@ export function TypePicker() {
     undefined,
   );
 
-  const options = spaceTypeOptions();
+  const [busca, setBusca] = useState('');
+  const encontrados = new Set(searchSpaceTypes(busca));
+  // O tipo já escolhido nunca some da grade por causa da busca.
+  const options = spaceTypeOptions().filter((o) => encontrados.has(o.value) || o.value === selected);
 
   return (
     <form action={action}>
+      <div className="relative mb-4">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[var(--content-muted)] pointer-events-none" aria-hidden />
+        <input
+          type="search"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar categoria (ex.: estacionamento, salão, oficina)"
+          aria-label="Buscar categoria"
+          className={cn(
+            'w-full h-11 pl-10 pr-3.5 rounded-[var(--radius-field)] bg-[var(--surface)]',
+            'border border-[var(--border-strong)] placeholder:text-[var(--content-subtle)]',
+            'focus:outline-none focus:border-[var(--ring)] focus:ring-2 focus:ring-[var(--ring)]/20',
+            'text-base md:text-[0.9375rem]',
+          )}
+        />
+      </div>
       {state?.message && !state.ok && (
         <Alert tone="critical" className="mb-5">
           {state.message}

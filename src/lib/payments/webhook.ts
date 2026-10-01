@@ -54,6 +54,9 @@ const EVENTOS_TRATADOS = new Set([
   'PAYMENT_REFUNDED',
   'PAYMENT_DELETED',
   'PAYMENT_REPROVED_BY_RISK_ANALYSIS',
+  // Parte 12: a cobrança automática no cartão foi recusada pela operadora
+  // (documentação do Asaas, "Eventos para cobranças").
+  'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED',
 ]);
 
 export type AsaasWebhookPayload = {
@@ -317,11 +320,6 @@ async function recalcNextDueDate(tx: Tx, subscriptionId: string): Promise<void> 
   `);
 }
 
-/** Cobrança de renovação = o aluguel já tinha começado antes dela. */
-function isRenewal(booking: BookingRow): boolean {
-  return booking.activatedAt != null;
-}
-
 async function handleEvent(
   tx: Tx,
   event: string,
@@ -339,7 +337,9 @@ async function handleEvent(
     case 'PAYMENT_OVERDUE':
       return handleOverdue(tx, pagamento, booking);
     case 'PAYMENT_REPROVED_BY_RISK_ANALYSIS':
-      return handleFailed(tx, pagamento, booking);
+      return handleFailed(tx, pagamento, booking, 'Recusado na analise de risco do gateway.');
+    case 'PAYMENT_CREDIT_CARD_CAPTURE_REFUSED':
+      return handleFailed(tx, pagamento, booking, 'Cartão recusado pela operadora.');
     case 'PAYMENT_REFUNDED':
       return handleRefunded(tx, pagamento, booking);
     case 'PAYMENT_DELETED':
@@ -378,18 +378,44 @@ async function handleCreated(tx: Tx, pagamento: PaymentRow, booking: BookingRow,
  * O REPASSE ao proprietario, por outro lado, so acontece no PAYMENT_RECEIVED
  * (handleReceived), porque so ali ha dinheiro disponivel de verdade para
  * repassar.
+ *
+ * Parte 12 — a confirmação depende de COMO está a reserva agora:
+ *   - aguardando pagamento → ativa (temporário: a unidade é dela no horário);
+ *   - pagamento pendente → volta a ativa e o prazo some;
+ *   - ativa → mais uma mensalidade (renovação);
+ *   - temporária expirada (o prazo para pagar passou, mas o dinheiro veio)
+ *     → reativa SE a unidade ainda estiver livre naquele horário; o banco
+ *     decide (restrição de exclusão), não uma checagem que pode ficar velha;
+ *   - encerrada/cancelada (ou expirada sem como reativar) → estorno
+ *     automático, e a pessoa é avisada. Nunca cobra por algo que não entrega.
  */
 async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
+  // Nunca rebaixa uma cobrança que já está à frente (evento fora de ordem).
   await tx
     .update(payments)
-    .set({ status: 'confirmed', paidAt: new Date(), providerPayload: payload as Record<string, unknown>, updatedAt: new Date() })
-    .where(eq(payments.id, pagamento.id));
+    .set({ status: 'confirmed', paidAt: new Date(), providerPayload: payload as Record<string, unknown>, deleteRequestedAt: null, updatedAt: new Date() })
+    .where(and(eq(payments.id, pagamento.id), sql`${payments.status} IN ('pending', 'overdue', 'failed')`));
 
   const primeiraAtivacao = !booking.activatedAt;
-  if (primeiraAtivacao || booking.status === 'past_due') {
+
+  if (booking.status === 'expired' && booking.kind === 'temporary') {
+    return confirmedAfterHoldExpired(tx, pagamento, booking);
+  }
+  if (booking.status === 'ended' || booking.status === 'cancelled' || booking.status === 'expired' || booking.status === 'rejected') {
+    return requestLateRefund(tx, pagamento, booking, 'Pagamento confirmado depois que o aluguel já tinha terminado.');
+  }
+
+  if (booking.status === 'awaiting_payment' || booking.status === 'approved' || booking.status === 'past_due') {
     await tx
       .update(bookings)
-      .set({ status: 'active', activatedAt: booking.activatedAt ?? new Date(), updatedAt: new Date() })
+      .set({
+        status: 'active',
+        activatedAt: booking.activatedAt ?? new Date(),
+        holdExpiresAt: null,
+        paymentIssueStartedAt: null,
+        paymentIssueDeadlineAt: null,
+        updatedAt: new Date(),
+      })
       .where(eq(bookings.id, booking.id));
 
     if (pagamento.subscriptionId) {
@@ -400,27 +426,38 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
     }
   }
 
+  const temporario = booking.kind === 'temporary';
+  const regularizou = booking.status === 'past_due';
   // Fase 23: mensalidade de um aluguel que já estava rodando = renovação.
-  const renovacao = !primeiraAtivacao;
+  const renovacao = !primeiraAtivacao && !regularizou;
   const jobs = await insertNotifications(tx, [
     // dedupeKey por COBRANCA: CONFIRMED e RECEIVED da mesma cobranca (eventos
     // diferentes, ids diferentes) nao viram dois avisos iguais (Fase 21).
     {
       userId: booking.renterId, type: 'payment_confirmed',
-      title: renovacao ? 'Renovação confirmada' : 'Pagamento confirmado',
-      body: renovacao
-        ? 'O pagamento da renovação foi confirmado. Seu aluguel segue ativo por mais um mês.'
-        : 'Seu pagamento foi confirmado. O aluguel segue ativo.',
+      title: regularizou ? 'Pagamento regularizado' : renovacao ? 'Renovação confirmada' : 'Pagamento confirmado',
+      body: temporario
+        ? 'Seu pagamento foi confirmado. A reserva está garantida no horário escolhido.'
+        : regularizou
+          ? 'Recebemos o pagamento. Seu aluguel continua ativo.'
+          : renovacao
+            ? 'O pagamento da renovação foi confirmado. Seu aluguel segue ativo por mais um mês.'
+            : 'Seu pagamento foi confirmado. O aluguel segue ativo.',
       linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
     {
       userId: booking.ownerId, type: 'payment_confirmed',
-      title: renovacao ? 'Renovação paga' : 'Pagamento recebido',
-      body: renovacao
-        ? 'O locatário pagou a renovação deste mês.'
-        : 'O pagamento deste aluguel foi confirmado pelo locatário.',
-      linkPath: '/meus-espacos/financeiro', data: { bookingId: booking.id, paymentId: pagamento.id },
+      title: temporario ? 'Nova reserva confirmada' : regularizou ? 'Pagamento regularizado' : renovacao ? 'Renovação paga' : 'Pagamento recebido',
+      body: temporario
+        ? 'Uma reserva por tempo foi paga e confirmada. Veja o horário em Solicitações.'
+        : regularizou
+          ? 'O locatário regularizou o pagamento deste mês.'
+          : renovacao
+            ? 'O locatário pagou a renovação deste mês.'
+            : 'O pagamento deste aluguel foi confirmado pelo locatário.',
+      linkPath: temporario ? `/reservas/${booking.id}` : '/meus-espacos/financeiro',
+      data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
   ]);
@@ -428,10 +465,78 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.confirmed',
     entityType: 'payment', entityId: pagamento.id,
-    metadata: { bookingId: booking.id, primeiraAtivacao },
+    metadata: { bookingId: booking.id, primeiraAtivacao, regularizou, kind: booking.kind },
   });
 
   return jobs;
+}
+
+/**
+ * Temporário que expirou antes de o pagamento chegar. Tenta reativar dentro
+ * de um SAVEPOINT: se outra pessoa já reservou a unidade naquele horário, a
+ * restrição `bookings_unit_no_overlap` recusa — e aí o pagamento é estornado.
+ * Se o horário inteiro já passou, também estorna (não há o que entregar).
+ */
+async function confirmedAfterHoldExpired(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
+  const horarioJaPassou = booking.endsAt != null && booking.endsAt.getTime() <= Date.now();
+  if (booking.endReason !== 'hold_expired' || horarioJaPassou) {
+    return requestLateRefund(tx, pagamento, booking, 'Pagamento confirmado depois que a reserva expirou.');
+  }
+  try {
+    await tx.transaction(async (tx2) => {
+      await tx2
+        .update(bookings)
+        .set({ status: 'active', endReason: null, activatedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(bookings.id, booking.id), eq(bookings.status, 'expired')));
+    });
+  } catch (err) {
+    const pg = err instanceof PostgresError ? err : err instanceof Error && err.cause instanceof PostgresError ? err.cause : null;
+    if (pg?.code === '23P01') {
+      return requestLateRefund(tx, pagamento, booking, 'Pagamento confirmado depois que a reserva expirou e a unidade já tinha sido reservada por outra pessoa.');
+    }
+    throw err;
+  }
+  await tx.insert(auditLogs).values({
+    actorId: null, actorRole: 'system', action: 'booking.reactivated_after_late_payment',
+    entityType: 'booking', entityId: booking.id, metadata: { paymentId: pagamento.id },
+  });
+  return insertNotifications(tx, [
+    {
+      userId: booking.renterId, type: 'payment_confirmed', title: 'Pagamento confirmado',
+      body: 'O pagamento chegou depois do prazo, mas a unidade ainda estava livre: sua reserva está garantida.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_confirmed:${pagamento.id}`,
+    },
+    {
+      userId: booking.ownerId, type: 'payment_confirmed', title: 'Nova reserva confirmada',
+      body: 'Uma reserva por tempo foi paga e confirmada. Veja o horário em Solicitações.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_confirmed:${pagamento.id}`,
+    },
+  ]);
+}
+
+/**
+ * Dinheiro que chegou para um aluguel que não existe mais: marca o estorno
+ * (o agendador executa no Asaas e repete até confirmar) e avisa a pessoa.
+ */
+async function requestLateRefund(tx: Tx, pagamento: PaymentRow, booking: BookingRow, motivo: string): Promise<PushJob[]> {
+  await tx
+    .update(payments)
+    .set({ refundRequestedAt: new Date(), refundReason: motivo, updatedAt: new Date() })
+    .where(and(eq(payments.id, pagamento.id), sql`${payments.refundRequestedAt} IS NULL`));
+  await tx.insert(auditLogs).values({
+    actorId: null, actorRole: 'system', action: 'payment.late_refund_requested',
+    entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id, bookingStatus: booking.status, motivo },
+  });
+  return insertNotifications(tx, [
+    {
+      userId: booking.renterId, type: 'payment_refunded', title: 'Seu pagamento será devolvido',
+      body: 'O pagamento chegou depois que o aluguel já tinha terminado. Ele está sendo estornado automaticamente — nada fica cobrado.',
+      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `late_refund:${pagamento.id}`,
+    },
+  ]);
 }
 
 /**
@@ -456,10 +561,14 @@ async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow
       )
     : null;
 
+  // Cobrança já estornada (pagamento que chegou depois do fim) não volta a
+  // "recebida": o evento só completa tarifa e valor líquido.
+  const estornada = pagamento.status === 'refunded' || pagamento.status === 'partially_refunded' || pagamento.refundRequestedAt != null;
   await tx
     .update(payments)
     .set({
-      status: 'received', creditedAt: new Date(),
+      ...(estornada ? {} : { status: 'received' as const }),
+      creditedAt: new Date(),
       gatewayFeeCents: tarifaGatewayCents, netAmountCents: valorLiquidoCents,
       platformNetCents: netPlataformaCents, updatedAt: new Date(),
     })
@@ -530,79 +639,117 @@ async function handleReceived(tx: Tx, pagamento: PaymentRow, booking: BookingRow
   return [];
 }
 
+/**
+ * Cobrança vencida. No aluguel mensal em andamento, é a falha da cobrança
+ * (Pix do mês não pago até o vencimento): abre a janela de regularização
+ * — 40 min + 1 h, fixa — em vez de encerrar na hora.
+ */
 async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
-  await tx.update(payments).set({ status: 'overdue', updatedAt: new Date() }).where(eq(payments.id, pagamento.id));
+  await tx
+    .update(payments)
+    .set({ status: 'overdue', updatedAt: new Date() })
+    .where(and(eq(payments.id, pagamento.id), sql`${payments.status} IN ('pending', 'failed')`));
+  await tx.insert(auditLogs).values({
+    actorId: null, actorRole: 'system', action: 'payment.overdue',
+    entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
+  });
 
-  if (booking.status === 'active') {
-    await tx.update(bookings).set({ status: 'past_due', updatedAt: new Date() }).where(eq(bookings.id, booking.id));
+  if (booking.kind === 'continuous' && booking.status === 'active') {
+    return openPaymentWindow(tx, pagamento, booking, 'overdue');
   }
+  // Primeira cobrança ainda não paga: os dois lados ficam sabendo do atraso.
+  if (booking.kind === 'continuous' && (booking.status === 'awaiting_payment' || booking.status === 'approved')) {
+    return insertNotifications(tx, [
+      {
+        userId: booking.renterId, type: 'payment_failed', title: 'Pagamento em atraso',
+        body: 'O primeiro pagamento deste aluguel venceu. Pague pelo app para garantir o espaço.',
+        linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
+        dedupeKey: `payment_overdue:${pagamento.id}`,
+      },
+    ]);
+  }
+  return [];
+}
+
+/**
+ * Cobrança recusada (cartão recusado pela operadora ou reprovado na análise
+ * de risco). A cobrança continua em aberto no Asaas e pode ser paga de
+ * outro jeito ("Pagar agora" troca a forma de pagamento dela). No mensal em
+ * andamento, abre a mesma janela de 40 min + 1 h.
+ */
+async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, motivo: string): Promise<PushJob[]> {
+  await tx
+    .update(payments)
+    .set({ failureReason: motivo, updatedAt: new Date() })
+    .where(eq(payments.id, pagamento.id));
+  await tx.insert(auditLogs).values({
+    actorId: null, actorRole: 'system', action: 'payment.failed',
+    entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id, motivo },
+  });
+
+  if (booking.kind === 'continuous' && booking.status === 'active') {
+    return openPaymentWindow(tx, pagamento, booking, 'card_refused');
+  }
+  if (booking.status === 'past_due') return []; // a janela já está aberta
+
+  return insertNotifications(tx, [
+    {
+      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento recusado',
+      body: 'Seu pagamento não foi aprovado. Tente com outro cartão ou pague com Pix.',
+      linkPath: booking.kind === 'temporary' ? `/reservas/${booking.id}/pagar` : `/reservas/${booking.id}`,
+      data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_failed:${pagamento.id}`,
+    },
+  ]);
+}
+
+/**
+ * Abre a janela de regularização do pagamento pendente (Parte 12): o
+ * aluguel NÃO é cancelado na hora. São 40 minutos e, depois, mais 1 hora;
+ * o prazo fica gravado na reserva (o banco confere que é exatamente esse) e
+ * quem encerra no fim é `release_expired_rentals`, pelo relógio do banco.
+ */
+async function openPaymentWindow(tx: Tx, pagamento: PaymentRow, booking: BookingRow, causa: 'overdue' | 'card_refused'): Promise<PushJob[]> {
+  const abertas = await tx
+    .update(bookings)
+    .set({
+      status: 'past_due',
+      paymentIssueStartedAt: sql`now()`,
+      paymentIssueDeadlineAt: sql`now() + interval '100 minutes'`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(bookings.id, booking.id), eq(bookings.status, 'active')))
+    .returning({ id: bookings.id });
+  if (abertas.length === 0) return [];
+
   if (pagamento.subscriptionId) {
     await tx
       .update(subscriptions)
       .set({ status: 'past_due', failedCycles: sql`${subscriptions.failedCycles} + 1`, updatedAt: new Date() })
       .where(eq(subscriptions.id, pagamento.subscriptionId));
   }
-
-  // Os dois lados ficam sabendo (Fase 21): o proprietario tambem precisa
-  // saber que o aluguel do espaco dele esta em atraso.
-  const renovacao = isRenewal(booking);
-  const jobsAtraso = await insertNotifications(tx, [
-    {
-      userId: booking.renterId, type: 'payment_failed',
-      title: renovacao ? 'Não conseguimos processar sua renovação' : 'Pagamento em atraso',
-      body: renovacao
-        ? 'A cobrança da renovação venceu sem pagamento. Pague pelo link na reserva para manter o aluguel ativo.'
-        : 'O pagamento deste mês está atrasado. Regularize para manter o aluguel ativo.',
-      linkPath: renovacao ? `/reservas/${booking.id}#renovacao` : `/reservas/${booking.id}`,
-      data: { bookingId: booking.id, paymentId: pagamento.id },
-      dedupeKey: `payment_overdue:${pagamento.id}`,
-    },
-    {
-      userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento do locatário em atraso',
-      body: 'O pagamento deste mês do seu espaço está atrasado. Você é avisado quando for regularizado.',
-      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
-      dedupeKey: `payment_overdue:${pagamento.id}`,
-    },
-  ]);
   await tx.insert(auditLogs).values({
-    actorId: null, actorRole: 'system', action: 'payment.overdue',
-    entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
+    actorId: null, actorRole: 'system', action: 'booking.payment_window_opened',
+    entityType: 'booking', entityId: booking.id, metadata: { paymentId: pagamento.id, causa },
   });
 
-  return jobsAtraso;
-}
-
-async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
-  await tx
-    .update(payments)
-    .set({ status: 'failed', failureReason: 'Recusado na analise de risco do gateway.', updatedAt: new Date() })
-    .where(eq(payments.id, pagamento.id));
-
-  const renovacao = isRenewal(booking);
-  const jobsRecusa = await insertNotifications(tx, [
+  const automatico = pagamento.method === 'credit_card';
+  return insertNotifications(tx, [
     {
-      userId: booking.renterId, type: 'payment_failed',
-      title: renovacao ? 'Não conseguimos processar sua renovação' : 'Pagamento recusado',
-      body: renovacao
-        ? 'O pagamento da renovação não foi aprovado. Abra a reserva e pague pelo link com outro cartão ou meio de pagamento.'
-        : 'Seu pagamento não foi aprovado. Tente novamente com outro cartão ou meio de pagamento.',
-      linkPath: renovacao ? `/reservas/${booking.id}#renovacao` : `/reservas/${booking.id}`,
-      data: { bookingId: booking.id, paymentId: pagamento.id },
-      dedupeKey: `payment_failed:${pagamento.id}`,
+      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento pendente',
+      body: automatico
+        ? 'Não conseguimos concluir seu pagamento automático. Regularize o pagamento para continuar com seu aluguel.'
+        : 'Não identificamos o pagamento da mensalidade. Regularize o pagamento para continuar com seu aluguel.',
+      linkPath: `/reservas/${booking.id}/pendente`, data: { bookingId: booking.id, paymentId: pagamento.id },
+      dedupeKey: `payment_issue:${booking.id}:${pagamento.id}`,
     },
     {
-      userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento do locatário recusado',
-      body: 'A cobrança deste aluguel não foi aprovada. O locatário foi avisado para tentar de novo.',
+      userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento do locatário pendente',
+      body: 'A cobrança deste mês não foi concluída. O locatário tem 1 hora e 40 minutos para regularizar; sem pagamento, o aluguel é encerrado e a unidade volta a ficar disponível.',
       linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
-      dedupeKey: `payment_failed:${pagamento.id}`,
+      dedupeKey: `payment_issue:${booking.id}:${pagamento.id}`,
     },
   ]);
-  await tx.insert(auditLogs).values({
-    actorId: null, actorRole: 'system', action: 'payment.failed',
-    entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
-  });
-
-  return jobsRecusa;
 }
 
 async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
@@ -618,13 +765,13 @@ async function handleRefunded(tx: Tx, pagamento: PaymentRow, booking: BookingRow
 
   const jobsEstorno = await insertNotifications(tx, [
     {
-      userId: booking.renterId, type: 'payment_failed', title: 'Pagamento estornado',
+      userId: booking.renterId, type: 'payment_refunded', title: 'Pagamento estornado',
       body: 'O pagamento deste aluguel foi estornado.',
       linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_refunded:${pagamento.id}`,
     },
     {
-      userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento estornado',
+      userId: booking.ownerId, type: 'payment_refunded', title: 'Pagamento estornado',
       body: 'Um pagamento deste aluguel foi estornado ao locatário.',
       linkPath: '/meus-espacos/financeiro', data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_refunded:${pagamento.id}`,

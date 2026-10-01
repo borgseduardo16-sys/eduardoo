@@ -30,6 +30,7 @@ import { getUserSavedSearch } from '@/lib/alerts/queries';
 import { FiltersBar } from '@/components/espacos/filters-bar';
 import { ResultCard } from '@/components/espacos/result-card';
 import { ResultsMap, MobileMapToggle, type MapSpace } from '@/components/map/spaces-map';
+import { priceHeadline } from '@/lib/rentals/pricing';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
@@ -252,7 +253,8 @@ export default async function EspacosPage({
     .map((r) => ({
       id: r.id, slug: r.slug, title: r.title,
       typeLabel: spaceTypeLabel(r.type as SpaceTypeKey),
-      priceMonthlyCents: r.priceMonthlyCents,
+      priceAmount: priceHeadline(r)?.amount ?? '',
+      priceSuffix: priceHeadline(r)?.suffix ?? '',
       district: r.district, city: r.city,
       lat: r.approxLat as number, lng: r.approxLng as number,
     }));

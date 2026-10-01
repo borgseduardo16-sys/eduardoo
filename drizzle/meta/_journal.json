@@ -218,6 +218,20 @@
       "when": 1790821127802,
       "tag": "0030_datas_invertidas",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790849029369,
+      "tag": "0031_third_fenris",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790849030748,
+      "tag": "0032_aluguel_unidades",
+      "breakpoints": true
     }
   ]
 }

@@ -124,7 +124,8 @@ export async function startCheckoutAction(
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? 'Dados inválidos.' };
   }
-  const { bookingId, cpfCnpj } = parsed.data;
+  const { bookingId, cpfCnpj, method } = parsed.data;
+  const cartao = method === 'card';
 
   const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
   if (!booking || booking.renterId !== user.id) {
@@ -177,7 +178,9 @@ export async function startCheckoutAction(
   try {
     assinatura = await asaas.createSubscription({
       customer: billing.providerCustomerId,
-      billingType: 'UNDEFINED',
+      // Cartão: o Asaas cobra o mesmo cartão todo mês, sozinho. Pix: cada
+      // mensalidade vira uma cobrança Pix paga pelo app.
+      billingType: cartao ? 'CREDIT_CARD' : 'PIX',
       value: booking.totalChargedCents / 100,
       nextDueDate,
       cycle: 'MONTHLY',
@@ -222,6 +225,16 @@ export async function startCheckoutAction(
 
   const diaVencimento = Math.min(Number(nextDueDate.slice(8, 10)), 28);
 
+  // Pix: o QR da primeira mensalidade aparece no próprio app (sem sair para a fatura).
+  let qr: asaas.AsaasPixQrCode | null = null;
+  if (!cartao) {
+    try {
+      qr = await asaas.getPixQrCode(cobranca.id);
+    } catch (err) {
+      console.error('[checkout] QR Code Pix indisponível:', cobranca.id, err instanceof asaas.AsaasError ? err.body : err);
+    }
+  }
+
   let faturaUrl: string;
   try {
     faturaUrl = await db.transaction(async (tx) => {
@@ -232,7 +245,7 @@ export async function startCheckoutAction(
           provider: 'asaas',
           providerSubscriptionId: assinatura.id,
           status: 'pending_authorization',
-          method: 'pix',
+          method: cartao ? 'credit_card' : 'pix',
           amountCents: booking.totalChargedCents,
           billingDay: diaVencimento,
           nextDueDate,
@@ -245,10 +258,13 @@ export async function startCheckoutAction(
         provider: 'asaas',
         providerPaymentId: cobranca.id,
         status: 'pending',
-        method: 'pix',
+        method: cartao ? 'credit_card' : 'pix',
         amountCents: booking.totalChargedCents,
         dueDate: nextDueDate,
         invoiceUrl: cobranca.invoiceUrl,
+        pixPayload: qr?.payload ?? null,
+        pixQrImage: qr?.encodedImage ?? null,
+        payerStartedAt: new Date(),
       });
 
       await tx.update(bookings).set({ status: 'awaiting_payment', updatedAt: new Date() }).where(eq(bookings.id, booking.id));
@@ -270,7 +286,7 @@ export async function startCheckoutAction(
         action: 'checkout.started',
         entityType: 'booking',
         entityId: booking.id,
-        metadata: { providerSubscriptionId: assinatura.id, providerPaymentId: cobranca.id },
+        metadata: { providerSubscriptionId: assinatura.id, providerPaymentId: cobranca.id, method },
       });
 
       if (!cobranca.invoiceUrl) throw new Error('Cobrança criada sem invoiceUrl.');
@@ -285,5 +301,7 @@ export async function startCheckoutAction(
 
   revalidatePath('/reservas');
   revalidatePath('/meus-espacos/financeiro');
+  // Pix com QR: paga no app. Cartão (ou Pix sem QR): a fatura do Asaas.
+  if (!cartao && qr) redirect(`/reservas/${booking.id}/pagar`);
   redirect(faturaUrl);
 }

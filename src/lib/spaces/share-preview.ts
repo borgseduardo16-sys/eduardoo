@@ -1,4 +1,4 @@
-import { formatBRL } from '@/lib/money';
+import { priceHeadline, type PriceSummary } from '@/lib/rentals/pricing';
 import { spaceTypeLabel, type SpaceTypeKey } from './types';
 
 /**
@@ -7,17 +7,17 @@ import { spaceTypeLabel, type SpaceTypeKey } from './types';
  * descrição. Recebe só campos públicos — rua, número e complemento nem
  * fazem parte do tipo, então não têm como entrar aqui.
  */
-export function sharePreviewDescription(space: {
+export function sharePreviewDescription(space: PriceSummary & {
   type: string;
-  priceMonthlyCents: number;
   district: string | null;
   city: string | null;
   description: string | null;
 }): string | undefined {
   const local = [space.district, space.city].filter(Boolean).join(', ');
+  const preco = priceHeadline(space);
   const resumo = [
     spaceTypeLabel(space.type as SpaceTypeKey),
-    `${formatBRL(space.priceMonthlyCents)}/mês`,
+    preco ? `${preco.amount}${preco.suffix}` : null,
     local || null,
   ].filter(Boolean).join(' · ');
   const inicio = space.description?.slice(0, 140)?.trim();

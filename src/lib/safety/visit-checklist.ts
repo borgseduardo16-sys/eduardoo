@@ -11,7 +11,8 @@
 
 export type SpaceTypeKey =
   | 'garagem' | 'vaga_carro' | 'vaga_moto' | 'deposito' | 'quarto'
-  | 'galpao' | 'sala' | 'escritorio' | 'loja' | 'terreno' | 'outro';
+  | 'galpao' | 'sala' | 'escritorio' | 'loja' | 'terreno' | 'outro'
+  | 'estacionamento' | 'espaco_eventos' | 'area_lazer' | 'oficina';
 
 export type ChecklistItem = {
   key: string;
@@ -82,29 +83,29 @@ const GROUPS: ChecklistGroup[] = [
         key: 'umidade',
         label: 'Procure umidade, infiltração e goteira',
         hint: 'Olhe o teto, os cantos do chão e o cheiro do ambiente. Mancha escura no rodapé é sinal de infiltração.',
-        appliesTo: ['garagem', 'deposito', 'quarto', 'galpao', 'sala', 'escritorio', 'loja'],
+        appliesTo: ['garagem', 'deposito', 'quarto', 'galpao', 'sala', 'escritorio', 'loja', 'oficina', 'espaco_eventos'],
       },
       {
         key: 'piso',
         label: 'Veja a condição do piso',
-        appliesTo: ['garagem', 'deposito', 'galpao', 'terreno'],
+        appliesTo: ['garagem', 'deposito', 'galpao', 'terreno', 'estacionamento', 'oficina'],
       },
       {
         key: 'drenagem',
         label: 'Verifique se alaga quando chove',
         hint: 'Pergunte diretamente e procure marca d\'água nas paredes.',
-        appliesTo: ['garagem', 'deposito', 'galpao', 'terreno', 'loja'],
+        appliesTo: ['garagem', 'deposito', 'galpao', 'terreno', 'loja', 'estacionamento', 'area_lazer'],
       },
       {
         key: 'manobra',
         label: 'Teste se seu veículo entra e manobra',
         hint: 'Se possível, entre com o veículo durante a visita. Largura de portão engana no olho.',
-        appliesTo: ['garagem', 'vaga_carro', 'vaga_moto', 'galpao', 'terreno'],
+        appliesTo: ['garagem', 'vaga_carro', 'vaga_moto', 'galpao', 'terreno', 'estacionamento', 'oficina'],
       },
       {
         key: 'pe_direito',
         label: 'Confira a altura do pé-direito e da entrada',
-        appliesTo: ['galpao', 'deposito', 'garagem', 'loja'],
+        appliesTo: ['galpao', 'deposito', 'garagem', 'loja', 'oficina'],
       },
     ],
   },

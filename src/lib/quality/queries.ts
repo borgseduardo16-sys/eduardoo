@@ -56,11 +56,13 @@ export async function fetchLocationComparables(
         eq(spaces.city, city),
         ne(spaces.id, excludeSpaceId),
         sql`${spaces.sizeM2} IS NOT NULL AND ${spaces.sizeM2} > 0`,
+        // Parte 12: só quem tem preço mensal entra na comparação de preço.
+        sql`${spaces.priceMonthlyCents} IS NOT NULL`,
       ),
     )
     .limit(200);
 
-  return rows.map((r) => ({ priceMonthlyCents: r.priceMonthlyCents, sizeM2: Number(r.sizeM2) }));
+  return rows.map((r) => ({ priceMonthlyCents: r.priceMonthlyCents ?? 0, sizeM2: Number(r.sizeM2) }));
 }
 
 /**

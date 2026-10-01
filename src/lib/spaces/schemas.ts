@@ -9,8 +9,8 @@ import { SPACE_TYPES, UFS, requiresMeasurement, type SpaceTypeKey } from './type
  * no caso de preco e completude, o proprio banco.
  *
  * Cada etapa valida SO o que ela pede. Assim da para salvar rascunho a
- * qualquer momento sem exigir campo de etapa futura. A validacao do conjunto
- * completo acontece uma vez so, na publicacao (`publishSchema`).
+ * qualquer momento sem exigir campo de etapa futura. A conferencia do
+ * conjunto completo acontece uma vez so, na publicacao (`publishSpaceAction`).
  */
 
 // ---------------------------------------------------------------------------
@@ -148,33 +148,11 @@ export const contentStepSchema = z.object({
 // Etapa 6 — Preco e disponibilidade
 // ---------------------------------------------------------------------------
 
-/**
- * Preco em CENTAVOS, inteiro. O formulario envia o texto digitado e o servidor
- * converte com `parseBRLToCents` — o navegador nunca decide o valor.
- * O minimo real vem de `platform_settings`, consultado no servidor.
+/*
+ * Etapa 6 — "Como alugar" (Parte 12): grupos de unidades, modos e preços.
+ * A validação mora em `src/lib/rentals/config.ts` (`parseRentalConfig`),
+ * porque não é um formulário plano: cada grupo tem as próprias regras.
  */
-export const priceStepSchema = z.object({
-  priceMonthlyCents: z
-    .number()
-    .int('O preço precisa ser um valor em centavos.')
-    .positive('Informe o valor do aluguel.')
-    .max(100_000_000, 'Valor acima do limite.'),
-  availableFrom: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida.')
-    .refine((v) => {
-      const d = new Date(`${v}T12:00:00`);
-      return !Number.isNaN(d.getTime());
-    }, 'Data inválida.')
-    .refine((v) => {
-      // Ontem ainda passa, para cobrir fuso horario. Semana passada, nao.
-      const d = new Date(`${v}T12:00:00`);
-      const ontem = new Date();
-      ontem.setDate(ontem.getDate() - 1);
-      ontem.setHours(0, 0, 0, 0);
-      return d >= ontem;
-    }, 'A data precisa ser hoje ou no futuro.'),
-});
 
 // ---------------------------------------------------------------------------
 // Etapa 7 — Regras
@@ -189,26 +167,6 @@ export const rulesStepSchema = z.object({
   depositEnabled: z.boolean().default(false),
 });
 
-// ---------------------------------------------------------------------------
-// Publicacao — revalida TUDO
-// ---------------------------------------------------------------------------
-
-/**
- * O conjunto completo, conferido de novo no momento de publicar.
- *
- * Nao confiamos em "as etapas ja validaram": entre salvar a etapa 2 e publicar,
- * o rascunho pode ter sido editado por outra aba, por um request forjado, ou
- * simplesmente ter ficado meses parado enquanto as regras mudavam.
- */
-export const publishSchema = typeStepSchema
-  .extend(locationStepSchema.shape)
-  .extend(contentStepSchema.shape)
-  .extend(priceStepSchema.shape)
-  .extend(featuresStepSchema.shape)
-  .extend(rulesStepSchema.shape);
-
-export type PublishInput = z.infer<typeof publishSchema>;
-
 /** Etapas do formulario, na ordem. */
 export const STEPS = [
   { n: 1, key: 'tipo', label: 'Tipo' },
@@ -216,7 +174,7 @@ export const STEPS = [
   { n: 3, key: 'caracteristicas', label: 'Características' },
   { n: 4, key: 'fotos', label: 'Fotos' },
   { n: 5, key: 'descricao', label: 'Descrição' },
-  { n: 6, key: 'preco', label: 'Preço' },
+  { n: 6, key: 'preco', label: 'Como alugar' },
   { n: 7, key: 'regras', label: 'Regras' },
   { n: 8, key: 'revisao', label: 'Revisão' },
 ] as const;

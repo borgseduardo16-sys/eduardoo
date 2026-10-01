@@ -11,15 +11,19 @@ import type { SpaceTypeKey } from './types';
 
 /** Tipos que servem para a mesma necessidade. O próprio tipo vale mais. */
 export const RELATED_TYPES: Record<SpaceTypeKey, readonly SpaceTypeKey[]> = {
-  vaga_carro: ['garagem'],
-  vaga_moto: ['vaga_carro', 'garagem'],
-  garagem: ['vaga_carro'],
+  vaga_carro: ['garagem', 'estacionamento'],
+  vaga_moto: ['vaga_carro', 'garagem', 'estacionamento'],
+  estacionamento: ['vaga_carro', 'garagem'],
+  garagem: ['vaga_carro', 'estacionamento'],
   deposito: ['galpao', 'quarto', 'garagem'],
   galpao: ['deposito', 'terreno'],
   sala: ['escritorio', 'loja'],
   escritorio: ['sala'],
   loja: ['sala'],
+  oficina: ['galpao', 'garagem'],
   terreno: ['galpao'],
+  espaco_eventos: ['area_lazer'],
+  area_lazer: ['espaco_eventos', 'terreno'],
   quarto: ['deposito'],
   outro: [],
 };
@@ -34,7 +38,8 @@ export const SIMILAR_LIMITS = {
 
 export type SimilarBase = {
   type: string;
-  priceMonthlyCents: number;
+  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
+  priceMonthlyCents: number | null;
   featureKeys: readonly string[];
   city: string | null;
   district: string | null;
@@ -81,10 +86,13 @@ export function similarityScore(base: SimilarBase, c: SimilarCandidate): { score
     reasons.push('Na mesma cidade');
   }
 
-  const diferenca = (c.priceMonthlyCents - base.priceMonthlyCents) / base.priceMonthlyCents;
-  score += 20 * Math.max(0, 1 - Math.abs(diferenca) / 0.5);
-  if (Math.abs(diferenca) <= 0.15) reasons.push('Preço parecido');
-  else if (diferenca < 0) reasons.push('Mais em conta');
+  // Preço só compara mensal com mensal; anúncio só por hora não entra nessa conta.
+  if (base.priceMonthlyCents != null && c.priceMonthlyCents != null) {
+    const diferenca = (c.priceMonthlyCents - base.priceMonthlyCents) / base.priceMonthlyCents;
+    score += 20 * Math.max(0, 1 - Math.abs(diferenca) / 0.5);
+    if (Math.abs(diferenca) <= 0.15) reasons.push('Preço parecido');
+    else if (diferenca < 0) reasons.push('Mais em conta');
+  }
 
   if (base.featureKeys.length > 0) {
     const comuns = c.featureKeys.filter((k) => base.featureKeys.includes(k)).length;

@@ -15,9 +15,14 @@ import { getSpaceAvailability, earliestOpenEndedStart } from '@/lib/spaces/avail
 import { getUserWaitlistEntry } from '@/lib/waitlist/queries';
 import { getPublicPriceHistory } from '@/lib/spaces/price-history';
 import { formatBookingDate as formatarData } from '@/lib/bookings/format';
-import { formatBRL } from '@/lib/money';
-import { serverEnv } from '@/lib/env';
-import type { SpaceTypeKey } from '@/lib/spaces/types';
+import { serverEnv, isIntegrationConfigured } from '@/lib/env';
+import { unitNounFor, type SpaceTypeKey } from '@/lib/spaces/types';
+import { settingInt } from '@/lib/settings';
+import { getSpaceUnitGroups } from '@/lib/rentals/queries';
+import { operatingHoursLabel, temporaryDurationOptions } from '@/lib/rentals/pricing';
+import { addDaysToDate } from '@/lib/rentals/time';
+import { getOwnerPayoutAccount, getRenterBillingProfile } from '@/lib/payments/queries';
+import { RentalPanel } from '@/components/rentals/rental-panel';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SpacePreview } from '@/components/anunciar/space-preview';
@@ -43,7 +48,6 @@ import { similarTypes } from '@/lib/spaces/similar-rank';
 import { listUserFavoriteIds } from '@/lib/favorites/queries';
 import { todayInSaoPaulo } from '@/lib/dates';
 import { sharePreviewDescription } from '@/lib/spaces/share-preview';
-import { buttonVariants } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
 
@@ -127,6 +131,35 @@ export default async function EspacoPage({
         ),
     viewer && !isOwner ? listUserFavoriteIds(viewer.id) : Promise.resolve(new Set<string>()),
   ]);
+
+  // Parte 12: unidades, grupos e o que dá para alugar agora.
+  const [grupos, contaDoDono, cobrancaDoLocatario, minCharge, holdMinutes, maxAdvanceDays, renterFeeBps] = await Promise.all([
+    getSpaceUnitGroups(space.id),
+    getOwnerPayoutAccount(space.ownerId),
+    viewer && !isOwner ? getRenterBillingProfile(viewer.id) : Promise.resolve(null),
+    settingInt('booking.min_rent_cents', 3500),
+    settingInt('rental.hold_minutes', 15),
+    settingInt('rental.max_advance_days', 30),
+    settingInt('fees.renter_fee_bps', 300),
+  ]);
+  const nomeUnidade = unitNounFor(space.type);
+  const reservaveis = grupos
+    .filter((g) => g.rules.allowsTemporary)
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      hoursLabel: operatingHoursLabel(g.rules),
+      durations: temporaryDurationOptions(g.rules, minCharge),
+      availableNow: g.totalUnits - g.occupiedNow,
+      total: g.totalUnits,
+      renewalAllowed: g.rules.renewalAllowed,
+    }))
+    .filter((g) => g.durations.length > 0);
+  const bloqueioTemporario = !isIntegrationConfigured('payments')
+    ? 'A reserva por tempo ainda não está ativa: os pagamentos da plataforma não foram configurados.'
+    : !contaDoDono?.canReceive || !contaDoDono.providerWalletId
+      ? 'A reserva por tempo fica disponível assim que o proprietário configurar o recebimento.'
+      : null;
   const favorited = estadoFavorito != null;
   const hoje = todayInSaoPaulo();
   // Fase 23: alugado, pausado ou com reserva vigente — a página abre, mas não
@@ -135,7 +168,7 @@ export default async function EspacoPage({
   const motivoIndisponivel =
     space.status === 'paused'
       ? 'O proprietário pausou este anúncio por enquanto.'
-      : 'Este espaço está alugado. Como o aluguel é mensal e sem data para terminar, não há previsão de quando ele volta.';
+      : `Todas as ${unitNounFor(space.type).plural} estão alugadas por mês. Como o aluguel mensal não tem data para terminar, não há previsão de quando uma fica livre.`;
 
   // Uma chamada só para assinar fotos do anúncio, foto do proprietário e de quem avaliou.
   const urls = await signImagePaths(
@@ -214,6 +247,9 @@ export default async function EspacoPage({
             sizeM2: space.sizeM2,
             ceilingHeightM: space.ceilingHeightM,
             priceMonthlyCents: space.priceMonthlyCents,
+            tempFromCents: space.tempFromCents,
+            tempFromUnits: space.tempFromUnits,
+            tempFromUnit: space.tempFromUnit,
             availableFrom: space.availableFrom,
             accessHours: space.accessHours,
             allowedItems: space.allowedItems,
@@ -235,7 +271,7 @@ export default async function EspacoPage({
           tem uma solicitacao em aberto pra este espaco, mostra o status dela
           em vez de deixar mandar outra as cegas.
         */}
-        {!isOwner && (
+        {!isOwner && (existingBooking || !disponivel) && (
           <section className="rounded-[var(--radius-card)] border-2 p-5 sm:p-6 space-y-3">
             {existingBooking ? (
               <>
@@ -308,37 +344,32 @@ export default async function EspacoPage({
                   )}
                 </p>
               </div>
-            ) : (
-              <>
-                <p className="font-semibold text-[1.0625rem]">Tenho interesse neste espaço</p>
-                <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
-                  Envie uma solicitação de aluguel com o período que você precisa. O
-                  proprietário recebe, avalia e decide se aceita antes de qualquer cobrança.
-                </p>
-                {space.depositEnabled && (
-                  <p className="text-[0.8125rem] text-[var(--content-subtle)]">
-                    Este anúncio exige caução de {formatBRL(space.priceMonthlyCents)} (1 mês de
-                    aluguel), devolvida ao final sem dano.
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-2">
-                  <Link href={`/espacos/${space.slug}/solicitar`} className={buttonVariants({ size: 'lg' })}>
-                    Solicitar aluguel
-                  </Link>
-                  {viewer ? (
-                    <StartConversationButton spaceId={space.id} />
-                  ) : (
-                    <Link
-                      href={`/entrar?next=${encodeURIComponent(`/espacos/${space.slug}`)}`}
-                      className={buttonVariants({ variant: 'secondary', size: 'lg' })}
-                    >
-                      Entrar para conversar
-                    </Link>
-                  )}
-                </div>
-              </>
-            )}
+            ) : null}
           </section>
+        )}
+
+        {/* Parte 12: unidades, regras e reserva (por tempo ou mensal). */}
+        {(isOwner || disponivel) && grupos.length > 0 && (
+          <RentalPanel
+            slug={space.slug}
+            spaceId={space.id}
+            noun={nomeUnidade}
+            groups={grupos}
+            loggedIn={Boolean(viewer)}
+            ownerView={isOwner}
+            temporaryBookable={reservaveis}
+            temporaryBlockedReason={bloqueioTemporario}
+            monthlyOpen={disponivel && !(existingBooking && existingBooking.kind === 'continuous')}
+            depositNote={space.depositEnabled ? 'O aluguel mensal exige caução de 1 mês de aluguel, devolvida ao final sem dano.' : null}
+            temporaryFormProps={{
+              needsCpf: !cobrancaDoLocatario,
+              renterFeeBps,
+              today: hoje,
+              maxDate: addDaysToDate(hoje, maxAdvanceDays),
+              holdMinutes,
+              idempotencyKey: crypto.randomUUID(),
+            }}
+          />
         )}
 
         {/* Fase 23: ocupado → as alternativas vêm logo aqui, não no fim da página. */}
@@ -354,8 +385,8 @@ export default async function EspacoPage({
           />
         )}
 
-        {/* Fase 23: quando dá para começar, e as datas indisponíveis (sem motivo). */}
-        {disponivel && disponibilidade && (
+        {/* Fase 23: quando dá para começar, e as datas indisponíveis (sem motivo). Só para o mensal. */}
+        {disponivel && disponibilidade && space.priceMonthlyCents != null && (
           <PublicAvailability
             today={hoje}
             earliestStart={earliestOpenEndedStart({

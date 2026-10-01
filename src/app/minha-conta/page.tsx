@@ -196,7 +196,7 @@ export default async function MinhaContaPage({
               texto="E-mail e telefone confirmados viram selos no seu perfil."
             />
             <Atalho href="/meus-espacos" icon={House} titulo="Meus espaços" texto="Anúncios, solicitações e recebimentos." />
-            <Atalho href="/reservas" icon={CalendarCheck} titulo="Minhas reservas" texto="O que você pediu ou está alugando." />
+            <Atalho href="/reservas" icon={CalendarCheck} titulo="Meus aluguéis" texto="O que você pediu ou está alugando." />
             <Atalho href="/favoritos" icon={Heart} titulo="Favoritos" texto="Espaços que você salvou." />
             <Atalho href="/alertas" icon={BellRing} titulo="Alertas de busca" texto="Aviso quando aparece um espaço novo que você procura." />
             <Atalho

@@ -8,7 +8,9 @@ import { profiles } from '@/db/schema';
 import { requireUser } from '@/lib/auth/dal';
 import { listOwnerSpaces, countOwnerSpacesByStatus } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
-import { formatBRL } from '@/lib/money';
+import { PriceTag } from '@/components/rentals/price-tag';
+import { unitsSummaryBySpace } from '@/lib/rentals/queries';
+import { unitNounFor } from '@/lib/spaces/types';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { TOTAL_STEPS } from '@/lib/spaces/schemas';
 import { SiteHeader } from '@/components/layout/site-header';
@@ -54,9 +56,10 @@ export default async function MeusEspacosPage({
     db.select({ cpfCnpj: profiles.cpfCnpj }).from(profiles).where(eq(profiles.id, user.id)).limit(1),
   ]);
 
-  const [urls, promocoesPorEspaco] = await Promise.all([
+  const [urls, promocoesPorEspaco, unidadesPorEspaco] = await Promise.all([
     signImagePaths(spaces.map((s) => s.coverPath).filter(Boolean) as string[]),
     getActivePromotionsForSpaces(spaces.map((s) => s.id)),
+    unitsSummaryBySpace(spaces.filter((s) => s.status !== 'draft').map((s) => s.id)),
   ]);
   const total = Object.values(contagem).reduce((a, b) => a + b, 0);
 
@@ -138,6 +141,7 @@ export default async function MeusEspacosPage({
               const url = s.coverPath ? urls.get(s.coverPath) : null;
               const promocao = promocoesPorEspaco.get(s.id) ?? null;
 
+              const unidades = unidadesPorEspaco.get(s.id);
               return (
                 <li key={s.id} className="rounded-[var(--radius-card)] border overflow-hidden">
                   <div className="flex gap-4 p-3 sm:p-4">
@@ -174,12 +178,14 @@ export default async function MeusEspacosPage({
                             {s.photoCount > 0 && ` · ${s.photoCount} ${s.photoCount === 1 ? 'foto' : 'fotos'}`}
                           </span>
                         ) : (
-                          <span className="font-medium tabular-nums">
-                            {formatBRL(s.priceMonthlyCents)}
-                            <span className="font-normal text-[var(--content-muted)]"> /mês</span>
-                          </span>
+                          <PriceTag summary={s} />
                         )}
                       </p>
+                      {unidades && unidades.total > 1 && (
+                        <p className="text-[0.8125rem] text-[var(--content-muted)]" data-testid="resumo-unidades">
+                          {unitsLine(s.type, unidades)}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -199,4 +205,11 @@ export default async function MeusEspacosPage({
       <SiteFooter />
     </>
   );
+}
+
+/** "10 vagas · 7 disponíveis · 3 ocupadas" (Parte 12). */
+function unitsLine(type: string, u: { total: number; occupiedNow: number; availableNow: number }): string {
+  const nome = unitNounFor(type);
+  const ocupadas = nome.feminino ? (u.occupiedNow === 1 ? 'ocupada' : 'ocupadas') : (u.occupiedNow === 1 ? 'ocupado' : 'ocupados');
+  return `${u.total} ${u.total === 1 ? nome.singular : nome.plural} · ${u.availableNow} ${u.availableNow === 1 ? 'disponível' : 'disponíveis'} · ${u.occupiedNow} ${ocupadas}`;
 }

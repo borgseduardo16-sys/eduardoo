@@ -105,7 +105,8 @@ export async function requestQualityAssessmentAction(
       renovatedRecently,
       aiFindings,
       location: {
-        thisPricePerM2: sizeM2 && sizeM2 > 0 ? space.priceMonthlyCents / sizeM2 : null,
+        // Preço por m² compara aluguel MENSAL; anúncio só por hora fica sem esse critério.
+        thisPricePerM2: sizeM2 && sizeM2 > 0 && space.priceMonthlyCents != null ? space.priceMonthlyCents / sizeM2 : null,
         comparables,
       },
       structure: {

@@ -245,6 +245,7 @@ export type AsaasPayment = {
   netValue: number | null;
   invoiceUrl: string | null;
   dueDate: string;
+  billingType?: AsaasBillingType;
 };
 
 /** Busca uma cobranca pelo id do Asaas — usado para reconciliar apos webhook. */
@@ -277,8 +278,14 @@ export type CreatePaymentInput = {
   /** yyyy-mm-dd. */
   dueDate: string;
   description?: string;
-  /** Nosso id, para reconciliar em auditoria/suporte — sem split aqui. */
+  /** Nosso id, para reconciliar em auditoria/suporte. */
   externalReference: string;
+  /**
+   * Parte 12: aluguel temporario e cobranca avulsa COM split para o
+   * proprietario (o split vale tambem para `POST /payments`, documentado em
+   * "Split em cobranças avulsas"). Compra de Destaque/Turbo continua sem.
+   */
+  split?: AsaasSplitItem[];
 };
 
 /**
@@ -292,6 +299,50 @@ export async function createPayment(input: CreatePaymentInput): Promise<AsaasPay
     method: 'POST',
     body: JSON.stringify(input),
   });
+}
+
+/**
+ * Troca a forma de pagamento de uma cobranca que ainda nao foi paga
+ * (`PUT /v3/payments/{id}` com `billingType` — permitido enquanto a cobranca
+ * esta aguardando pagamento ou vencida; ver docs/ALUGUEL.md). E o que faz o
+ * "Pagar agora" NUNCA criar uma cobranca nova: a mesma cobranca passa de
+ * cartao para Pix (ou o contrario), e o historico continua um so.
+ */
+export async function updatePaymentBillingType(
+  providerPaymentId: string,
+  billingType: AsaasBillingType,
+): Promise<AsaasPayment> {
+  return asaasFetch<AsaasPayment>(`/payments/${encodeURIComponent(providerPaymentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ billingType }),
+  });
+}
+
+export type AsaasPixQrCode = {
+  /** PNG em base64 (sem o prefixo data:). */
+  encodedImage: string;
+  /** Pix copia e cola. */
+  payload: string;
+  /** Quando o QR deixa de valer (formato do Asaas, ex.: "2026-10-02 23:59:59"). */
+  expirationDate?: string | null;
+};
+
+/**
+ * QR Code e "copia e cola" do Pix de uma cobranca (`GET
+ * /v3/payments/{id}/pixQrCode`) — vale para cobrancas PIX, BOLETO ou
+ * UNDEFINED. Exige chave Pix cadastrada na conta Asaas (ver docs/SETUP.md).
+ */
+export async function getPixQrCode(providerPaymentId: string): Promise<AsaasPixQrCode> {
+  return asaasFetch<AsaasPixQrCode>(`/payments/${encodeURIComponent(providerPaymentId)}/pixQrCode`);
+}
+
+/**
+ * Exclui uma cobranca que nao deve mais ser paga (reserva temporaria que
+ * expirou sem pagamento). Cobranca ja paga nao e excluida — o Asaas recusa,
+ * e o caminho nesse caso e o estorno.
+ */
+export async function deletePayment(providerPaymentId: string): Promise<void> {
+  await asaasFetch<unknown>(`/payments/${encodeURIComponent(providerPaymentId)}`, { method: 'DELETE' });
 }
 
 /**

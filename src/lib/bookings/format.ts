@@ -9,7 +9,7 @@ export const BOOKING_STATUS_INFO: Record<BookingStatus, { label: string; tone: N
   expired: { label: 'Expirada', tone: 'neutral' },
   awaiting_payment: { label: 'Aguardando pagamento', tone: 'caution' },
   active: { label: 'Ativa', tone: 'positive' },
-  past_due: { label: 'Pagamento atrasado', tone: 'critical' },
+  past_due: { label: 'Pagamento pendente', tone: 'critical' },
   cancelled: { label: 'Cancelada', tone: 'neutral' },
   ended: { label: 'Encerrada', tone: 'neutral' },
 };

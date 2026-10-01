@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { ImageOff, MapPin, Star } from 'lucide-react';
-import { formatBRL } from '@/lib/money';
+import { PriceTag } from '@/components/rentals/price-tag';
 import { formatDistance } from '@/lib/spaces/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
@@ -117,8 +117,7 @@ export function ResultCard({
           )}
 
           <p className="pt-0.5">
-            <span className="font-semibold tabular-nums">{formatBRL(space.priceMonthlyCents)}</span>
-            <span className="text-[var(--content-muted)] text-[0.875rem]"> /mês</span>
+            <PriceTag summary={space} />
           </p>
           {note && <p className="text-[0.75rem] text-[var(--content-subtle)]">{note}</p>}
         </div>

@@ -4,8 +4,10 @@ import { getCurrentUser } from '@/lib/auth/dal';
 import { signOutAction } from '@/lib/auth/actions';
 import { countUnreadConversations } from '@/lib/messaging/queries';
 import { countUnreadNotifications } from '@/lib/notifications/queries';
+import { listRenterPaymentIssues } from '@/lib/rentals/queries';
 import { Logo } from '@/components/ui/logo';
 import { Button } from '@/components/ui/button';
+import { PendingPaymentOverlay } from '@/components/rentals/pending-payment-overlay';
 import { MobileBottomNav } from './mobile-bottom-nav';
 
 export async function SiteHeader({
@@ -15,9 +17,15 @@ export async function SiteHeader({
   showMobileNav?: boolean;
 } = {}) {
   const user = await getCurrentUser();
-  const [naoLidas, notificacoesNaoLidas] = user
-    ? await Promise.all([countUnreadConversations(user.id), countUnreadNotifications(user.id)])
-    : [0, 0];
+  const [naoLidas, notificacoesNaoLidas, pendencias] = user
+    ? await Promise.all([
+        countUnreadConversations(user.id),
+        countUnreadNotifications(user.id),
+        // Parte 12: aluguel com pagamento pendente — ponto em "Meus aluguéis" e aviso ao abrir o app.
+        listRenterPaymentIssues(user.id),
+      ])
+    : [0, 0, []];
+  const temPendencia = pendencias.length > 0;
 
   return (
     <>
@@ -44,9 +52,14 @@ export async function SiteHeader({
                 </Link>
                 <Link
                   href="/reservas"
-                  className="hidden sm:inline-flex items-center h-10 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
+                  aria-label={temPendencia ? 'Meus aluguéis, pagamento pendente' : undefined}
+                  className="relative hidden sm:inline-flex items-center h-10 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
                 >
-                  Minhas reservas
+                  Meus aluguéis
+                  {/* Só um ponto aqui; o "!" fica no aluguel que teve o problema. */}
+                  {temPendencia && (
+                    <span className="absolute top-2 right-1 size-2 rounded-full bg-[var(--color-critical)]" aria-hidden data-testid="ponto-aluguel-pendente" />
+                  )}
                 </Link>
                 <Link
                   href="/notificacoes"
@@ -116,7 +129,21 @@ export async function SiteHeader({
       </header>
 
       {user && user.role !== 'admin' && showMobileNav && (
-        <MobileBottomNav isOwner={user.role === 'owner'} />
+        <MobileBottomNav isOwner={user.role === 'owner'} rentalsAlert={temPendencia} />
+      )}
+
+      {/* Sempre montado com sessão: se a pessoa cancelar dentro do aviso, a confirmação não some. */}
+      {user && (
+        <PendingPaymentOverlay
+          serverNow={new Date().toISOString()}
+          issues={pendencias.map((p) => ({
+            bookingId: p.bookingId,
+            spaceTitle: p.spaceTitle,
+            unitLabel: p.unitLabel,
+            startedAt: p.startedAt.toISOString(),
+            deadlineAt: p.deadlineAt.toISOString(),
+          }))}
+        />
       )}
     </>
   );

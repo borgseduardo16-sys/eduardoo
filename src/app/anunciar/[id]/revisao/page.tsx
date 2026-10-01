@@ -59,10 +59,10 @@ export default async function RevisaoPage({ params }: { params: Promise<{ id: st
         </Alert>
       )}
 
-      {space.depositEnabled && (
-        <Alert tone="info" title="Este anúncio vai exigir caução" className="mb-6">
-          {formatBRL(space.priceMonthlyCents)} (1 mês de aluguel), cobrados junto do primeiro
-          pagamento e devolvidos ao locatário se não houver dano. Definido na etapa “Regras”.
+      {space.depositEnabled && space.priceMonthlyCents != null && (
+        <Alert tone="info" title="O aluguel mensal vai exigir caução" className="mb-6">
+          1 mês de aluguel da unidade (a partir de {formatBRL(space.priceMonthlyCents)}), cobrado junto do primeiro
+          pagamento e devolvido ao locatário se não houver dano. Definido na etapa “Regras”.
         </Alert>
       )}
 
@@ -78,6 +78,9 @@ export default async function RevisaoPage({ params }: { params: Promise<{ id: st
             sizeM2: space.sizeM2,
             ceilingHeightM: space.ceilingHeightM,
             priceMonthlyCents: space.priceMonthlyCents,
+            tempFromCents: space.tempFromCents,
+            tempFromUnits: space.tempFromUnits,
+            tempFromUnit: space.tempFromUnit,
             availableFrom: space.availableFrom,
             accessHours: space.accessHours,
             allowedItems: space.allowedItems,

@@ -1,5 +1,5 @@
 import { CalendarCheck, Clock, MapPin, Ruler, ShieldCheck } from 'lucide-react';
-import { formatBRL } from '@/lib/money';
+import { priceHeadline } from '@/lib/rentals/pricing';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { Icon } from '@/components/safety/icon';
 import { PhotoGallery } from './photo-gallery';
@@ -23,6 +23,9 @@ export type PreviewData = {
   sizeM2: string | null;
   ceilingHeightM: string | null;
   priceMonthlyCents: number | null;
+  tempFromCents?: number | null;
+  tempFromUnits?: number | null;
+  tempFromUnit?: 'hour' | 'day' | 'week' | null;
   availableFrom: string | null;
   accessHours: string | null;
   allowedItems: string | null;
@@ -52,6 +55,12 @@ export function SpacePreview({
   /** Texto de quando não há foto nenhuma. Diferente para dono e visitante. */
   emptyPhotosText?: string;
 }) {
+  const preco = priceHeadline({
+    priceMonthlyCents: data.priceMonthlyCents,
+    tempFromCents: data.tempFromCents ?? null,
+    tempFromUnits: data.tempFromUnits ?? null,
+    tempFromUnit: data.tempFromUnit ?? null,
+  });
   const disponivel = formatDate(data.availableFrom);
 
   return (
@@ -77,13 +86,16 @@ export function SpacePreview({
       </header>
 
       {/* Preço */}
-      <div className="flex items-baseline gap-2 pb-5 border-b">
-        <span className="text-[1.75rem] font-semibold tabular-nums">
-          {data.priceMonthlyCents && data.priceMonthlyCents > 1
-            ? formatBRL(data.priceMonthlyCents)
-            : '—'}
-        </span>
-        <span className="text-[var(--content-muted)]">por mês</span>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 pb-5 border-b">
+        {preco ? (
+          <>
+            <span className="text-[1.75rem] font-semibold tabular-nums">{preco.amount}</span>
+            <span className="text-[var(--content-muted)]">{preco.suffix.trim()}</span>
+            {preco.secondary && <span className="text-[0.875rem] text-[var(--content-subtle)]">· {preco.secondary}</span>}
+          </>
+        ) : (
+          <span className="text-[1.125rem] text-[var(--content-muted)]">Defina como alugar na etapa anterior</span>
+        )}
       </div>
 
       {/* Dados rápidos */}

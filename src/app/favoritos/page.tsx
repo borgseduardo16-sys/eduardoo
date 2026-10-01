@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth/dal';
 import { listUserFavoriteSpaces, type FavoriteSpace } from '@/lib/favorites/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
+import { PriceTag, priceText } from '@/components/rentals/price-tag';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { PromotionBadge } from '@/components/promotions/promotion-badge';
 import { SiteHeader } from '@/components/layout/site-header';
@@ -128,8 +129,9 @@ export default async function FavoritosPage() {
 
 function FavoriteCard({ favorito: f, coverUrl }: { favorito: FavoriteSpace; coverUrl: string | null }) {
   const indisponivel = f.status !== 'published';
-  const precoMudou = f.priceCentsAtFavorite != null && f.priceCentsAtFavorite !== f.priceMonthlyCents;
-  const subiu = precoMudou && f.priceMonthlyCents > (f.priceCentsAtFavorite ?? 0);
+  // Comparação de preço é sempre entre dois preços MENSAIS (Parte 12).
+  const precoMudou = f.priceCentsAtFavorite != null && f.priceMonthlyCents != null && f.priceCentsAtFavorite !== f.priceMonthlyCents;
+  const subiu = precoMudou && (f.priceMonthlyCents ?? 0) > (f.priceCentsAtFavorite ?? 0);
 
   return (
     <li>
@@ -177,8 +179,7 @@ function FavoriteCard({ favorito: f, coverUrl }: { favorito: FavoriteSpace; cove
             <span className="truncate">{[f.district, f.city].filter(Boolean).join(', ')}</span>
           </p>
           <p className="pt-0.5">
-            <span className="font-semibold tabular-nums">{formatBRL(f.priceMonthlyCents)}</span>
-            <span className="text-[var(--content-muted)] text-[0.875rem]"> /mês</span>
+            <PriceTag summary={f} />
           </p>
           {precoMudou && (
             <p
@@ -215,7 +216,7 @@ function WaitlistRow({ item: e, coverUrl }: { item: UserWaitlistItem; coverUrl: 
           {e.title}
         </Link>
         <p className="text-[0.8125rem] text-[var(--content-muted)] truncate">
-          {[e.district, e.city].filter(Boolean).join(', ')} · {formatBRL(e.priceMonthlyCents)}/mês
+          {[e.district, e.city].filter(Boolean).join(', ')} · {priceText(e)}
         </p>
         <p className="text-[0.8125rem]">
           {e.status === 'notified' ? (

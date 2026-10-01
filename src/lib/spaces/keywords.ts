@@ -11,15 +11,19 @@ import { SPACE_TYPES, type SpaceTypeKey } from './types';
  * ela sempre devolve um `SpaceTypeKey | null`.
  */
 const SINONIMOS: Record<SpaceTypeKey, readonly string[]> = {
-  vaga_carro: ['vaga', 'vaga de carro', 'estacionamento', 'carro', 'auto'],
+  vaga_carro: ['vaga', 'vaga de carro', 'carro', 'auto'],
   vaga_moto: ['vaga de moto', 'moto', 'motocicleta', 'motoca'],
+  estacionamento: ['estacionamento', 'estacionar'],
   garagem: ['garagem'],
   deposito: ['deposito', 'armazenamento', 'guardar', 'self storage', 'guarda-moveis', 'guarda moveis'],
   galpao: ['galpao', 'galpão'],
   sala: ['sala', 'sala comercial'],
   escritorio: ['escritorio', 'escritório', 'coworking'],
   loja: ['loja', 'ponto comercial'],
+  oficina: ['oficina', 'mecanica', 'funilaria'],
   terreno: ['terreno', 'lote'],
+  espaco_eventos: ['espaco para eventos', 'salao de festas', 'festa', 'evento'],
+  area_lazer: ['area de lazer', 'piscina', 'churrasqueira', 'chacara'],
   quarto: ['quarto', 'comodo', 'cômodo'],
   outro: [],
 };

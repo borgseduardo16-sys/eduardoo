@@ -292,7 +292,8 @@ async function main() {
 
     const ordenadoPreco = await listPublishedSpaces({ city: 'Colatina', sort: 'price_asc', limit: 20 });
     const precos = ordenadoPreco.map((r) => r.priceMonthlyCents);
-    assert('ordenar por menor preco vem crescente', precos.every((p, i) => i === 0 || p >= precos[i - 1]!), JSON.stringify(precos));
+    // Parte 12: anúncio só por tempo não tem preço mensal (null) e vai para o fim.
+    assert('ordenar por menor preco vem crescente', precos.every((p, i) => i === 0 || p == null || (precos[i - 1] != null && p >= precos[i - 1]!)), JSON.stringify(precos));
   }
 
   // ===========================================================================

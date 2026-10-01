@@ -53,7 +53,10 @@ export type UserWaitlistItem = {
   spaceStatus: string;
   district: string | null;
   city: string | null;
-  priceMonthlyCents: number;
+  priceMonthlyCents: number | null;
+  tempFromCents: number | null;
+  tempFromUnits: number | null;
+  tempFromUnit: 'hour' | 'day' | 'week' | null;
   coverPath: string | null;
 };
 
@@ -75,6 +78,9 @@ export async function listUserWaitlist(userId: string): Promise<UserWaitlistItem
       district: spaces.district,
       city: spaces.city,
       priceMonthlyCents: spaces.priceMonthlyCents,
+      tempFromCents: spaces.tempFromCents,
+      tempFromUnits: spaces.tempFromUnits,
+      tempFromUnit: spaces.tempFromUnit,
       // `spaces.id` literal de proposito — ver a nota em spaces/queries.ts.
       coverPath: sql<string | null>`(
         SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si

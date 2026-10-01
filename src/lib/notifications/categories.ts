@@ -67,7 +67,10 @@ const TIPO_PARA_CATEGORIA: Record<string, NotificationCategory> = {
   payment_confirmed: 'pagamentos',
   payment_upcoming: 'pagamentos',
   payment_failed: 'pagamentos',
+  payment_refunded: 'pagamentos',
   payout_settled: 'pagamentos',
+  // Parte 12: "Seu aluguel termina em 10 minutos." — reservas (essencial).
+  rental_ending_soon: 'reservas',
   new_message: 'mensagens',
   review_received: 'avaliacoes',
   review_available: 'avaliacoes',

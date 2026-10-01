@@ -51,6 +51,9 @@ const publicColumns = {
   sizeM2: spaces.sizeM2,
   ceilingHeightM: spaces.ceilingHeightM,
   priceMonthlyCents: spaces.priceMonthlyCents,
+  tempFromCents: spaces.tempFromCents,
+  tempFromUnits: spaces.tempFromUnits,
+  tempFromUnit: spaces.tempFromUnit,
   rulesText: spaces.rulesText,
   allowedItems: spaces.allowedItems,
   forbiddenItems: spaces.forbiddenItems,
@@ -74,7 +77,11 @@ export type PublicSpace = {
   district: string | null;
   city: string | null;
   state: string | null;
-  priceMonthlyCents: number;
+  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
+  priceMonthlyCents: number | null;
+  tempFromCents: number | null;
+  tempFromUnits: number | null;
+  tempFromUnit: 'hour' | 'day' | 'week' | null;
   approxLat: number | null;
   approxLng: number | null;
   coverPath: string | null;
@@ -320,8 +327,10 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
         featureKeys: options?.featureKeys,
       })), desc(spaces.publishedAt)]
     : sort === 'distance' ? [asc(distanceExpr), desc(tierExpr)]
-    : sort === 'price_asc' ? [asc(spaces.priceMonthlyCents), desc(tierExpr)]
-    : sort === 'price_desc' ? [desc(spaces.priceMonthlyCents), desc(tierExpr)]
+    // Ordenar por preço é pelo MENSAL; anúncio só por hora vai para o fim
+    // nos dois sentidos (não tem preço mensal para comparar).
+    : sort === 'price_asc' ? [sql`${spaces.priceMonthlyCents} ASC NULLS LAST`, desc(tierExpr)]
+    : sort === 'price_desc' ? [sql`${spaces.priceMonthlyCents} DESC NULLS LAST`, desc(tierExpr)]
     : [desc(tierExpr), desc(spaces.publishedAt)];
 
   const rows = await db
@@ -334,6 +343,9 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
       city: spaces.city,
       state: spaces.state,
       priceMonthlyCents: spaces.priceMonthlyCents,
+      tempFromCents: spaces.tempFromCents,
+      tempFromUnits: spaces.tempFromUnits,
+      tempFromUnit: spaces.tempFromUnit,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
       distanceMeters: distanceExpr,
@@ -502,6 +514,9 @@ export async function getOwnedSpace(spaceId: string, userId: string) {
       sizeM2: spaces.sizeM2,
       ceilingHeightM: spaces.ceilingHeightM,
       priceMonthlyCents: spaces.priceMonthlyCents,
+      tempFromCents: spaces.tempFromCents,
+      tempFromUnits: spaces.tempFromUnits,
+      tempFromUnit: spaces.tempFromUnit,
       availableFrom: spaces.availableFrom,
       rulesText: spaces.rulesText,
       allowedItems: spaces.allowedItems,
@@ -561,6 +576,9 @@ export async function listOwnerSpaces(userId: string, status?: string[]) {
       city: spaces.city,
       district: spaces.district,
       priceMonthlyCents: spaces.priceMonthlyCents,
+      tempFromCents: spaces.tempFromCents,
+      tempFromUnits: spaces.tempFromUnits,
+      tempFromUnit: spaces.tempFromUnit,
       draftStep: spaces.draftStep,
       publishedAt: spaces.publishedAt,
       updatedAt: spaces.updatedAt,

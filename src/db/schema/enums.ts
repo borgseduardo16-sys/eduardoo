@@ -25,6 +25,11 @@ export const spaceType = pgEnum('space_type', [
   'loja',
   'terreno',
   'outro',
+  // --- Parte 12: categorias que faltavam ---
+  'estacionamento',
+  'espaco_eventos',
+  'area_lazer',
+  'oficina',
 ]);
 
 /**
@@ -249,6 +254,11 @@ export const notificationType = pgEnum('notification_type', [
   'saved_search_match',
   /** Relatório mensal de desempenho dos anúncios do proprietário está pronto. */
   'monthly_report',
+  // --- Parte 12: aluguel temporário e pagamentos ---
+  /** Aluguel temporário termina em 10 minutos (lembrete; a contagem principal é no app). */
+  'rental_ending_soon',
+  /** Pagamento recebido depois do prazo e devolvido automaticamente. */
+  'payment_refunded',
 ]);
 
 /**
@@ -416,4 +426,40 @@ export const spaceQualityClassification = pgEnum('space_quality_classification',
 export const spacePriceMarketWarning = pgEnum('space_price_market_warning', [
   'acima_da_media',
   'abaixo_da_media',
+]);
+
+// ---------------------------------------------------------------------------
+// Parte 12 — unidades, aluguel temporário e contínuo
+// ---------------------------------------------------------------------------
+
+/**
+ * Forma do aluguel. `continuous` = mensal, renovação automática, sem data
+ * para terminar (o modelo que existia antes). `temporary` = horas, dias ou
+ * semanas, com início e fim exatos.
+ */
+export const rentalKind = pgEnum('rental_kind', ['continuous', 'temporary']);
+
+/** Unidade de tempo do aluguel temporário. */
+export const rentalTimeUnit = pgEnum('rental_time_unit', ['hour', 'day', 'week']);
+
+/**
+ * Como o grupo cobra o aluguel temporário:
+ * - `per_period`: preço por hora/dia/semana até a duração máxima;
+ * - `packages`: pacotes fechados ("até 1 hora", "até 5 horas"…).
+ */
+export const temporaryPricingMode = pgEnum('temporary_pricing_mode', ['per_period', 'packages']);
+
+/** Funcionamento: 24 horas, ou uma janela diária (ex.: 07:00 às 21:00). */
+export const operatingHoursMode = pgEnum('operating_hours_mode', ['always', 'daily']);
+
+/** Por que um aluguel terminou — fica gravado na reserva, para o histórico. */
+export const bookingEndReason = pgEnum('booking_end_reason', [
+  /** Chegou ao fim (temporário) sem renovação. */
+  'completed',
+  'cancelled_by_renter',
+  'cancelled_by_owner',
+  /** O prazo de pagamento pendente (40 min + 1 h) terminou sem pagamento. */
+  'payment_not_received',
+  /** A reserva temporária não foi paga no prazo de pagamento. */
+  'hold_expired',
 ]);

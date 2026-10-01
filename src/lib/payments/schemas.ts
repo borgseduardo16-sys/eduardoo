@@ -41,4 +41,10 @@ export const payoutAccountSchema = z.object({
 export const checkoutSchema = z.object({
   bookingId: z.string().uuid(),
   cpfCnpj: cpfCnpjSchema('CPF/CNPJ'),
+  /**
+   * Parte 12: como pagar as mensalidades. Cartão = cobrança automática todo
+   * mês (o cartão é informado na fatura do Asaas); Pix = cobrança mensal
+   * paga pelo app.
+   */
+  method: z.enum(['card', 'pix'], { error: 'Escolha como pagar.' }),
 });

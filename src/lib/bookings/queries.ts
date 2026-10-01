@@ -5,6 +5,7 @@ import { db } from '@/db/client';
 import { bookings, spaces, profiles, bookingStatus, payments } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
 import { settingInt } from '@/lib/settings';
+import { sweepExpiredRentals } from '@/lib/rentals/maintenance';
 
 export type BookingStatus = (typeof bookingStatus.enumValues)[number];
 
@@ -104,7 +105,12 @@ export async function findPendingRequestBySameRenter(spaceId: string, renterId: 
  */
 export async function getViewerActiveBookingForSpace(spaceId: string, viewerId: string) {
   const [row] = await db
-    .select({ id: bookings.id, status: sql<string>`${bookings.status}::text`, reference: bookings.reference })
+    .select({
+      id: bookings.id,
+      status: sql<string>`${bookings.status}::text`,
+      reference: bookings.reference,
+      kind: sql<'continuous' | 'temporary'>`${bookings.kind}::text`,
+    })
     .from(bookings)
     .where(
       and(
@@ -161,6 +167,35 @@ const listSelection = {
   spaceDistrict: spaces.district,
   spaceCity: spaces.city,
   spaceCoverPath: coverPathExpr,
+  // ---- Parte 12: forma do aluguel, unidade, horários e prazos ----
+  kind: sql<'continuous' | 'temporary'>`${bookings.kind}::text`,
+  groupId: bookings.groupId,
+  groupName: sql<string | null>`(SELECT g.name FROM space_unit_groups g WHERE g.id = bookings.group_id)`,
+  unitLabel: sql<string | null>`(SELECT u.label FROM space_units u WHERE u.id = bookings.unit_id)`,
+  /** Quantos grupos ativos o anúncio tem — o nome do grupo só aparece quando há mais de um. */
+  spaceGroupCount: sql<number>`(SELECT count(*)::int FROM space_unit_groups g WHERE g.space_id = bookings.space_id AND g.active)`,
+  startsAt: bookings.startsAt,
+  endsAt: bookings.endsAt,
+  occupiedUntil: bookings.occupiedUntil,
+  durationUnits: bookings.durationUnits,
+  durationUnit: sql<'hour' | 'day' | 'week' | null>`${bookings.durationUnit}::text`,
+  renewalAllowed: bookings.renewalAllowed,
+  renewedFromId: bookings.renewedFromId,
+  /** Já existe uma renovação viva desta reserva (não oferece renovar de novo). */
+  renewalId: sql<string | null>`(
+    SELECT r.id FROM bookings r
+    WHERE r.renewed_from_id = bookings.id
+      AND r.status IN ('awaiting_payment', 'active')
+    ORDER BY r.created_at DESC LIMIT 1
+  )`,
+  holdExpiresAt: bookings.holdExpiresAt,
+  paymentIssueStartedAt: bookings.paymentIssueStartedAt,
+  paymentIssueDeadlineAt: bookings.paymentIssueDeadlineAt,
+  endReason: sql<string | null>`${bookings.endReason}::text`,
+  subscriptionMethod: sql<string | null>`(
+    SELECT method::text FROM subscriptions s
+    WHERE s.booking_id = bookings.id ORDER BY s.created_at DESC LIMIT 1
+  )`,
 };
 
 const latestSubscriptionExpr = sql<string | null>`(
@@ -197,6 +232,9 @@ const lastPaymentAmountExpr = sql<number | null>`(
  */
 export async function listRenterBookings(renterId: string) {
   await expireStaleBookingRequests();
+  // Parte 12: prazo vencido (reserva não paga, horário que acabou, pagamento
+  // pendente sem pagamento) é encerrado pelo relógio do banco antes de listar.
+  await sweepExpiredRentals();
   return db
     .select({
       ...listSelection,
@@ -218,7 +256,7 @@ export async function listRenterBookings(renterId: string) {
 /** Uma reserva do locatario, com checagem de posse embutida na propria consulta. */
 export async function getRenterBooking(id: string, renterId: string) {
   const [row] = await db
-    .select(listSelection)
+    .select({ ...listSelection, nextDueDate: nextDueDateExpr })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
     .where(and(eq(bookings.id, id), eq(bookings.renterId, renterId)))

@@ -7,6 +7,17 @@ import { Field } from '@/components/ui/field';
 import { Input, Textarea } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
 import { SubmitButton } from '@/components/auth/form-shell';
+import { cn } from '@/lib/utils';
+
+/** Grupo de aluguel mensal do anúncio (Parte 12), como o servidor calculou. */
+export type MonthlyGroupOption = {
+  id: string;
+  name: string;
+  monthlyRentCents: number;
+  /** Unidades sem nenhuma reserva daqui em diante. */
+  freeForMonthly: number;
+  total: number;
+};
 
 /**
  * Formulario de solicitacao de aluguel.
@@ -29,14 +40,19 @@ import { SubmitButton } from '@/components/auth/form-shell';
 export function RequestBookingForm({
   spaceId,
   spaceTitle,
-  monthlyRentCents,
+  groups,
+  initialGroupId,
+  unitPlural,
   renterFeeBps,
   ownerFeeBps,
   minStartDate,
 }: {
   spaceId: string;
   spaceTitle: string;
-  monthlyRentCents: number;
+  /** Grupos que aceitam aluguel mensal (Parte 12). Um só = escolha invisível. */
+  groups: MonthlyGroupOption[];
+  initialGroupId: string;
+  unitPlural: string;
   renterFeeBps: number;
   ownerFeeBps: number;
   /** ISO yyyy-mm-dd — hoje, calculado no servidor (nao confia no relogio do navegador). */
@@ -44,6 +60,9 @@ export function RequestBookingForm({
 }) {
   const id = useId();
   const [startDate, setStartDate] = useState(minStartDate);
+  const [groupId, setGroupId] = useState(initialGroupId);
+  const grupo = groups.find((g) => g.id === groupId) ?? groups[0]!;
+  const monthlyRentCents = grupo.monthlyRentCents;
   const [state, action] = useActionState<BookingActionState | undefined, FormData>(
     requestBookingAction,
     undefined,
@@ -59,8 +78,41 @@ export function RequestBookingForm({
   return (
     <form action={action} className="space-y-6">
       <input type="hidden" name="spaceId" value={spaceId} />
+      <input type="hidden" name="groupId" value={grupo.id} />
 
       {state?.message && !state.ok && <Alert tone="critical">{state.message}</Alert>}
+
+      {groups.length > 1 && (
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-medium mb-1">Qual opção?</legend>
+          {groups.map((g) => {
+            const ativo = g.id === grupo.id;
+            const lotado = g.freeForMonthly === 0;
+            return (
+              <label
+                key={g.id}
+                className={cn(
+                  'flex items-start justify-between gap-3 rounded-[var(--radius-field)] border px-3.5 py-2.5',
+                  lotado ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+                  ativo ? 'border-[var(--accent)] bg-[var(--accent-subtle)] ring-1 ring-[var(--accent)]' : !lotado && 'hover:border-[var(--content-subtle)]',
+                )}
+              >
+                <input
+                  type="radio" name="grupo" value={g.id} checked={ativo} disabled={lotado}
+                  onChange={() => setGroupId(g.id)} className="sr-only"
+                />
+                <span className="space-y-0.5">
+                  <span className="block font-medium">{g.name}</span>
+                  <span className="block text-[0.8125rem] text-[var(--content-muted)] tabular-nums">{formatBRL(g.monthlyRentCents)} por mês</span>
+                </span>
+                <span className="text-[0.8125rem] text-[var(--content-muted)] text-right shrink-0">
+                  {lotado ? 'Todas ocupadas' : `${g.freeForMonthly} de ${g.total} ${unitPlural} livres`}
+                </span>
+              </label>
+            );
+          })}
+        </fieldset>
+      )}
 
       <Field label="A partir de quando?" htmlFor={`${id}-data`}>
         <Input
@@ -90,7 +142,7 @@ export function RequestBookingForm({
         <dl className="space-y-2 text-[0.9375rem]">
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-[var(--content-muted)]">Espaço</dt>
-            <dd className="font-medium text-right">{spaceTitle}</dd>
+            <dd className="font-medium text-right">{spaceTitle}{groups.length > 1 ? ` — ${grupo.name}` : ''}</dd>
           </div>
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-[var(--content-muted)]">Aluguel mensal</dt>
@@ -106,7 +158,7 @@ export function RequestBookingForm({
           </div>
           <div className="flex items-baseline justify-between gap-3">
             <dt className="text-[var(--content-muted)]">Período</dt>
-            <dd className="text-right">A partir de {dataFormatada}</dd>
+            <dd className="text-right">A partir de {dataFormatada}, renovação automática todo mês</dd>
           </div>
         </dl>
         <p className="text-[0.75rem] text-[var(--content-subtle)] leading-relaxed">

@@ -13,13 +13,17 @@
 export const SPACE_TYPES = [
   'vaga_carro',
   'vaga_moto',
+  'estacionamento',
   'garagem',
   'deposito',
   'galpao',
   'sala',
   'escritorio',
   'loja',
+  'oficina',
   'terreno',
+  'espaco_eventos',
+  'area_lazer',
   'quarto',
   'outro',
 ] as const;
@@ -66,6 +70,16 @@ export const SPACE_TYPE_CONFIG = {
     requiredMeasurements: [],
     titleExample: 'Vaga de moto em garagem fechada',
     priceHintCents: [5000, 20000],
+  },
+  estacionamento: {
+    label: 'Estacionamento',
+    icon: 'SquareParking',
+    hint: 'Pátio ou prédio com várias vagas',
+    featureCategories: ['acesso', 'seguranca', 'estrutura', 'veiculo'],
+    measurements: [],
+    requiredMeasurements: [],
+    titleExample: 'Estacionamento coberto no centro, vagas por hora e mensais',
+    priceHintCents: [8000, 35000],
   },
   garagem: {
     label: 'Garagem',
@@ -127,6 +141,16 @@ export const SPACE_TYPE_CONFIG = {
     titleExample: 'Loja de rua 40 m² com vitrine',
     priceHintCents: [80000, 800000],
   },
+  oficina: {
+    label: 'Oficina',
+    icon: 'Wrench',
+    hint: 'Box ou galpão para serviços e reparos',
+    featureCategories: ['estrutura', 'acesso', 'seguranca', 'veiculo'],
+    measurements: ['size_m2', 'ceiling_height_m'],
+    requiredMeasurements: ['size_m2'],
+    titleExample: 'Box de oficina com elevador automotivo',
+    priceHintCents: [50000, 500000],
+  },
   terreno: {
     label: 'Terreno',
     icon: 'Trees',
@@ -136,6 +160,24 @@ export const SPACE_TYPE_CONFIG = {
     requiredMeasurements: ['size_m2'],
     titleExample: 'Terreno murado 300 m² para estacionar',
     priceHintCents: [20000, 500000],
+  },
+  espaco_eventos: {
+    label: 'Espaço para eventos',
+    icon: 'PartyPopper',
+    hint: 'Salão ou área para festas e encontros',
+    featureCategories: ['estrutura', 'acesso', 'seguranca'],
+    measurements: ['size_m2'],
+    requiredMeasurements: ['size_m2'],
+    titleExample: 'Salão de festas para 80 pessoas',
+  },
+  area_lazer: {
+    label: 'Área de lazer',
+    icon: 'TreePalm',
+    hint: 'Piscina, churrasqueira, quadra ou área ao ar livre',
+    featureCategories: ['estrutura', 'acesso', 'seguranca'],
+    measurements: ['size_m2'],
+    requiredMeasurements: [],
+    titleExample: 'Área com piscina e churrasqueira',
   },
   quarto: {
     label: 'Quarto',
@@ -177,19 +219,102 @@ export function spaceTypeLabel(type: SpaceTypeKey): string {
 const PLURAL: Record<SpaceTypeKey, string> = {
   vaga_carro: 'Vagas de carro',
   vaga_moto: 'Vagas de moto',
+  estacionamento: 'Estacionamentos',
   garagem: 'Garagens',
   deposito: 'Depósitos',
   galpao: 'Galpões',
   sala: 'Salas',
   escritorio: 'Escritórios',
   loja: 'Lojas',
+  oficina: 'Oficinas',
   terreno: 'Terrenos',
+  espaco_eventos: 'Espaços para eventos',
+  area_lazer: 'Áreas de lazer',
   quarto: 'Quartos',
   outro: 'Outros espaços',
 };
 
 export function spaceTypePlural(type: SpaceTypeKey): string {
   return PLURAL[type];
+}
+
+/**
+ * Como se chama UMA unidade alugável deste tipo de anúncio (Parte 12):
+ * "10 vagas · 7 disponíveis · 3 ocupadas", "4 boxes · 4 disponíveis".
+ * `feminino` concorda o adjetivo ("ocupadas"/"ocupados").
+ */
+export type UnitNoun = { singular: string; plural: string; feminino: boolean };
+
+const UNIT_NOUNS: Record<SpaceTypeKey, UnitNoun> = {
+  vaga_carro: { singular: 'vaga', plural: 'vagas', feminino: true },
+  vaga_moto: { singular: 'vaga', plural: 'vagas', feminino: true },
+  estacionamento: { singular: 'vaga', plural: 'vagas', feminino: true },
+  garagem: { singular: 'vaga', plural: 'vagas', feminino: true },
+  deposito: { singular: 'box', plural: 'boxes', feminino: false },
+  galpao: { singular: 'módulo', plural: 'módulos', feminino: false },
+  sala: { singular: 'sala', plural: 'salas', feminino: true },
+  escritorio: { singular: 'sala', plural: 'salas', feminino: true },
+  loja: { singular: 'loja', plural: 'lojas', feminino: true },
+  oficina: { singular: 'box', plural: 'boxes', feminino: false },
+  terreno: { singular: 'área', plural: 'áreas', feminino: true },
+  espaco_eventos: { singular: 'espaço', plural: 'espaços', feminino: false },
+  area_lazer: { singular: 'espaço', plural: 'espaços', feminino: false },
+  quarto: { singular: 'quarto', plural: 'quartos', feminino: false },
+  outro: { singular: 'unidade', plural: 'unidades', feminino: true },
+};
+
+export function unitNounFor(type: string): UnitNoun {
+  return UNIT_NOUNS[type as SpaceTypeKey] ?? UNIT_NOUNS.outro;
+}
+
+/** "1 vaga", "10 vagas". */
+export function countUnits(type: string, n: number): string {
+  const noun = unitNounFor(type);
+  return `${n} ${n === 1 ? noun.singular : noun.plural}`;
+}
+
+/** Rótulo sugerido para a unidade nº `n`: "Vaga 3", "Box 2". */
+export function defaultUnitLabel(type: string, n: number): string {
+  const s = unitNounFor(type).singular;
+  return `${s.charAt(0).toUpperCase()}${s.slice(1)} ${n}`;
+}
+
+/**
+ * Busca de categoria (a lupa da primeira etapa): pelo nome, pela descrição
+ * e por palavras que as pessoas usam ("salão", "piscina", "mecânica"). Sem
+ * acento, sem maiúscula. "Outro" aparece sempre — é a saída para o que não
+ * se encaixa em nada.
+ */
+const TYPE_SEARCH_TERMS: Record<SpaceTypeKey, readonly string[]> = {
+  vaga_carro: ['carro', 'automóvel', 'estacionar'],
+  vaga_moto: ['moto', 'motocicleta', 'bicicleta', 'bike'],
+  estacionamento: ['estacionamento', 'pátio', 'parking', 'vagas', 'rotativo', 'mensalista'],
+  garagem: ['garagem', 'carro'],
+  deposito: ['depósito', 'guardar', 'armazenar', 'self storage', 'guarda-móveis', 'box'],
+  galpao: ['galpão', 'armazém', 'barracão', 'logística'],
+  sala: ['sala', 'consultório', 'atendimento'],
+  escritorio: ['escritório', 'coworking', 'trabalho'],
+  loja: ['loja', 'ponto comercial', 'comércio', 'vitrine'],
+  oficina: ['oficina', 'mecânica', 'funilaria', 'reparo', 'conserto'],
+  terreno: ['terreno', 'lote', 'área aberta'],
+  espaco_eventos: ['evento', 'festa', 'salão', 'aniversário', 'casamento', 'reunião'],
+  area_lazer: ['lazer', 'piscina', 'churrasqueira', 'quadra', 'chácara', 'sítio'],
+  quarto: ['quarto', 'cômodo'],
+  outro: ['outro'],
+};
+
+function semAcento(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+
+export function searchSpaceTypes(query: string): SpaceTypeKey[] {
+  const q = semAcento(query);
+  if (!q) return [...SPACE_TYPES];
+  const achados = SPACE_TYPES.filter((t) => {
+    const c = SPACE_TYPE_CONFIG[t];
+    return [c.label, c.hint, ...TYPE_SEARCH_TERMS[t]].some((termo) => semAcento(termo).includes(q));
+  });
+  return achados.includes('outro') ? achados : [...achados, 'outro'];
 }
 
 /** Medida obrigatoria para este tipo? Usado na validacao do servidor. */
