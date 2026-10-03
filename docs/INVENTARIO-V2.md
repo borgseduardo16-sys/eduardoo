@@ -11,33 +11,32 @@
 
 | Arquivo | Tabelas | Ação | Nota |
 |---------|---------|------|------|
-| enums.ts | Tipos de aluguel, estado de reserva, etc. | ✅ Manter | Remover tipos como `premium_tier` |
+| enums.ts | Tipos de aluguel, estado de reserva, etc. | ✅ Manter | Remover tipos como `compatibility_status`, alertas, etc. |
 | spaces.ts | `spaces` | ✅ Manter | Remover campos: `compatibility_enabled`, `class_id`, `class_confidence` |
-| users.ts | `users`, `profiles`, `user_features` | ✅ Manter | Remover: `subscription_status`, `subscription_expires_at`, `subscription_tier` |
+| users.ts | `users`, `profiles`, `user_features` | ✅ Manter | ⚠️ **MANTÉM `subscription_status`, `subscription_tier`** (Premium continua) |
 | rentals.ts | `spaceUnitGroups`, `spaceUnits` | ✅ Manter (mesma) | Parte 12 já é V2 |
-| features.ts | `features` | ✅ Manter | Remover amenidades que só Premium tinha |
-| bookings.ts | `rentals` | ✅ Manter | Coluna `compatibility_score` → remove |
+| features.ts | `features` | ✅ Manter | Manter amenidades (Premium as usa) |
+| bookings.ts | `rentals` | ✅ Manter | Remover coluna `compatibility_score` |
+| premium.ts | **`user_subscriptions`, `premium_features`, `pricing_tiers`** | ✅ **MANTER (mesma)** | **Premium continua com tudo** |
+| featured.ts | **`listings_featured`** | ✅ **MANTER (mesma)** | **Destaques/Turbo continua** |
 | images.ts | `space_photos` | ✅ Manter | Remover `alt_text_generated_by_ai` |
-| conversations.ts | `conversations`, `messages` | ✅ Manter (simples) | Remover detector de contato? Não — manter para segurança |
+| conversations.ts | `conversations`, `messages` | ✅ Manter | Manter detector de contato (segurança) |
 | ratings.ts | `ratings` | ✅ Manter | Remover campos de "compatibilidade" nas avaliações |
-| payments.ts | `transactions`, `webhook_logs` | ✅ Manter | Remover recorrência mensal de Premium |
+| payments.ts | `transactions`, `webhook_logs` | ✅ Manter | **MANTÉM recorrência mensal (Premium + renovação Parte 12)** |
 | security.ts | `reports`, `blocks` | ✅ Manter (mesma) | Segurança não muda |
-| messaging.ts | (mesmo de conversations.ts) | ✅ Manter | |
 
 ### 1.2 Arquivos a remover (completo)
 
 | Arquivo | Tabelas | Ação |
 |---------|---------|------|
-| premium.ts | `user_subscriptions`, `premium_features`, `pricing_tiers` | ❌ Remover |
-| verification.ts | `phone_verifications`, `verification_codes` | ❌ Remover |
-| bank.ts | `person_bank_data`, `bank_transfers` | ❌ Remover |
-| ai_classification.ts | `listing_space_class`, `space_class_suggestions` | ❌ Remover |
-| price_suggestions.ts | `comparable_spaces`, `price_history` | ❌ Remover |
-| alerts.ts | `saved_searches`, `search_alerts` | ❌ Remover |
-| security_deposits.ts | `security_deposits`, `deposit_refunds` | ❌ Remover |
-| push_notifications.ts | `push_subscriptions`, `push_messages` | ❌ Remover |
-| compatibility.ts | `compatibility_scores`, `rental_suggestions`, `waitlists` | ❌ Remover |
-| featured_listings.ts | (se exists com recorrência) | ❌ Remover ou reescrever |
+| verification.ts | `phone_verifications`, `verification_codes` | ❌ Remover (SMS Twilio) |
+| bank.ts | `person_bank_data`, `bank_transfers` | ❌ Remover (banco do proprietário) |
+| ai_classification.ts | `listing_space_class`, `space_class_suggestions` | ❌ Remover (IA de padrão) |
+| price_suggestions.ts | `comparable_spaces`, `price_history` | ❌ Remover (IA de sugestão) |
+| alerts.ts | `saved_searches`, `search_alerts` | ❌ Remover (alertas agendados) |
+| security_deposits.ts | `security_deposits`, `deposit_refunds` | ❌ Remover (caução) |
+| push_notifications.ts | `push_subscriptions`, `push_messages` | ❌ Remover (push no celular) |
+| compatibility.ts | `compatibility_scores`, `rental_suggestions`, `waitlists` | ❌ Remover (compatibilidade Fase 23) |
 
 ### 1.3 Criação de featured_listings simples
 
@@ -145,54 +144,54 @@ DROP VIEW IF EXISTS public.monthly_summary CASCADE;
 
 ## 3. Código TypeScript (src/)
 
-### 3.1 Arquivos a remover (inteiros)
+### 3.1 Diretórios a remover (inteiros)
 
 ```
 src/lib/ai/
-  ├── classification.ts       (Fase 16)
-  └── suggestions.ts          (Fase 17)
+  ├── classification.ts       (Fase 16 — IA de padrão)
+  └── suggestions.ts          (Fase 17 — IA de sugestão de valor)
 
 src/lib/alerts/
   ├── saved-search.ts
   ├── email-alerts.ts
-  └── cron-handler.ts         (Fase 18)
-
-src/lib/premium/
-  ├── subscriptions.ts        (Fase 13)
-  ├── features.ts
-  └── tiers.ts
+  └── cron-handler.ts         (Fase 18 — alertas agendados)
 
 src/lib/verification/
-  ├── phone.ts                (Fase 5)
-  ├── document.ts
-  └── kyc.ts
+  ├── phone.ts                (Fase 5 — SMS Twilio)
+  └── kyc.ts                  (remover lógica SMS, manter schema)
 
 src/lib/bank/
-  ├── transfers.ts            (Fase 7-8)
+  ├── transfers.ts            (Fase 7-8 — banco do proprietário)
   └── webhooks.ts
 
 src/lib/deposits/
-  ├── security.ts             (Fase 19)
+  ├── security.ts             (Fase 19 — caução)
   └── refunds.ts
 
 src/lib/push/
-  ├── subscriptions.ts        (Fase 21)
+  ├── subscriptions.ts        (Fase 21 — push no celular)
   ├── messages.ts
   └── service-worker.ts
 
 src/lib/compatibility/
-  ├── scoring.ts              (Fase 23)
+  ├── scoring.ts              (Fase 23 — compatibilidade)
   ├── suggestions.ts
   └── waitlist.ts
 
-src/app/api/premium/
 src/app/api/kyc/
 src/app/api/bank/
 src/app/api/alerts/
 src/app/api/deposits/
 src/app/api/push/
-src/app/api/suggestions/value
+src/app/api/ai/suggest         (sugestão de valor)
 src/app/api/compatibility/
+src/app/api/waitlist/
+
+✅ MANTÉM:
+src/lib/premium/              (Premium continua)
+src/app/api/premium/          (Premium continua)
+src/lib/featured.ts           (Destaques/Turbo continua)
+src/app/api/featured/         (Destaques/Turbo continua)
 ```
 
 ### 3.2 Arquivos a adaptar
@@ -208,34 +207,39 @@ src/app/api/compatibility/
 | `scripts/verify-schema.ts` | Atualizar checagens para não permitir tabelas removidas |
 | `scripts/verify-*.ts` | Remover verificações específicas de features removidas |
 
-### 3.3 Arquivos que viram simples
+### 3.3 Arquivos que mantêm (Premium, Destaques)
 
 | Arquivo | Mudança |
 |---------|---------|
-| `src/lib/featured.ts` (novo) | Só avulso: `create(spaceId, durationDays)` |
-| `src/lib/messaging/detector.ts` | Manter detector de contato para segurança |
+| `src/lib/premium/subscriptions.ts` | ✅ **MANTÉM** — assinatura mensal, tiers, benefícios |
+| `src/lib/featured.ts` | ✅ **MANTÉM** — Destaques/Turbo avulso ou recorrente |
+| `src/lib/messaging/detector.ts` | ✅ Manter — detector de contato para segurança |
 
 ---
 
 ## 4. Páginas e rotas (src/app/)
 
-### 4.1 Páginas a remover
+### 4.1 Páginas a remover vs. manter
 
 ```
-src/app/
-├── (app)/
-│   ├── (rented)/
-│   │   └── meus-alugueis/       ✅ Manter
-│   ├── minha-conta/
-│   │   ├── seguranca/           ✅ Manter
-│   │   └── premium/             ❌ Remover
-│   ├── premium/                 ❌ Remover
-│   ├── destaques/               ⚠️  Remover (ou simplificar)
-│   ├── turbo/                   ❌ Remover
-│   ├── descoberta/              ❌ Remover (Fase 23)
-│   └── alertas/                 ❌ Remover (Fase 18)
-├── admin/
-│   └── moderation/              ✅ Manter
+REMOVE:
+src/app/(app)/
+├── descoberta/                  ❌ (Fase 23 — busca por necessidade com IA)
+├── alertas/                     ❌ (Fase 18 — alertas agendados)
+├── (account)/
+│   ├── verificacoes/            ❌ (Fase 5 — SMS Twilio)
+│   └── banco/                   ❌ (Fase 7-8)
+└── admin/
+    └── caucao/                  ❌ (Fase 19)
+
+MANTÉM:
+✅ meus-alugueis/                (Parte 12)
+✅ minha-conta/seguranca/        (segurança)
+✅ minha-conta/premium/          (Premium continua)
+✅ premium/                       (página de Premium)
+✅ destaques/                     (Destaques/Turbo)
+✅ admin/moderation/             (fila de moderação)
+✅ admin/home                     (dashboard admin)
 ```
 
 ### 4.2 Componentes a adaptar
@@ -251,30 +255,32 @@ src/app/
 ### 4.3 API routes a remover
 
 ```
-/api/premium/*
-/api/kyc/*
-/api/bank/*
-/api/alerts/*
-/api/deposits/*
-/api/push/*
-/api/ai/classify
-/api/ai/suggest
-/api/compatibility/*
-/api/waitlist/*
+/api/kyc/*                       ❌ (SMS Twilio)
+/api/bank/*                      ❌ (banco do proprietário)
+/api/alerts/*                    ❌ (alertas agendados)
+/api/deposits/*                  ❌ (caução)
+/api/push/*                      ❌ (push no celular)
+/api/ai/classify                 ❌ (IA de padrão)
+/api/ai/suggest-value            ❌ (IA de sugestão)
+/api/compatibility/*             ❌ (compatibilidade)
+/api/waitlist/*                  ❌ (lista de espera)
 ```
 
 ### 4.4 API routes a manter
 
 ```
-/api/auth/*                      ✅ Manter
-/api/spaces/                     ✅ Manter
-/api/rental/*                    ✅ Manter (Parte 12)
-/api/bookings/*                  ✅ Manter (simplicado)
-/api/conversations/              ✅ Manter
-/api/ratings/                    ✅ Manter
-/api/webhooks/asaas              ✅ Manter (simplificado)
-/api/reports/                    ✅ Manter
-/api/blocks/                     ✅ Manter
+✅ MANTÉM:
+/api/auth/*                      (autenticação)
+/api/spaces/                     (anúncios)
+/api/rental/*                    (Parte 12 — reserva por tempo/mensal)
+/api/bookings/*                  (reservas simples)
+/api/conversations/              (chat)
+/api/ratings/                    (avaliações)
+/api/premium/*                   (Premium — assinatura mensal)
+/api/featured/*                  (Destaques/Turbo — destaque avulso)
+/api/webhooks/asaas              (webhooks de pagamento)
+/api/reports/                    (denúncias)
+/api/blocks/                     (bloqueios)
 ```
 
 ---
@@ -285,9 +291,9 @@ src/app/
 
 ```json
 {
-  "@anthropic-ai/sdk": "^0.128.0",  // Remover (sem IA)
-  "twilio": "^4.x",                 // Remover (sem SMS)
-  "web-push": "^3.6.7"              // Remover (sem push)
+  "@anthropic-ai/sdk": "^0.128.0",  // Remover (sem IA de padrão / sugestão)
+  "twilio": "^4.x",                 // Remover (sem SMS de verificação)
+  "web-push": "^3.6.7"              // Remover (sem push no celular)
 }
 ```
 
@@ -304,7 +310,7 @@ src/app/
 }
 ```
 
-**Nota:** Anthropic SDK pode ficar (não machuca), mas remover import se não usado.
+**Nota:** Asaas SDK já está em uso e continua (pagamentos Premium + Parte 12)
 
 ---
 

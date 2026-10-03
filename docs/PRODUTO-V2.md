@@ -1,4 +1,4 @@
-# Produto V2 — MyPlace como Neighbor Brasil
+# Produto V2 — MyPlace com estrutura Neighbor Brasil
 
 **Data:** 3 de outubro de 2026  
 **Status:** Especificação para refatoração  
@@ -8,12 +8,14 @@
 
 ## 1. O que mudou
 
-V1 (zero-to-one) foi invenção pura: sistema completo com IA, Premium, alertas, caução, lista de espera, compatibilidade.
+V1 (zero-to-one) foi invenção pura: sistema completo com IA, alertas, caução, lista de espera, compatibilidade — algumas coisas criaram complexidade que parou de funcionar direito.
 
-V2 (Neighbor Brasil) corta escopo radical e foca no núcleo funcional validado nos EUA, adaptado para Brasil:
-- **Um fluxo principal:** anúncio → busca → reserva → aceite do proprietário → cobrança → entrega
+V2 (Neighbor Brasil) **mantém o que funciona** (Premium, Turbo, Destaques, avaliações, confiança) e **se inspira em Neighbor para o padrão de pagamento e regras de concorrência**, removendo só o que virou problema:
+
+- **Um fluxo principal:** anúncio → busca → reserva → aceite do proprietário → cobrança → entrega (igual Neighbor, validado)
 - **Horários flexíveis:** mensal contínuo, ou hora/dia/semana temporário (Parte 12 já existe)
-- **Sem complexidade especulativa:** nada de alertas agendados, caução, compatibilidade, Premium, listas
+- **Features simples que ficam:** Turbo, Premium, Destaques, chat, avaliações, confiança básica, segurança
+- **Sem complexidade que quebrou:** nada de alertas agendados, caução, compatibilidade, lista de espera
 
 ---
 
@@ -43,20 +45,27 @@ V2 (Neighbor Brasil) corta escopo radical e foca no núcleo funcional validado n
 - **Renovação automática:** apenas para mensal contínuo, com janela de 40 min + 1 h (já pronta em Parte 12)
 - **Sem recorrência:** sem assinatura mensal do Premium; Premium não existe
 
-### 2.3 Sem a V1
+### 2.3 Mantém + Remove
 
-**Removido:**
-- Premium (Fase 13) — nunca vai existir; Destaques/Turbo/Pro viram "anúncio destacado" simples
-- IA (Fases 5, 8, 16, 17) — remoção ou alternativa sem IA
-- Alertas agendados (Fase 18, parcial) — nenhum cron
+**MANTÉM (funciona, não quebra nada):**
+- Premium (Fase 13) — sistema de tiers, assinatura mensal, benefícios
+- Destaques/Turbo (Fase 14) — compra avulsa ou destaque recorrente, é simples
+- Avaliações (Fase 15) — 5 estrelas, ambos os lados
+- Confiança básica (Fases 19-21) — documento verificado, perfil público, bloqueios
+- Segurança (todas as fases) — denúncias, detector de contato, RLS
+
+**REMOVE (criou complexidade que parou):**
+- IA de classificação de padrão (Fase 16) — removida
+- IA de sugestão de valor por histórico (Fase 17) — removida
+- Alertas agendados (Fase 18) — removidos (nenhum cron)
 - Caução (Fase 19) — removida
-- Lista de espera (Fase 23, parcial) — removida
-- Compatibilidade (Fase 23, parcial) — removida
-- Avaliações de compatibilidade — removidas
-- Histórico de preço para públicos — removido (usa-se só histórico de transação da própria reserva)
-- Painel de desempenho (Fase 23) — removido ou simplificado
+- Push no celular (Fase 21) — removida
+- Compatibilidade e match % (Fase 23) — removidas
+- Lista de espera (Fase 23) — removida
+- Painel de desempenho complexo (Fase 23) — removido
 - Relatório mensal (Fase 23) — removido
 - Compartilhamento de anúncio (Fase 23) — removido
+- Busca por necessidade + IA (Fase 23) — removida
 
 ---
 
@@ -67,19 +76,21 @@ V2 (Neighbor Brasil) corta escopo radical e foca no núcleo funcional validado n
 | Feature | Fase original | Status V2 | Nota |
 |---------|---|---|---|
 | Autenticação | 1 | ✅ Mantém (mesma) | Supabase Auth, confirmação de e-mail |
-| Anúncio + publicação | 2 | ✅ Mantém (simplificado) | 8 etapas, mas sem campo de compatibilidade |
+| Anúncio + publicação | 2 | ✅ Mantém (core) | 8 etapas, remover só campo de compatibilidade |
 | Fotos | 2 | ✅ Mantém (mesma) | Upload, remoção de EXIF, miniatura |
 | Busca | 3 | ✅ Mantém (core) | Por localização, mapa com pins, sem alertas agendados |
-| Reserva mensal | 4 | ✅ Mantém (core) | Fluxo completo: criar → aceitar → pagar |
-| Chat | 6 | ✅ Mantém (simplificado) | Mensagens entre usuários, sem denúncia de assédio por IA |
-| Avaliações (5 estrelas 1 via) | 9 | ✅ Mantém (core) | Após reserva encerrar, ambos os lados |
-| Confiança (perfil, verificações) | Fases 19-21 | 🟡 Parcial | Só documento (KYC Asaas), sem SMS Twilio, sem push — verificação pública só "documento verificado" |
+| Reserva mensal | 4 | ✅ Mantém (core) | Fluxo completo: criar → aceitar → pagar (padrão Neighbor) |
+| Chat | 6 | ✅ Mantém (core) | Mensagens entre usuários |
+| Avaliações (5 estrelas) | 9 | ✅ Mantém (core) | Após reserva encerrar, ambos os lados |
+| **Premium + tiers** | 13 | ✅ **MANTÉM** | Sistema de assinatura mensal, benefícios, integração com Asaas |
+| **Destaques/Turbo** | 14 | ✅ **MANTÉM** | Compra avulsa ou recorrente, mostra antes na busca, simples |
+| Confiança (perfil, verificações) | Fases 19-21 | ✅ Mantém (simples) | Documento verificado (KYC Asaas), perfil público — sem SMS, sem push |
 | Segurança interna | Segurança | ✅ Mantém (mesma) | Denúncias, detector de contato, RLS, bloqueios |
 | Unidades | Parte 12 | ✅ Mantém (mesma) | Grupos de unidades, label, posição |
 | Aluguel por hora/dia/semana | Parte 12 | ✅ Mantém (mesma) | Com regras de horário de funcionamento |
-| Pagamento pendente + renovação | Parte 12 | ✅ Mantém (mesma) | 40 min + 1 h de janela, Pix único |
+| Pagamento pendente + renovação | Parte 12 | ✅ Mantém (mesma) | 40 min + 1 h de janela, Pix único, padrão Neighbor |
 | Meus aluguéis (locatário) | Parte 12 | ✅ Mantém (mesma) | Listar, renovar, cancelar |
-| Meus anúncios (proprietário) | N/A (novo) | ✅ Novo | Painel simples: criar, listar, reservas pendentes, aceitar/negar, encerrar |
+| Meus anúncios (proprietário) | N/A (novo) | ✅ Novo | Painel: criar, listar, reservas pendentes, aceitar/negar, encerrar |
 
 ### 3.2 Integrações
 
@@ -94,55 +105,49 @@ V2 (Neighbor Brasil) corta escopo radical e foca no núcleo funcional validado n
 
 ---
 
-## 4. Removals por fase
+## 4. O que remove (apenas o que virou problema)
 
-### Fases inteiras (remove código + banco)
-- **Fase 5:** KYC Twilio Verify e IA de documento — **remover lógica de SMS, manter só schema de documento verificado** (preenche Asaas via KYC quando Asaas fizer)
-- **Fase 7:** Pré-aprovação bancária — **removida completamente** (schema de `person_bank_data`, formulário de dados bancários)
-- **Fase 8:** Dépósito bancário e SMS — **removida completamente** (tabelas, rotas, scripts)
-- **Fase 13:** Premium, Destaques, Turbo — **remover assinatura, manter só "simples" e "destacado avulso"** (remover tiers mensais; manter 1 tabela: `listing_boost` com data_inicio, duracao_dias, status; sem recorrência)
-- **Fase 16:** Classificação de padrão por IA — **remover completamente** (schema, rotas, modelo de classificação)
-- **Fase 17:** Sugestão de valor por IA ou histórico — **remover sugestão por IA; manter só "comparáveis" sem IA** ou remover completamente
-- **Fase 18:** Alertas agendados (cron) — **remover tabela `saved_search_alerts`, remover endpoint de cron** (manter só a UI "salvar busca" sem alertas)
-- **Fase 19:** Caução — **remover completamente** (tabelas, lógica de depósito, devolução, trigger)
-- **Fase 21:** Push no celular — **remover completamente** (Service Worker, tabelas de tokens)
-- **Fase 23:** Busca por compatibilidade, lista de espera, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes, histórico de preço público — **remover as tabelas correspondentes**
+**Remover completamente:**
+- **Fase 5:** Lógica de SMS Twilio Verify — **manter só schema de documento verificado** (KYC do Asaas preenche)
+- **Fase 7:** Banco de dados do proprietário (`person_bank_data`) — Neighbor não tem isso
+- **Fase 8:** Depósito bancário prévio — Neighbor cobra na hora
+- **Fase 16:** IA de classificação de padrão do espaço
+- **Fase 17:** IA de sugestão de valor por histórico
+- **Fase 18:** Alertas agendados (tabelas, cron do Vercel) — ninguém usa
+- **Fase 19:** Caução (tabelas, lógica, triggers)
+- **Fase 21:** Push no celular (VAPID, Service Worker, tabelas)
+- **Fase 23 (maioria):** Compatibilidade, match %, lista de espera, busca por necessidade com IA, painel de desempenho, relatório mensal, compartilhamento, espaços semelhantes, histórico público
 
-### Fases parciais (remover features, manter core)
-- **Fase 23 (parcial):** Manter renovação automática (Parte 12), remover resto
-
-### Fases que viram "simples"
-- **Fase 2:** Remover campo "compatibilidade" do formulário de anúncio
-- **Fase 13 (Destaques):** Remover tiers Premium/Turbo; manter "simples" + opção de "destacar agora" por X dias (avulso, sem recorrência)
+**Manter (não mexe):**
+- **Fase 2:** Remover só o campo "compatibilidade" do formulário (Etapa 5)
+- **Fase 13:** Premium, Destaques, Turbo, tiers, assinatura mensal — **tudo permanece**
+- **Fase 14:** Compra avulsa de destaque — **permanece**
+- **Fase 23:** Renovação automática de reserva mensal (Parte 12) — **permanece**
 
 ---
 
-## 5. Tabelas a remover
+## 5. Tabelas a remover vs. manter
+
+### Remove (IA, alertas, caução, push)
 
 ```sql
--- Fase 5: Verificação e KYC
+-- Fase 5: SMS Twilio Verify
 DROP TABLE IF EXISTS phone_verifications CASCADE;
--- (manter: user_document_verified from person_documents)
 
--- Fase 7: Banco
+-- Fase 7: Banco do proprietário
 DROP TABLE IF EXISTS person_bank_data CASCADE;
 
 -- Fase 8: Depósito bancário
 DROP TABLE IF EXISTS bank_transfers CASCADE;
 
--- Fase 13: Premium
-DROP TABLE IF EXISTS user_subscriptions CASCADE;
--- (manter: listing_featured simples, sem recorrência)
-
 -- Fase 16: IA de padrão
 DROP TABLE IF EXISTS listing_space_class CASCADE;
 DROP TABLE IF EXISTS space_class_suggestions CASCADE;
 
--- Fase 17: Sugestão de valor
+-- Fase 17: IA de sugestão de valor
 DROP TABLE IF EXISTS comparable_spaces CASCADE;
--- (ou DROP completamente se quer sem sugestão alguma)
 
--- Fase 18: Alertas
+-- Fase 18: Alertas agendados
 DROP TABLE IF EXISTS saved_searches CASCADE;
 DROP TABLE IF EXISTS search_alerts CASCADE;
 
@@ -150,42 +155,61 @@ DROP TABLE IF EXISTS search_alerts CASCADE;
 DROP TABLE IF EXISTS security_deposits CASCADE;
 DROP TABLE IF EXISTS deposit_refunds CASCADE;
 
--- Fase 21: Push
+-- Fase 21: Push no celular
 DROP TABLE IF EXISTS push_subscriptions CASCADE;
 DROP TABLE IF EXISTS push_messages CASCADE;
 
--- Fase 23: Compatibilidade, lista, histórico
+-- Fase 23: Compatibilidade e features complexas
 DROP TABLE IF EXISTS compatibility_scores CASCADE;
 DROP TABLE IF EXISTS rental_waitlist CASCADE;
 DROP TABLE IF EXISTS listing_price_history CASCADE;
 DROP TABLE IF EXISTS rental_suggestions CASCADE;
+```
 
--- Remove views de desempenho, relatórios, etc.
+### **MANTÉM** (Premium, Destaques, core)
+
+```
+✅ user_subscriptions (Premium — tiers, assinatura mensal)
+✅ premium_features (benefícios do Premium)
+✅ pricing_tiers (tiers: basic, pro, etc.)
+✅ listing_featured (Destaques/Turbo — avulso ou recorrente)
+✅ listings_featured_history (histórico de ativações)
+✅ user_documents (documento verificado do KYC Asaas)
+✅ rentals (reservas — Parte 12 com unidades)
+✅ space_unit_groups + space_units (grupos + unidades)
+✅ ratings (avaliações)
+✅ conversations + messages (chat)
+✅ reports + blocks (segurança)
+✅ transactions (livro-razão)
 ```
 
 ---
 
-## 6. Schema mínimo para V2
+## 6. Schema para V2
 
-**Mantém:**
-- `users` (autenticação, perfil básico, documento)
+**MANTÉM (core + Premium + Destaques):**
+- `users` (autenticação, perfil, documento KYC)
 - `spaces` (anúncios)
-- `space_unit_groups` (grupos de unidades com regras de tempo/preço)
+- `space_unit_groups` (grupos com regras de tempo/preço)
 - `space_units` (unidades individuais)
-- `space_photos` (fotos dos anúncios)
+- `space_photos` (fotos)
 - `space_features` (amenidades)
-- `listings_featured` (muito simples: listing_id, tipo "simple" ou "featured", data_inicio, dias, status — sem recorrência)
-- `rentals` (Parte 12: reservas com unidade, período, modo contínuo/temporário, preço total, estado)
+- `user_subscriptions` ✅ (Premium — tiers, assinatura mensal)
+- `premium_features` ✅ (benefícios: selo, destaque, etc.)
+- `pricing_tiers` ✅ (tiers de preço)
+- `listings_featured` ✅ (Destaques — avulso ou recorrente)
+- `rentals` (Parte 12: reservas, unidade, período, preço, estado)
 - `conversations` (chat)
-- `messages` (mensagens do chat)
+- `messages` (mensagens)
 - `ratings` (5 estrelas)
 - `reports` (denúncias)
-- `blocks` (bloqueios entre usuários)
+- `blocks` (bloqueios)
 - `transactions` (livro-razão)
-- `webhooks` (Asaas)
+- `user_documents` (documento verificado)
+- `webhooks_asaas` (logs de webhook)
 
-**Remove:**
-- Tudo mencionado em §5
+**REMOVE (IA, alertas, caução, push, banco):**
+- Tudo em §5
 
 ---
 
