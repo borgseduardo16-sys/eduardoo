@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Map as MapLibreMap, Marker, NavigationControl } from 'maplibre-gl';
 import { MapPin } from 'lucide-react';
 import { getTileSource } from '@/lib/maps/config';
+import { prepararMapLibre } from '@/lib/maps/worker';
 import { cn } from '@/lib/utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -63,6 +64,7 @@ export function AreaMap({
     if (!containerRef.current || mapRef.current) return;
 
     const source = getTileSource();
+    prepararMapLibre();
     const map = new MapLibreMap({
       container: containerRef.current,
       style: source.style as never,

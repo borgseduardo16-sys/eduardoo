@@ -11,6 +11,8 @@ const eslintConfig = defineConfig([
     ".next/**",
     // Saida da compilacao usada pelo teste de integracao.
     ".next-teste/**",
+    // Worker do MapLibre copiado de node_modules (scripts/copy-maplibre-worker.mjs): codigo de terceiro, minificado.
+    "public/maplibre/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

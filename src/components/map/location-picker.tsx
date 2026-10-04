@@ -9,6 +9,7 @@ import {
 } from 'maplibre-gl';
 import { LoaderCircle, LocateFixed, MapPin } from 'lucide-react';
 import { getTileSource, DEFAULT_CENTER, DEFAULT_ZOOM, PIN_ZOOM } from '@/lib/maps/config';
+import { prepararMapLibre } from '@/lib/maps/worker';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
@@ -66,6 +67,7 @@ export function LocationPicker({
     if (!containerRef.current || mapRef.current) return;
 
     const source = getTileSource();
+    prepararMapLibre();
     const map = new MapLibreMap({
       container: containerRef.current,
       // O estilo e montado em runtime (OSM ou MapTiler), entao o tipo exato

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { Map as MapLibreMap, Marker, NavigationControl, type GeoJSONSource } from 'maplibre-gl';
 import { Layers, LoaderCircle, LocateFixed, SlidersHorizontal } from 'lucide-react';
 import { DEFAULT_ZOOM, getSatelliteSource, getTileSource } from '@/lib/maps/config';
+import { prepararMapLibre } from '@/lib/maps/worker';
 import { circleBounds, circlePolygon } from '@/lib/maps/geo';
 import {
   DEFAULT_RADIUS_M,
@@ -90,6 +91,7 @@ export function ExploreMap({ fallback, initialFilters, autoLocate, notice }: Exp
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const inicial = satelite ?? ruas;
+    prepararMapLibre();
     const m = new MapLibreMap({
       container: containerRef.current,
       style: inicial.style as never,
@@ -105,6 +107,11 @@ export function ExploreMap({ fallback, initialFilters, autoLocate, notice }: Exp
       setMap(m);
     });
     m.on('error', () => setTileError(true));
+    // O círculo do raio é uma camada GeoJSON: só aparece depois que o worker do mapa a processa. Este atributo marca
+    // que isso aconteceu (o teste de navegador espera por ele; ver src/lib/maps/worker.ts).
+    m.on('sourcedata', (e) => {
+      if (e.sourceId === 'zona-raio' && m.isSourceLoaded('zona-raio')) containerRef.current?.setAttribute('data-raio-pronto', 'true');
+    });
     mapRef.current = m;
     return () => {
       m.remove();

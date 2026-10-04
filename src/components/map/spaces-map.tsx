@@ -10,6 +10,7 @@ import {
 } from 'maplibre-gl';
 import { LoaderCircle, LocateFixed, Map as MapIcon, X } from 'lucide-react';
 import { getTileSource, DEFAULT_CENTER, DEFAULT_ZOOM } from '@/lib/maps/config';
+import { prepararMapLibre } from '@/lib/maps/worker';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -84,6 +85,7 @@ export function ResultsMap({
 
     const source = getTileSource();
     const centro = referencePoint ?? DEFAULT_CENTER;
+    prepararMapLibre();
     const map = new MapLibreMap({
       container: containerRef.current,
       style: source.style as never,
