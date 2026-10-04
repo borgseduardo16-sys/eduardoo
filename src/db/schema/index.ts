@@ -2,7 +2,6 @@ export * from './_types';
 export * from './enums';
 export * from './users';
 export * from './spaces';
-export * from './rentals';
 export * from './bookings';
 export * from './payments';
 export * from './messaging';

@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { promotions, premiumMemberships, spaces, promotionPurchases } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
+import { upcomingBlocksExpr } from '@/lib/spaces/sql';
 import { monthlyBenefitLimit, featuredSectionLimit } from './settings';
 import { hasSearchContext, compatibilityScoreExpr, sameCityAsSearchExpr, type CompatibilityContext } from './compatibility';
 
@@ -242,9 +243,8 @@ export async function listFeaturedSpaces(limit?: number): Promise<FeaturedSpace[
       city: spaces.city,
       state: spaces.state,
       priceMonthlyCents: spaces.priceMonthlyCents,
-      tempFromCents: spaces.tempFromCents,
-      tempFromUnits: spaces.tempFromUnits,
-      tempFromUnit: spaces.tempFromUnit,
+      quantityAvailable: spaces.quantityAvailable,
+      quantityOffered: spaces.quantityOffered,
       ratingAvg: spaces.ratingAvg,
       ratingCount: spaces.ratingCount,
       approxLat: latOf(spaces.approxLocation),
@@ -273,10 +273,7 @@ export async function listFeaturedSpaces(limit?: number): Promise<FeaturedSpace[
       )`,
       sizeM2: spaces.sizeM2,
       availableFrom: spaces.availableFrom,
-      blockedUntil: sql<string | null>`(
-        SELECT max(b.ends_on)::text FROM space_availability_blocks b
-        WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE
-      )`,
+      upcomingBlocks: upcomingBlocksExpr,
     })
     .from(promotions)
     .innerJoin(spaces, eq(spaces.id, promotions.spaceId))

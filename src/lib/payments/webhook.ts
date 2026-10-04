@@ -4,6 +4,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import {
   bookings,
+  spaces,
   subscriptions,
   payments,
   payouts,
@@ -17,6 +18,10 @@ import {
 } from '@/db/schema';
 import { platformNetCents } from '@/lib/money';
 import { insertNotification, insertNotifications, flushPushJobs, type PushJob } from '@/lib/notifications/dispatch';
+import { postAccessInstructions } from '@/lib/messaging/system';
+import { PAYMENT_WINDOW_MINUTES } from '@/lib/bookings/payment-window';
+import { formatDateShort } from '@/lib/bookings/format';
+import { brDate, brTime } from '@/lib/time';
 import { handleDepositEvent } from './deposits';
 
 const { PostgresError } = postgres;
@@ -102,6 +107,9 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
   const providerEventId = `${event}:${providerPaymentId}`;
 
   let pushJobs: PushJob[] = [];
+  // Coisas que só podem acontecer DEPOIS do commit (mensagem no chat, por exemplo): se a
+  // transação desfizer, elas não acontecem.
+  const afterCommit: AfterCommit = [];
   let resultado: WebhookResult;
 
   try {
@@ -137,7 +145,7 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
           throw new Error(`reserva ${pagamento.bookingId} da cobranca ${pagamento.id} nao encontrada`);
         }
 
-        pushJobs = await handleEvent(tx, event, pagamento, booking, payload);
+        pushJobs = await handleEvent(tx, event, pagamento, booking, payload, afterCommit);
         if (pagamento.subscriptionId) await recalcNextDueDate(tx, pagamento.subscriptionId);
 
         await tx
@@ -167,7 +175,7 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
           const [booking] = await tx.select().from(bookings).where(eq(bookings.id, assinatura.bookingId)).limit(1);
           if (!booking) throw new Error(`reserva ${assinatura.bookingId} da assinatura ${assinatura.id} nao encontrada`);
           const cobranca = await registerSubscriptionPayment(tx, assinatura, providerPaymentId, payload);
-          pushJobs = await handleEvent(tx, event, cobranca, booking, payload);
+          pushJobs = await handleEvent(tx, event, cobranca, booking, payload, afterCommit);
           await recalcNextDueDate(tx, assinatura.id);
 
           await tx
@@ -230,6 +238,13 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
     // O webhook em si ja comitou com sucesso — uma falha so no push nunca vira "erro" pro Asaas.
     console.error('[asaas webhook] falha ao enviar push (nao afeta o processamento):', err);
   }
+  for (const tarefa of afterCommit) {
+    try {
+      await tarefa();
+    } catch (err) {
+      console.error('[asaas webhook] tarefa pos-commit falhou (nao afeta o processamento):', err);
+    }
+  }
 
   return resultado;
 }
@@ -237,6 +252,7 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
 // ---------------------------------------------------------------------------
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type AfterCommit = Array<() => Promise<void>>;
 type PaymentRow = typeof payments.$inferSelect;
 type BookingRow = typeof bookings.$inferSelect;
 type SubscriptionRow = typeof subscriptions.$inferSelect;
@@ -328,14 +344,15 @@ async function handleEvent(
   pagamento: PaymentRow,
   booking: BookingRow,
   payload: AsaasWebhookPayload,
+  afterCommit: AfterCommit,
 ): Promise<PushJob[]> {
   switch (event) {
     case 'PAYMENT_CREATED':
       return handleCreated(tx, pagamento, booking, payload);
     case 'PAYMENT_CONFIRMED':
-      return handleConfirmed(tx, pagamento, booking, payload);
+      return handleConfirmed(tx, pagamento, booking, payload, afterCommit);
     case 'PAYMENT_RECEIVED':
-      return handleReceived(tx, pagamento, booking, payload);
+      return handleReceived(tx, pagamento, booking, payload, afterCommit);
     case 'PAYMENT_OVERDUE':
       return handleOverdue(tx, pagamento, booking);
     case 'PAYMENT_REPROVED_BY_RISK_ANALYSIS':
@@ -374,51 +391,58 @@ async function handleCreated(tx: Tx, pagamento: PaymentRow, booking: BookingRow,
 /**
  * Pagamento feito, mas o saldo AINDA NAO esta disponivel (achado confirmado
  * na apuracao — ver src/lib/payments/asaas.ts). E o sinal de que o locatario
- * cumpriu a parte dele: e aqui, nao no PAYMENT_RECEIVED, que a reserva vira
- * "active" e o endereco exato libera — o locatario nao deveria esperar a
- * plataforma receber o dinheiro para poder usar o espaco que ja pagou.
- * O REPASSE ao proprietario, por outro lado, so acontece no PAYMENT_RECEIVED
- * (handleReceived), porque so ali ha dinheiro disponivel de verdade para
- * repassar.
+ * cumpriu a parte dele: e aqui, nao no PAYMENT_RECEIVED, que a locação vira
+ * "active" e o endereco exato e as instruções de acesso liberam — o locatario
+ * nao deveria esperar a plataforma receber o dinheiro para poder usar o
+ * espaco que ja pagou. O REPASSE ao proprietario, por outro lado, so acontece
+ * no PAYMENT_RECEIVED (handleReceived), porque so ali ha dinheiro disponivel
+ * de verdade para repassar.
  *
- * Parte 12 — a confirmação depende de COMO está a reserva agora:
- *   - aguardando pagamento → ativa (temporário: a unidade é dela no horário);
- *   - pagamento pendente → volta a ativa e o prazo some;
+ * A confirmação depende de COMO está a locação agora:
+ *   - aceita / aguardando pagamento → ativa (a VAGA já era dela desde o aceite;
+ *     "aguardando início" é só `active` com a data de início no futuro);
+ *   - pagamento pendente → volta a ativa e a janela de 2 h some;
  *   - ativa → mais uma mensalidade (renovação);
- *   - temporária expirada (o prazo para pagar passou, mas o dinheiro veio)
- *     → reativa SE a unidade ainda estiver livre naquele horário; o banco
- *     decide (restrição de exclusão), não uma checagem que pode ficar velha;
- *   - encerrada/cancelada (ou expirada sem como reativar) → estorno
- *     automático, e a pessoa é avisada. Nunca cobra por algo que não entrega.
+ *   - expirada, encerrada, cancelada ou recusada (o dinheiro chegou depois do
+ *     fim) → estorno automático, e a pessoa é avisada. Nunca cobra por algo
+ *     que não entrega — e não reativa: a recorrência no gateway já foi cancelada.
  */
-async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
+async function handleConfirmed(
+  tx: Tx,
+  pagamento: PaymentRow,
+  booking: BookingRow,
+  payload: AsaasWebhookPayload,
+  afterCommit: AfterCommit,
+): Promise<PushJob[]> {
   // Nunca rebaixa uma cobrança que já está à frente (evento fora de ordem).
   await tx
     .update(payments)
     .set({ status: 'confirmed', paidAt: new Date(), providerPayload: payload as Record<string, unknown>, deleteRequestedAt: null, updatedAt: new Date() })
     .where(and(eq(payments.id, pagamento.id), sql`${payments.status} IN ('pending', 'overdue', 'failed')`));
 
-  const primeiraAtivacao = !booking.activatedAt;
-
-  if (booking.status === 'expired' && booking.kind === 'temporary') {
-    return confirmedAfterHoldExpired(tx, pagamento, booking);
-  }
   if (booking.status === 'ended' || booking.status === 'cancelled' || booking.status === 'expired' || booking.status === 'rejected') {
-    return requestLateRefund(tx, pagamento, booking, 'Pagamento confirmado depois que o aluguel já tinha terminado.');
+    return requestLateRefund(tx, pagamento, booking, 'Pagamento confirmado depois que a locação já tinha terminado.');
   }
 
+  const primeiraAtivacao = !booking.activatedAt;
+  const regularizou = booking.status === 'past_due';
+  // Mensalidade de uma locação que já estava rodando = renovação.
+  const renovacao = !primeiraAtivacao && !regularizou;
+
+  let ativouAgora = false;
   if (booking.status === 'awaiting_payment' || booking.status === 'approved' || booking.status === 'past_due') {
-    await tx
+    const ativadas = await tx
       .update(bookings)
       .set({
         status: 'active',
         activatedAt: booking.activatedAt ?? new Date(),
-        holdExpiresAt: null,
         paymentIssueStartedAt: null,
         paymentIssueDeadlineAt: null,
         updatedAt: new Date(),
       })
-      .where(eq(bookings.id, booking.id));
+      .where(and(eq(bookings.id, booking.id), sql`${bookings.status} IN ('approved', 'awaiting_payment', 'past_due')`))
+      .returning({ id: bookings.id });
+    ativouAgora = ativadas.length > 0;
 
     if (pagamento.subscriptionId) {
       await tx
@@ -428,94 +452,84 @@ async function handleConfirmed(tx: Tx, pagamento: PaymentRow, booking: BookingRo
     }
   }
 
-  const temporario = booking.kind === 'temporary';
-  const regularizou = booking.status === 'past_due';
-  // Fase 23: mensalidade de um aluguel que já estava rodando = renovação.
-  const renovacao = !primeiraAtivacao && !regularizou;
+  const [anuncio] = await tx.select({ title: spaces.title }).from(spaces).where(eq(spaces.id, booking.spaceId)).limit(1);
+  const titulo = anuncio?.title ?? 'o espaço';
+  const hoje = brDate(new Date());
+  const comecaDepois = booking.startDate > hoje;
+
   const jobs = await insertNotifications(tx, [
     // dedupeKey por COBRANCA: CONFIRMED e RECEIVED da mesma cobranca (eventos
-    // diferentes, ids diferentes) nao viram dois avisos iguais (Fase 21).
+    // diferentes, ids diferentes) nao viram dois avisos iguais.
     {
       userId: booking.renterId, type: 'payment_confirmed',
       title: regularizou ? 'Pagamento regularizado' : renovacao ? 'Renovação confirmada' : 'Pagamento confirmado',
-      body: temporario
-        ? 'Seu pagamento foi confirmado. A reserva está garantida no horário escolhido.'
-        : regularizou
-          ? 'Recebemos o pagamento. Seu aluguel continua ativo.'
-          : renovacao
-            ? 'O pagamento da renovação foi confirmado. Seu aluguel segue ativo por mais um mês.'
-            : 'Seu pagamento foi confirmado. O aluguel segue ativo.',
+      body: regularizou
+        ? `Recebemos o pagamento. Sua locação de "${titulo}" continua ativa.`
+        : renovacao
+          ? `O pagamento da mensalidade de "${titulo}" foi confirmado. A locação segue ativa por mais um mês.`
+          : comecaDepois
+            ? `Sua locação de "${titulo}" está confirmada e começa em ${formatDateShort(booking.startDate)}. As instruções de acesso e a rota estão em Meus aluguéis.`
+            : `Sua locação de "${titulo}" está confirmada. As instruções de acesso e a rota estão em Meus aluguéis.`,
       linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
     {
       userId: booking.ownerId, type: 'payment_confirmed',
-      title: temporario ? 'Nova reserva confirmada' : regularizou ? 'Pagamento regularizado' : renovacao ? 'Renovação paga' : 'Pagamento recebido',
-      body: temporario
-        ? 'Uma reserva por tempo foi paga e confirmada. Veja o horário em Solicitações.'
-        : regularizou
-          ? 'O locatário regularizou o pagamento deste mês.'
-          : renovacao
-            ? 'O locatário pagou a renovação deste mês.'
-            : 'O pagamento deste aluguel foi confirmado pelo locatário.',
-      linkPath: temporario ? `/reservas/${booking.id}` : '/meus-espacos/financeiro',
+      title: regularizou ? 'Pagamento regularizado' : renovacao ? 'Mensalidade paga' : 'Locação confirmada',
+      body: regularizou
+        ? `O locatário regularizou o pagamento de "${titulo}".`
+        : renovacao
+          ? `O locatário pagou a mensalidade de "${titulo}".`
+          : `O pagamento foi confirmado e a locação de "${titulo}" está garantida${comecaDepois ? `, com início em ${formatDateShort(booking.startDate)}` : ''}.`,
+      linkPath: renovacao || regularizou ? '/meus-espacos/financeiro' : `/reservas/${booking.id}`,
       data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
   ]);
 
+  // Primeira ativação com a data de início já chegada: "locação iniciada" na hora.
+  // (Com início no futuro, quem avisa no dia é a manutenção — mesma dedupeKey.)
+  if (ativouAgora && primeiraAtivacao && !comecaDepois) {
+    jobs.push(
+      ...(await insertNotifications(tx, [
+        {
+          userId: booking.renterId, type: 'rental_started', title: 'Sua locação começou',
+          body: `A locação de "${titulo}" já pode ser usada. As instruções de acesso e a rota estão em Meus aluguéis.`,
+          linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id }, dedupeKey: `rental_started:${booking.id}`,
+        },
+        {
+          userId: booking.ownerId, type: 'rental_started', title: 'Locação iniciada',
+          body: `A locação de "${titulo}" começou hoje.`,
+          linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id }, dedupeKey: `rental_started:${booking.id}`,
+        },
+      ])),
+    );
+  }
+
+  // As instruções de acesso (texto e/ou áudio) vão para o chat só agora que o pagamento
+  // está confirmado — antes disso a localização exata é privada.
+  if (ativouAgora && primeiraAtivacao && (booking.accessInstructions || booking.accessAudioPath)) {
+    afterCommit.push(() =>
+      postAccessInstructions({
+        spaceId: booking.spaceId,
+        renterId: booking.renterId,
+        ownerId: booking.ownerId,
+        spaceTitle: titulo,
+        text: booking.accessInstructions,
+        audio: booking.accessAudioPath && booking.accessAudioDurationMs && booking.accessAudioMime
+          ? { path: booking.accessAudioPath, durationMs: booking.accessAudioDurationMs, mime: booking.accessAudioMime }
+          : null,
+      }),
+    );
+  }
+
   await tx.insert(auditLogs).values({
     actorId: null, actorRole: 'system', action: 'payment.confirmed',
     entityType: 'payment', entityId: pagamento.id,
-    metadata: { bookingId: booking.id, primeiraAtivacao, regularizou, kind: booking.kind },
+    metadata: { bookingId: booking.id, primeiraAtivacao, regularizou },
   });
 
   return jobs;
-}
-
-/**
- * Temporário que expirou antes de o pagamento chegar. Tenta reativar dentro
- * de um SAVEPOINT: se outra pessoa já reservou a unidade naquele horário, a
- * restrição `bookings_unit_no_overlap` recusa — e aí o pagamento é estornado.
- * Se o horário inteiro já passou, também estorna (não há o que entregar).
- */
-async function confirmedAfterHoldExpired(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
-  const horarioJaPassou = booking.endsAt != null && booking.endsAt.getTime() <= Date.now();
-  if (booking.endReason !== 'hold_expired' || horarioJaPassou) {
-    return requestLateRefund(tx, pagamento, booking, 'Pagamento confirmado depois que a reserva expirou.');
-  }
-  try {
-    await tx.transaction(async (tx2) => {
-      await tx2
-        .update(bookings)
-        .set({ status: 'active', endReason: null, activatedAt: new Date(), updatedAt: new Date() })
-        .where(and(eq(bookings.id, booking.id), eq(bookings.status, 'expired')));
-    });
-  } catch (err) {
-    const pg = err instanceof PostgresError ? err : err instanceof Error && err.cause instanceof PostgresError ? err.cause : null;
-    if (pg?.code === '23P01') {
-      return requestLateRefund(tx, pagamento, booking, 'Pagamento confirmado depois que a reserva expirou e a unidade já tinha sido reservada por outra pessoa.');
-    }
-    throw err;
-  }
-  await tx.insert(auditLogs).values({
-    actorId: null, actorRole: 'system', action: 'booking.reactivated_after_late_payment',
-    entityType: 'booking', entityId: booking.id, metadata: { paymentId: pagamento.id },
-  });
-  return insertNotifications(tx, [
-    {
-      userId: booking.renterId, type: 'payment_confirmed', title: 'Pagamento confirmado',
-      body: 'O pagamento chegou depois do prazo, mas a unidade ainda estava livre: sua reserva está garantida.',
-      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
-      dedupeKey: `payment_confirmed:${pagamento.id}`,
-    },
-    {
-      userId: booking.ownerId, type: 'payment_confirmed', title: 'Nova reserva confirmada',
-      body: 'Uma reserva por tempo foi paga e confirmada. Veja o horário em Solicitações.',
-      linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
-      dedupeKey: `payment_confirmed:${pagamento.id}`,
-    },
-  ]);
 }
 
 /**
@@ -555,11 +569,17 @@ async function requestLateRefund(tx: Tx, pagamento: PaymentRow, booking: Booking
  * mandar estornar o que chegou tarde. Sem isso, um aluguel pago por Pix
  * nunca ficava ativo.
  */
-async function handleReceived(tx: Tx, pagamentoRecebido: PaymentRow, booking: BookingRow, payload: AsaasWebhookPayload): Promise<PushJob[]> {
+async function handleReceived(
+  tx: Tx,
+  pagamentoRecebido: PaymentRow,
+  booking: BookingRow,
+  payload: AsaasWebhookPayload,
+  afterCommit: AfterCommit,
+): Promise<PushJob[]> {
   let pagamento = pagamentoRecebido;
   let jobs: PushJob[] = [];
   if (pagamento.status === 'pending' || pagamento.status === 'overdue' || pagamento.status === 'failed') {
-    jobs = await handleConfirmed(tx, pagamento, booking, payload);
+    jobs = await handleConfirmed(tx, pagamento, booking, payload, afterCommit);
     // A confirmação pode ter mandado estornar (pagamento depois do fim): relê.
     const [relida] = await tx.select().from(payments).where(eq(payments.id, pagamento.id)).limit(1);
     if (relida) pagamento = relida;
@@ -664,9 +684,9 @@ async function handleReceived(tx: Tx, pagamentoRecebido: PaymentRow, booking: Bo
 }
 
 /**
- * Cobrança vencida. No aluguel mensal em andamento, é a falha da cobrança
- * (Pix do mês não pago até o vencimento): abre a janela de regularização
- * — 40 min + 1 h, fixa — em vez de encerrar na hora.
+ * Cobrança vencida. Na locação em andamento, é a falha da cobrança (Pix do mês
+ * não pago até o vencimento): abre a janela de regularização — 2 horas, no
+ * TOTAL — em vez de encerrar na hora.
  */
 async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow): Promise<PushJob[]> {
   await tx
@@ -678,15 +698,16 @@ async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow)
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id },
   });
 
-  if (booking.kind === 'continuous' && booking.status === 'active') {
+  if (booking.status === 'active') {
     return openPaymentWindow(tx, pagamento, booking, 'overdue');
   }
-  // Primeira cobrança ainda não paga: os dois lados ficam sabendo do atraso.
-  if (booking.kind === 'continuous' && (booking.status === 'awaiting_payment' || booking.status === 'approved')) {
+  // Primeira cobrança ainda não paga: a pessoa fica sabendo do atraso (a vaga só segue
+  // reservada até o fim do prazo de 24 h do aceite).
+  if (booking.status === 'awaiting_payment' || booking.status === 'approved') {
     return insertNotifications(tx, [
       {
         userId: booking.renterId, type: 'payment_failed', title: 'Pagamento em atraso',
-        body: 'O primeiro pagamento deste aluguel venceu. Pague pelo app para garantir o espaço.',
+        body: 'O primeiro pagamento desta locação venceu. Pague pelo app para garantir a vaga.',
         linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
         dedupeKey: `payment_overdue:${pagamento.id}`,
       },
@@ -698,8 +719,8 @@ async function handleOverdue(tx: Tx, pagamento: PaymentRow, booking: BookingRow)
 /**
  * Cobrança recusada (cartão recusado pela operadora ou reprovado na análise
  * de risco). A cobrança continua em aberto no Asaas e pode ser paga de
- * outro jeito ("Pagar agora" troca a forma de pagamento dela). No mensal em
- * andamento, abre a mesma janela de 40 min + 1 h.
+ * outro jeito ("Pagar agora" troca a forma de pagamento dela). Na locação em
+ * andamento, abre a mesma janela de 2 horas.
  */
 async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, motivo: string): Promise<PushJob[]> {
   await tx
@@ -711,16 +732,17 @@ async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, 
     entityType: 'payment', entityId: pagamento.id, metadata: { bookingId: booking.id, motivo },
   });
 
-  if (booking.kind === 'continuous' && booking.status === 'active') {
+  if (booking.status === 'active') {
     return openPaymentWindow(tx, pagamento, booking, 'card_refused');
   }
-  if (booking.status === 'past_due') return []; // a janela já está aberta
+  if (booking.status === 'past_due') return []; // a janela já está aberta; a tela mostra o motivo
+  if (booking.status !== 'approved' && booking.status !== 'awaiting_payment') return [];
 
   return insertNotifications(tx, [
     {
       userId: booking.renterId, type: 'payment_failed', title: 'Pagamento recusado',
-      body: 'Seu pagamento não foi aprovado. Tente com outro cartão ou pague com Pix.',
-      linkPath: booking.kind === 'temporary' ? `/reservas/${booking.id}/pagar` : `/reservas/${booking.id}`,
+      body: 'Seu pagamento não foi aprovado. Tente com outro cartão ou pague com Pix — a vaga segue reservada até o fim do prazo.',
+      linkPath: `/reservas/${booking.id}`,
       data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_failed:${pagamento.id}`,
     },
@@ -728,10 +750,11 @@ async function handleFailed(tx: Tx, pagamento: PaymentRow, booking: BookingRow, 
 }
 
 /**
- * Abre a janela de regularização do pagamento pendente (Parte 12): o
- * aluguel NÃO é cancelado na hora. São 40 minutos e, depois, mais 1 hora;
- * o prazo fica gravado na reserva (o banco confere que é exatamente esse) e
- * quem encerra no fim é `release_expired_rentals`, pelo relógio do banco.
+ * Abre a janela de regularização do pagamento pendente: a locação NÃO é
+ * cancelada na hora. São 2 horas no TOTAL; o prazo fica gravado na locação
+ * (o banco confere que é exatamente esse) e quem encerra no fim é
+ * `release_expired_rentals`, pelo relógio do banco. Durante a janela dá para
+ * tentar o cartão de novo ou pagar por Pix; regularizou, a locação continua.
  */
 async function openPaymentWindow(tx: Tx, pagamento: PaymentRow, booking: BookingRow, causa: 'overdue' | 'card_refused'): Promise<PushJob[]> {
   const abertas = await tx
@@ -739,11 +762,11 @@ async function openPaymentWindow(tx: Tx, pagamento: PaymentRow, booking: Booking
     .set({
       status: 'past_due',
       paymentIssueStartedAt: sql`now()`,
-      paymentIssueDeadlineAt: sql`now() + interval '100 minutes'`,
+      paymentIssueDeadlineAt: sql`now() + make_interval(mins => ${PAYMENT_WINDOW_MINUTES})`,
       updatedAt: new Date(),
     })
     .where(and(eq(bookings.id, booking.id), eq(bookings.status, 'active')))
-    .returning({ id: bookings.id });
+    .returning({ prazo: bookings.paymentIssueDeadlineAt });
   if (abertas.length === 0) return [];
 
   if (pagamento.subscriptionId) {
@@ -757,19 +780,20 @@ async function openPaymentWindow(tx: Tx, pagamento: PaymentRow, booking: Booking
     entityType: 'booking', entityId: booking.id, metadata: { paymentId: pagamento.id, causa },
   });
 
+  const ate = abertas[0]?.prazo ? brTime(abertas[0].prazo) : null;
   const automatico = pagamento.method === 'credit_card';
   return insertNotifications(tx, [
     {
       userId: booking.renterId, type: 'payment_failed', title: 'Pagamento pendente',
-      body: automatico
-        ? 'Não conseguimos concluir seu pagamento automático. Regularize o pagamento para continuar com seu aluguel.'
-        : 'Não identificamos o pagamento da mensalidade. Regularize o pagamento para continuar com seu aluguel.',
+      body: `${automatico
+        ? 'Não conseguimos concluir seu pagamento automático.'
+        : 'Não identificamos o pagamento da mensalidade.'} Você tem 2 horas${ate ? ` (até as ${ate})` : ''} para regularizar — tente o cartão de novo ou pague por Pix. Sem pagamento, a locação é encerrada.`,
       linkPath: `/reservas/${booking.id}/pendente`, data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_issue:${booking.id}:${pagamento.id}`,
     },
     {
       userId: booking.ownerId, type: 'payment_failed', title: 'Pagamento do locatário pendente',
-      body: 'A cobrança deste mês não foi concluída. O locatário tem 1 hora e 40 minutos para regularizar; sem pagamento, o aluguel é encerrado e a unidade volta a ficar disponível.',
+      body: 'A cobrança deste mês não foi concluída. O locatário tem 2 horas para regularizar; sem pagamento, a locação é encerrada e a vaga volta a ficar disponível.',
       linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_issue:${booking.id}:${pagamento.id}`,
     },

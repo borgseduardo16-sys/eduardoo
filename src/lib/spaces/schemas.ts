@@ -145,14 +145,45 @@ export const contentStepSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Etapa 6 — Preco e disponibilidade
+// Etapa 6 — Como alugar: preço mensal, quantidade e disponibilidade
 // ---------------------------------------------------------------------------
 
-/*
- * Etapa 6 — "Como alugar" (Parte 12): grupos de unidades, modos e preços.
- * A validação mora em `src/lib/rentals/config.ts` (`parseRentalConfig`),
- * porque não é um formulário plano: cada grupo tem as próprias regras.
+/** Teto de unidades por anúncio (igual ao CHECK `spaces_quantity_offered_range`). */
+export const QUANTITY_MAX = 10_000;
+/** Teto de sanidade do preço mensal: R$ 1.000.000,00 (igual ao CHECK `spaces_price_sane`). */
+export const PRICE_MAX_CENTS = 100_000_000;
+
+const vazioParaIndefinido = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
+
+/**
+ * O marketplace aluga só por MÊS. O anúncio tem um preço mensal e uma
+ * QUANTIDADE: quantas unidades o proprietário oferece na plataforma (uma
+ * garagem = 1; um estacionamento com 80 vagas na plataforma = 80) e,
+ * opcionalmente, o total real do local (100 vagas, das quais 80 aqui).
+ * Não há unidade individual (A1, B17…): a organização física é do
+ * proprietário e vai nas instruções de acesso do aceite.
+ *
+ * `priceMonthly` é o TEXTO digitado ("300", "1.500,50"): a conversão para
+ * centavos inteiros e as conferências de mínimo e teto são do servidor.
  */
+export const priceStepSchema = z.object({
+  priceMonthly: z.string().trim().min(1, 'Informe o valor mensal.').max(20, 'Valor inválido.'),
+  quantityOffered: z.coerce
+    .number({ error: 'Informe quantas unidades você oferece.' })
+    .int('Use um número inteiro.')
+    .min(1, 'Ofereça pelo menos 1 unidade.')
+    .max(QUANTITY_MAX, `No máximo ${QUANTITY_MAX} unidades por anúncio.`),
+  quantityTotal: z.preprocess(
+    vazioParaIndefinido,
+    z.coerce
+      .number({ error: 'Use um número inteiro.' })
+      .int('Use um número inteiro.')
+      .min(1, 'O total precisa ser de pelo menos 1.')
+      .max(QUANTITY_MAX, `No máximo ${QUANTITY_MAX}.`)
+      .optional(),
+  ),
+  availableFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a partir de quando o espaço está disponível.'),
+});
 
 // ---------------------------------------------------------------------------
 // Etapa 7 — Regras

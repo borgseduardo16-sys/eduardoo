@@ -232,6 +232,13 @@
       "when": 1790849030748,
       "tag": "0032_aluguel_unidades",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791100000000,
+      "tag": "0033_modelo_mensal_quantidade",
+      "breakpoints": true
     }
   ]
 }

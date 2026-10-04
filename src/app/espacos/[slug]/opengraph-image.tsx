@@ -2,7 +2,7 @@ import { ImageResponse } from 'next/og';
 import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { SPACE_IMAGES_BUCKET } from '@/lib/storage/images';
-import { priceHeadline } from '@/lib/rentals/pricing';
+import { priceHeadline } from '@/lib/spaces/price';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 
 /**

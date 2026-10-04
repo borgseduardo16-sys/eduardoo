@@ -18,9 +18,9 @@ import {
   alertCompatibleFavoritersOfNewSpace,
 } from '@/lib/notifications/space-alerts';
 import { onSpaceBecameUnavailable, onSpaceMaybeAvailableAgain } from './availability-events';
-import { parseRentalConfig, type ParsedGroup } from '@/lib/rentals/config';
-import { applyRentalConfig, RentalConfigError } from '@/lib/rentals/owner';
-import { brDate } from '@/lib/rentals/time';
+import { LIVE_STATUSES } from '@/lib/bookings/queries';
+import { formatBRL, parseBRLToCents, InvalidAmountError } from '@/lib/money';
+import { brDate } from '@/lib/time';
 import { buildSlug } from './slug';
 import { SPACE_TYPES, type SpaceTypeKey } from './types';
 import {
@@ -28,7 +28,9 @@ import {
   locationStepSchema,
   featuresStepSchema,
   contentStepSchema,
+  priceStepSchema,
   rulesStepSchema,
+  PRICE_MAX_CENTS,
   validateMeasurements,
   MIN_PHOTOS_TO_PUBLISH,
   type StepKey,
@@ -102,8 +104,7 @@ export async function createDraftAction(
         type: parsed.data.type,
         status: 'draft',
         title: '',
-        // Parte 12: sem preço até a etapa "Como alugar" — o preço do anúncio
-        // vem dos grupos de unidades, nunca de um valor provisório.
+        // Sem preço até a etapa "Como alugar": nunca um valor provisório.
         draftStep: 2,
       })
       .returning({ id: spaces.id });
@@ -173,22 +174,25 @@ export async function saveStepAction(
     throw err;
   }
 
-  // Anuncio alugado nao aceita edicao livre: mexer em endereco ou metragem
-  // mudaria o que quem ja esta usando o espaco contratou. "Como alugar"
-  // (Parte 12) continua editavel: os valores de cada reserva ficam
-  // congelados nela, e o banco nao deixa sumir unidade com aluguel vivo.
-  if (space.status === 'rented' && step !== 'regras' && step !== 'descricao' && step !== 'preco') {
+  // Anuncio com locacao em andamento nao aceita edicao livre: mexer em endereco
+  // ou metragem mudaria o que quem ja esta usando o espaco contratou. "Como
+  // alugar" continua editavel: os valores de cada locacao ficam congelados nela
+  // (o novo preco vale para as proximas), e o banco nao deixa a quantidade
+  // oferecida ficar abaixo do que ja esta ocupado.
+  const emUso = space.quantityOffered - space.quantityAvailable;
+  if (emUso > 0 && step !== 'regras' && step !== 'descricao' && step !== 'preco') {
     return {
       ok: false,
       message:
-        'Este espaço está alugado. Enquanto a locação estiver ativa, só é possível editar a descrição, as regras e como alugar.',
+        'Este espaço tem locação em andamento. Enquanto ela durar, só é possível editar a descrição, as regras e como alugar.',
     };
   }
 
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   let nextStep = space.draftStep;
-  // So preenchido no case 'preco' (Parte 12: grupos e unidades), gravado na mesma transacao.
-  let rentalConfig: ParsedGroup[] | null = null;
+  // So preenchido no case 'preco': depois de gravar, quem espera por vaga e avisado.
+  let mudouPreco = false;
+  let aumentouQuantidade = false;
 
   switch (step) {
     case 'localizacao': {
@@ -325,26 +329,53 @@ export async function saveStepAction(
     }
 
     case 'preco': {
-      // Parte 12: "Como alugar" — grupos de unidades, modos e preços. O
-      // formulário manda o que foi digitado; a conversão para centavos e
-      // todas as conferências acontecem aqui (e de novo no banco).
-      let bruto: unknown;
+      // "Como alugar": preço mensal, quantidade e disponibilidade. O navegador manda o
+      // que foi digitado; a conversão para centavos e todas as conferências acontecem
+      // aqui (e de novo no banco — CHECKs e gatilhos de `spaces`).
+      const parsed = priceStepSchema.safeParse({
+        priceMonthly: formData.get('priceMonthly'),
+        quantityOffered: formData.get('quantityOffered'),
+        quantityTotal: formData.get('quantityTotal') ?? '',
+        availableFrom: formData.get('availableFrom'),
+      });
+      if (!parsed.success) return { ok: false, fieldErrors: fieldErrors(parsed.error) };
+      const d = parsed.data;
+
+      let cents: number;
       try {
-        bruto = JSON.parse(String(formData.get('rentalConfig') ?? ''));
-      } catch {
-        return { ok: false, message: 'Não foi possível ler a configuração. Recarregue a página e tente de novo.' };
+        cents = parseBRLToCents(d.priceMonthly);
+      } catch (err) {
+        if (err instanceof InvalidAmountError) {
+          return { ok: false, fieldErrors: { priceMonthly: ['Valor inválido. Escreva, por exemplo, 300 ou 300,50.'] } };
+        }
+        throw err;
       }
       const minCharge = await settingInt('booking.min_rent_cents', 3500);
-      const resultado = parseRentalConfig(bruto, { minChargeCents: minCharge, today: brDate(new Date()) });
-      if (!resultado.ok) {
+      if (cents < minCharge) {
+        return { ok: false, fieldErrors: { priceMonthly: [`O valor mensal mínimo é ${formatBRL(minCharge)}.`] } };
+      }
+      if (cents > PRICE_MAX_CENTS) {
+        return { ok: false, fieldErrors: { priceMonthly: ['Esse valor é alto demais para um aluguel mensal.'] } };
+      }
+      if (d.quantityTotal != null && d.quantityTotal < d.quantityOffered) {
         return {
           ok: false,
-          message: resultado.errors.form ?? 'Revise os campos destacados.',
-          fieldErrors: Object.fromEntries(Object.entries(resultado.errors).map(([k, v]) => [k, [v]])),
+          fieldErrors: { quantityTotal: ['O total do local não pode ser menor que as unidades oferecidas aqui.'] },
         };
       }
-      rentalConfig = resultado.groups;
-      Object.assign(patch, { availableFrom: resultado.availableFrom });
+      // Data de disponibilidade não pode estar no passado — a menos que seja a que já estava gravada.
+      if (d.availableFrom < brDate(new Date()) && d.availableFrom !== space.availableFrom) {
+        return { ok: false, fieldErrors: { availableFrom: ['A data não pode estar no passado.'] } };
+      }
+
+      mudouPreco = space.priceMonthlyCents !== cents;
+      aumentouQuantidade = d.quantityOffered > space.quantityOffered;
+      Object.assign(patch, {
+        priceMonthlyCents: cents,
+        quantityOffered: d.quantityOffered,
+        quantityTotal: d.quantityTotal ?? null,
+        availableFrom: d.availableFrom,
+      });
       nextStep = Math.max(nextStep, 7);
       break;
     }
@@ -390,9 +421,6 @@ export async function saveStepAction(
   try {
     novoPrecoCents = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT set_config('myplace.actor_id', ${user.id}, true)`);
-      if (rentalConfig) {
-        await applyRentalConfig(tx, { spaceId, spaceType: space.type, groups: rentalConfig });
-      }
       await tx.update(spaces).set(patch).where(eq(spaces.id, spaceId));
       const [depois] = await tx
         .select({ preco: spaces.priceMonthlyCents })
@@ -402,8 +430,7 @@ export async function saveStepAction(
       return depois?.preco ?? null;
     });
   } catch (err) {
-    if (err instanceof RentalConfigError) return { ok: false, message: err.message };
-    const restricao = rentalConfigConstraint(err);
+    const restricao = spaceRuleMessage(err);
     if (restricao) return { ok: false, message: restricao };
     throw err;
   }
@@ -413,11 +440,10 @@ export async function saveStepAction(
    * e visivel (rascunho nao tem favorito) e so dispara se o preco realmente
    * caiu — a funcao mesma decide se a queda e significativa. Best-effort:
    * uma falha aqui nunca pode derrubar o salvamento do preco, que ja
-   * aconteceu. Parte 12: o preço mensal do anúncio vem dos grupos — anúncio
-   * só por hora não tem preço mensal para comparar.
+   * aconteceu.
    */
   if (
-    rentalConfig && space.status !== 'draft'
+    mudouPreco && space.status !== 'draft'
     && space.priceMonthlyCents != null && novoPrecoCents != null
     && novoPrecoCents !== space.priceMonthlyCents
   ) {
@@ -432,32 +458,39 @@ export async function saveStepAction(
     }
   }
 
+  // Mais unidades oferecidas num anúncio que estava lotado: voltou a ter vaga (o banco
+  // recontou e recolocou no ar) — lista de espera e favoritos ficam sabendo.
+  if (aumentouQuantidade && space.status !== 'draft') {
+    await onSpaceMaybeAvailableAgain(spaceId);
+  }
+
   revalidatePath(`/anunciar/${spaceId}`, 'layout');
   revalidatePath('/meus-espacos');
+  revalidatePath('/espacos');
 
   return { ok: true, spaceId };
 }
 
 /**
- * Recusa do banco ao gravar grupos e unidades, em texto para o proprietário.
- * O formulário já confere tudo isso antes; isto cobre o que só o banco vê
- * (outra aba salvando junto, aluguel que começou no meio do caminho).
+ * Recusa do banco ao gravar o anúncio, em texto para o proprietário. O
+ * formulário já confere o que dá; isto cobre o que só o banco vê (outra aba
+ * salvando junto, locação que começou no meio do caminho).
  */
-function rentalConfigConstraint(err: unknown): string | null {
+function spaceRuleMessage(err: unknown): string | null {
   const causa = err instanceof Error && err.cause ? err.cause : err;
   const regra = (causa as { constraint_name?: string } | null)?.constraint_name ?? '';
   switch (regra) {
-    case 'space_units_keep_live_rental':
-      return 'Há unidades com aluguel em andamento ou futuro neste grupo. Elas não podem sair agora.';
-    case 'spaces_published_requires_units':
-      return 'Um anúncio no ar precisa de pelo menos uma unidade para alugar.';
-    case 'space_unit_groups_space_name_key':
-      return 'Dois grupos ficaram com o mesmo nome. Use nomes diferentes.';
-    case 'space_unit_groups_packages_ordered':
-    case 'space_unit_groups_packages_valid':
-      return 'Os pacotes precisam estar em ordem de duração, sem repetir duração e sem pacote mais longo mais barato.';
+    case 'spaces_quantity_covers_rentals':
+      return 'Há locações em andamento: a quantidade oferecida não pode ficar menor que a quantidade ocupada.';
+    case 'spaces_quantity_total_covers_offered':
+      return 'O total do local não pode ser menor que as unidades oferecidas aqui.';
+    case 'spaces_quantity_offered_range':
+      return 'A quantidade oferecida precisa estar entre 1 e 10.000.';
+    case 'spaces_price_positive':
+    case 'spaces_price_sane':
+      return 'Revise o valor mensal: ele precisa ser positivo e razoável.';
     default:
-      return regra.startsWith('space_unit_groups_') ? 'Revise as regras de aluguel: alguma combinação não é válida.' : null;
+      return null;
   }
 }
 
@@ -519,11 +552,10 @@ export async function publishSpaceAction(
   if (measureErrors.sizeM2) faltando.push('metragem');
   if (measureErrors.ceilingHeightM) faltando.push('altura');
 
-  // Parte 12: o preço vem dos grupos de unidades. Sem nenhuma unidade
-  // alugável (com preço mensal ou regra de tempo), não há o que publicar —
-  // o banco recusa de novo (`spaces_published_requires_units`).
-  if (space.priceMonthlyCents == null && space.tempFromCents == null) {
-    faltando.push('como alugar (unidades e preços)');
+  // Sem preço mensal não há o que publicar — o banco recusa de novo
+  // (`spaces_published_requires_price`).
+  if (space.priceMonthlyCents == null) {
+    faltando.push('valor mensal e quantidade (como alugar)');
   }
 
   if (faltando.length) {
@@ -554,8 +586,8 @@ export async function publishSpaceAction(
     const causa = err instanceof Error && err.cause ? err.cause : err;
     const regra = (causa as { constraint_name?: string } | null)?.constraint_name ?? '';
     const msg = `${regra} ${err instanceof Error ? err.message : ''} ${causa instanceof Error ? causa.message : ''}`;
-    if (msg.includes('spaces_published_requires_units')) {
-      return { ok: false, message: 'Falta preencher: como alugar (unidades e preços).' };
+    if (msg.includes('spaces_published_requires_price')) {
+      return { ok: false, message: 'Falta preencher: valor mensal e quantidade (como alugar).' };
     }
     if (msg.includes('spaces_published_requires_complete')) {
       return { ok: false, message: 'O anúncio ainda está incompleto. Revise as etapas anteriores.' };
@@ -599,8 +631,6 @@ export async function publishSpaceAction(
     // Alertas de busca salva primeiro (Fase 23): quem pediu explicitamente
     // para ser avisado não recebe, além disso, o aviso "com o seu perfil".
     const { userIds: comAlerta } = await matchNewSpaceToAlerts(spaceId);
-    // O aviso "com o seu perfil" compara preço MENSAL (Parte 12): anúncio
-    // só por hora não entra nele.
     if (space.priceMonthlyCents != null) {
       try {
         await alertCompatibleFavoritersOfNewSpace(
@@ -653,14 +683,9 @@ export async function toggleSpaceStatusAction(
     return { ok: false, message: 'Anúncio não encontrado.' };
   }
 
-  if (space.status === 'rented') {
-    return {
-      ok: false,
-      message: 'Não é possível pausar um espaço alugado. Encerre a locação primeiro.',
-    };
-  }
-
-  const novo = space.status === 'published' ? 'paused' : 'published';
+  // Pausar tira o anúncio das buscas e para de receber pedidos novos; as locações em
+  // andamento seguem normalmente (também vale para um anúncio lotado).
+  const novo = space.status === 'published' || space.status === 'rented' ? 'paused' : 'published';
 
   if (novo === 'published' && !space.publishedAt) {
     return { ok: false, message: 'Este anúncio ainda não foi publicado.' };
@@ -698,9 +723,9 @@ export async function toggleSpaceStatusAction(
     ok: true,
     message:
       novo === 'paused'
-        ? 'Anúncio pausado.'
+        ? 'Anúncio pausado. Ele sai das buscas e não recebe pedidos novos; as locações em andamento continuam.'
         : gravado?.status === 'rented'
-          ? 'Anúncio retomado. Ele aparece como alugado enquanto houver uma reserva vigente.'
+          ? 'Anúncio retomado. Ele aparece como lotado enquanto não houver vaga livre.'
           : 'Anúncio de volta ao ar.',
   };
 }
@@ -735,8 +760,18 @@ export async function deleteSpaceAction(
     return { ok: false, message: 'Anúncio não encontrado.' };
   }
 
-  if (space.status === 'rented') {
-    return { ok: false, message: 'Não é possível excluir um espaço alugado.' };
+  // Locação em andamento (ou pedido ainda sem resposta) trava a exclusão e o arquivamento:
+  // quem aluga não pode perder o espaço por baixo. O proprietário responde os pedidos e
+  // espera ou pede o encerramento das locações antes.
+  const [{ vivas } = { vivas: 0 }] = await db
+    .select({ vivas: sql<number>`count(*)::int` })
+    .from(bookings)
+    .where(and(eq(bookings.spaceId, spaceId), inArray(bookings.status, [...LIVE_STATUSES])));
+  if (vivas > 0) {
+    return {
+      ok: false,
+      message: `Este anúncio tem ${vivas} ${vivas === 1 ? 'locação ou solicitação em andamento' : 'locações ou solicitações em andamento'}. Responda os pedidos e aguarde o fim das locações (ou peça o encerramento) antes de excluir.`,
+    };
   }
 
   const [{ total } = { total: 0 }] = await db

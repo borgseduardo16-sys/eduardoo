@@ -1,5 +1,5 @@
 import { CalendarCheck, Clock, MapPin, Ruler, ShieldCheck } from 'lucide-react';
-import { priceHeadline } from '@/lib/rentals/pricing';
+import { priceHeadline } from '@/lib/spaces/price';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { Icon } from '@/components/safety/icon';
 import { PhotoGallery } from './photo-gallery';
@@ -23,9 +23,6 @@ export type PreviewData = {
   sizeM2: string | null;
   ceilingHeightM: string | null;
   priceMonthlyCents: number | null;
-  tempFromCents?: number | null;
-  tempFromUnits?: number | null;
-  tempFromUnit?: 'hour' | 'day' | 'week' | null;
   availableFrom: string | null;
   accessHours: string | null;
   allowedItems: string | null;
@@ -57,9 +54,6 @@ export function SpacePreview({
 }) {
   const preco = priceHeadline({
     priceMonthlyCents: data.priceMonthlyCents,
-    tempFromCents: data.tempFromCents ?? null,
-    tempFromUnits: data.tempFromUnits ?? null,
-    tempFromUnit: data.tempFromUnit ?? null,
   });
   const disponivel = formatDate(data.availableFrom);
 
@@ -90,8 +84,7 @@ export function SpacePreview({
         {preco ? (
           <>
             <span className="text-[1.75rem] font-semibold tabular-nums">{preco.amount}</span>
-            <span className="text-[var(--content-muted)]">{preco.suffix.trim()}</span>
-            {preco.secondary && <span className="text-[0.875rem] text-[var(--content-subtle)]">· {preco.secondary}</span>}
+            <span className="text-[var(--content-muted)]">{preco.suffix}</span>
           </>
         ) : (
           <span className="text-[1.125rem] text-[var(--content-muted)]">Defina como alugar na etapa anterior</span>

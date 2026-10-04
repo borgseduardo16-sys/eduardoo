@@ -2,6 +2,7 @@ import { formatBRL } from '@/lib/money';
 import { formatDistance } from '@/lib/spaces/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { VEHICLE_LABEL, type Vehicle } from './need/vocabulary';
+import { earliestStartDate, type SpaceBlockPublic } from '@/lib/spaces/start-dates';
 
 /**
  * "X% compatível" (Fase 23).
@@ -64,7 +65,6 @@ export type MatchSpace = {
   type: string;
   district: string | null;
   city: string | null;
-  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
   priceMonthlyCents: number | null;
   /** TODAS as características marcadas no anúncio. */
   featureKeys: string[];
@@ -252,14 +252,15 @@ export function computeMatch(
   return { percent, items, criteriaCount: criterios };
 }
 
-/** Primeiro dia em que um aluguel pode começar: disponível a partir de, hoje e o dia seguinte ao último bloqueio. */
-export function earliestStartFrom(availableFrom: string | null, blockedUntil: string | null, today: string): string | null {
+/**
+ * Primeiro dia em que uma locação pode começar: disponível a partir de, hoje e
+ * fora dos bloqueios do calendário. Sem "disponível a partir de" no anúncio, `null`.
+ */
+export function earliestStartFrom(
+  availableFrom: string | null,
+  blocks: readonly SpaceBlockPublic[],
+  today: string,
+): string | null {
   if (!availableFrom) return null;
-  let inicio = availableFrom > today ? availableFrom : today;
-  if (blockedUntil && blockedUntil >= inicio) {
-    const d = new Date(`${blockedUntil}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + 1);
-    inicio = d.toISOString().slice(0, 10);
-  }
-  return inicio;
+  return earliestStartDate({ today, availableFrom, blocks });
 }

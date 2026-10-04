@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { ImageOff, MapPin, Star } from 'lucide-react';
-import { PriceTag } from '@/components/rentals/price-tag';
+import { PriceTag } from '@/components/espacos/price-tag';
 import { formatDistance } from '@/lib/spaces/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { FavoriteButton } from '@/components/favorites/favorite-button';

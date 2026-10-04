@@ -1,11 +1,10 @@
 import 'server-only';
-import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db/client';
 import { bookings, spaces, profiles, bookingStatus, payments } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
-import { settingInt } from '@/lib/settings';
-import { sweepExpiredRentals } from '@/lib/rentals/maintenance';
+import { sweepExpiredBookings } from './maintenance';
 
 export type BookingStatus = (typeof bookingStatus.enumValues)[number];
 
@@ -16,37 +15,20 @@ export class BookingNotFoundError extends Error {
   }
 }
 
-/** Status que ainda podem virar uma reserva ativa — usados para achar conflito de disponibilidade. */
+/**
+ * Status que OCUPAM uma vaga do anúncio. Igual à função `booking_occupies` do
+ * banco (migração 0026) — quem conta as vagas de verdade é o banco; esta
+ * lista serve a telas e a consultas que precisam do mesmo critério.
+ */
 export const OCCUPYING_STATUSES = ['approved', 'awaiting_payment', 'active', 'past_due'] as const;
+
+/** Status de uma solicitação/locação ainda viva (ocupando vaga ou aguardando resposta). */
+export const LIVE_STATUSES = ['requested', ...OCCUPYING_STATUSES] as const;
 
 const coverPathExpr = sql<string | null>`(
   SELECT COALESCE(si.thumb_path, si.storage_path) FROM space_images si
   WHERE si.space_id = spaces.id ORDER BY si.position ASC LIMIT 1
 )`;
-
-/**
- * Solicitacoes 'requested' mais velhas que o prazo configurado viram
- * 'expired' — de verdade, gravado no banco, nao so escondido na tela.
- *
- * Chamada no INICIO de toda consulta de lista (proprietario e locatario):
- * e uma varredura preguicosa, disparada por trafego de leitura real, sem
- * precisar de worker agendado. Idempotente — rodar de novo sem nada vencido
- * so nao atualiza linha nenhuma.
- */
-export async function expireStaleBookingRequests(): Promise<number> {
-  const dias = await settingInt('booking.request_expiry_days', 7);
-  const result = await db
-    .update(bookings)
-    .set({ status: 'expired', updatedAt: new Date() })
-    .where(
-      and(
-        eq(bookings.status, 'requested'),
-        lt(bookings.requestedAt, sql`now() - (${dias} || ' days')::interval`),
-      ),
-    )
-    .returning({ id: bookings.id });
-  return result.length;
-}
 
 /** Espaco visto pela tela de solicitacao — so o que o locatario pode ver antes de reservar. */
 export async function getSpaceForBookingRequest(spaceId: string) {
@@ -64,6 +46,9 @@ export async function getSpaceForBookingRequest(spaceId: string) {
       priceMonthlyCents: spaces.priceMonthlyCents,
       depositEnabled: spaces.depositEnabled,
       availableFrom: spaces.availableFrom,
+      quantityOffered: spaces.quantityOffered,
+      quantityAvailable: spaces.quantityAvailable,
+      quantityTotal: spaces.quantityTotal,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
       coverPath: coverPathExpr,
@@ -73,16 +58,6 @@ export async function getSpaceForBookingRequest(spaceId: string) {
     .where(and(eq(spaces.id, spaceId), isNull(spaces.deletedAt)))
     .limit(1);
   return row ?? null;
-}
-
-/** true quando o espaco ja tem uma reserva que ocupa o periodo (aprovada ou alem). */
-export async function spaceHasOccupyingBooking(spaceId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: bookings.id })
-    .from(bookings)
-    .where(and(eq(bookings.spaceId, spaceId), inArray(bookings.status, [...OCCUPYING_STATUSES])))
-    .limit(1);
-  return Boolean(row);
 }
 
 /** Solicitacao 'requested' que ESTE locatario ja tem para este espaco, se houver — evita duplicata sem impedir de verdade. */
@@ -96,12 +71,10 @@ export async function findPendingRequestBySameRenter(spaceId: string, renterId: 
 }
 
 /**
- * Relacao ATIVA de quem esta vendo a pagina com este espaco — pendente,
- * aprovada ou em andamento. Usado na pagina publica do anuncio pra decidir
- * entre mostrar "Solicitar aluguel" ou o status do que ja existe, em vez de
- * deixar a pessoa mandar uma segunda solicitacao sem saber que a primeira
- * ainda esta em aberto — e, desde a Fase 23, pra quem ESTA alugando o
- * espaco ver o proprio aluguel em vez do convite da lista de espera.
+ * Relação VIVA de quem está vendo a página com este espaço — pedido
+ * pendente, aceita ou em andamento. Decide entre mostrar "Solicitar aluguel"
+ * ou o status do que já existe (e, para quem JÁ aluga, o próprio aluguel em
+ * vez do convite da lista de espera).
  */
 export async function getViewerActiveBookingForSpace(spaceId: string, viewerId: string) {
   const [row] = await db
@@ -109,14 +82,13 @@ export async function getViewerActiveBookingForSpace(spaceId: string, viewerId: 
       id: bookings.id,
       status: sql<string>`${bookings.status}::text`,
       reference: bookings.reference,
-      kind: sql<'continuous' | 'temporary'>`${bookings.kind}::text`,
     })
     .from(bookings)
     .where(
       and(
         eq(bookings.spaceId, spaceId),
         eq(bookings.renterId, viewerId),
-        inArray(bookings.status, ['requested', ...OCCUPYING_STATUSES]),
+        inArray(bookings.status, [...LIVE_STATUSES]),
       ),
     )
     .orderBy(desc(bookings.requestedAt))
@@ -167,34 +139,28 @@ const listSelection = {
   spaceDistrict: spaces.district,
   spaceCity: spaces.city,
   spaceCoverPath: coverPathExpr,
-  // ---- Parte 12: forma do aluguel, unidade, horários e prazos ----
-  kind: sql<'continuous' | 'temporary'>`${bookings.kind}::text`,
-  groupId: bookings.groupId,
-  groupName: sql<string | null>`(SELECT g.name FROM space_unit_groups g WHERE g.id = bookings.group_id)`,
-  unitLabel: sql<string | null>`(SELECT u.label FROM space_units u WHERE u.id = bookings.unit_id)`,
-  /** Quantos grupos ativos o anúncio tem — o nome do grupo só aparece quando há mais de um. */
-  spaceGroupCount: sql<number>`(SELECT count(*)::int FROM space_unit_groups g WHERE g.space_id = bookings.space_id AND g.active)`,
-  startsAt: bookings.startsAt,
-  endsAt: bookings.endsAt,
-  occupiedUntil: bookings.occupiedUntil,
-  durationUnits: bookings.durationUnits,
-  durationUnit: sql<'hour' | 'day' | 'week' | null>`${bookings.durationUnit}::text`,
-  renewalAllowed: bookings.renewalAllowed,
-  renewedFromId: bookings.renewedFromId,
-  /** Já existe uma renovação viva desta reserva (não oferece renovar de novo). */
-  renewalId: sql<string | null>`(
-    SELECT r.id FROM bookings r
-    WHERE r.renewed_from_id = bookings.id
-      AND r.status IN ('awaiting_payment', 'active')
-    ORDER BY r.created_at DESC LIMIT 1
-  )`,
-  holdExpiresAt: bookings.holdExpiresAt,
+  // ---- Prazos (relógio do banco) ----
+  /** Até quando o proprietário responde ao pedido (24 h). */
+  responseDeadlineAt: bookings.responseDeadlineAt,
+  /** Até quando o locatário paga a locação aceita (24 h). */
+  firstPaymentDeadlineAt: bookings.firstPaymentDeadlineAt,
+  /** Janela TOTAL de 2 h do pagamento pendente. */
   paymentIssueStartedAt: bookings.paymentIssueStartedAt,
   paymentIssueDeadlineAt: bookings.paymentIssueDeadlineAt,
   endReason: sql<string | null>`${bookings.endReason}::text`,
   subscriptionMethod: sql<string | null>`(
     SELECT method::text FROM subscriptions s
     WHERE s.booking_id = bookings.id ORDER BY s.created_at DESC LIMIT 1
+  )`,
+  // ---- Pedido de encerramento pendente (feito pelo proprietário) ----
+  pendingEndRequestId: sql<string | null>`(
+    SELECT r.id FROM booking_end_requests r WHERE r.booking_id = bookings.id AND r.status = 'pending' LIMIT 1
+  )`,
+  pendingEndDate: sql<string | null>`(
+    SELECT r.requested_end_date::text FROM booking_end_requests r WHERE r.booking_id = bookings.id AND r.status = 'pending' LIMIT 1
+  )`,
+  pendingEndReason: sql<string | null>`(
+    SELECT r.reason FROM booking_end_requests r WHERE r.booking_id = bookings.id AND r.status = 'pending' LIMIT 1
   )`,
 };
 
@@ -222,6 +188,15 @@ const lastPaymentAmountExpr = sql<number | null>`(
   SELECT amount_cents FROM payments p
   WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
 )`;
+const lastPaymentMethodExpr = sql<string | null>`(
+  SELECT method::text FROM payments p
+  WHERE p.booking_id = bookings.id ORDER BY p.due_date DESC LIMIT 1
+)`;
+/** Pagamentos já confirmados desta locação — o histórico "mensalidades pagas". */
+const paidCountExpr = sql<number>`(
+  SELECT count(*)::int FROM payments p
+  WHERE p.booking_id = bookings.id AND p.status IN ('confirmed', 'received')
+)`;
 
 /**
  * Reservas/solicitacoes do LOCATARIO — para /reservas.
@@ -229,12 +204,12 @@ const lastPaymentAmountExpr = sql<number | null>`(
  * Inclui o status REAL de pagamento (assinatura + ultima cobranca) quando
  * existir — sem isso a tela so mostraria o status da reserva, nunca "sua
  * proxima cobranca vence dia X" nem "esse pagamento atrasou de verdade".
+ *
+ * Prazo vencido (pedido sem resposta, aceite sem pagamento, pagamento
+ * pendente depois de 2 h) é encerrado pelo relógio do banco ANTES de listar.
  */
 export async function listRenterBookings(renterId: string) {
-  await expireStaleBookingRequests();
-  // Parte 12: prazo vencido (reserva não paga, horário que acabou, pagamento
-  // pendente sem pagamento) é encerrado pelo relógio do banco antes de listar.
-  await sweepExpiredRentals();
+  await sweepExpiredBookings();
   return db
     .select({
       ...listSelection,
@@ -245,6 +220,8 @@ export async function listRenterBookings(renterId: string) {
       lastPaymentStatus: lastPaymentStatusExpr,
       lastPaymentDueDate: lastPaymentDueDateExpr,
       lastPaymentAmountCents: lastPaymentAmountExpr,
+      lastPaymentMethod: lastPaymentMethodExpr,
+      paidCount: paidCountExpr,
     })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
@@ -265,9 +242,10 @@ export async function getRenterBooking(id: string, renterId: string) {
 }
 
 /**
- * Quem pediu o espaco, visto pelo proprietario (Fase 21): so dado publico —
- * nome publico, foto, verificacoes reais, locacoes concluidas. Telefone e
- * e-mail continuam fora: o contato e pelo chat da plataforma.
+ * Quem pediu o espaço, visto pelo proprietário: só dado público — nome
+ * público, foto, verificações reais (e-mail, telefone, identidade) e
+ * locações concluídas. O telefone em si e o e-mail continuam fora: o contato
+ * é pelo chat da plataforma.
  */
 const renterPublicSelection = {
   renterId: profiles.id,
@@ -298,14 +276,17 @@ function publicPerson(p: typeof renterP | typeof ownerP) {
 }
 
 /**
- * Pagina da reserva (/reservas/[id], Fase 21) — para QUALQUER uma das duas
- * partes, e so para elas. A posse esta no WHERE: id de reserva alheia
- * devolve null, igual a id inexistente (nao da para descobrir se existe).
+ * Página da locação (/reservas/[id]) — para QUALQUER uma das duas partes, e
+ * só para elas. A posse está no WHERE: id de reserva alheia devolve null,
+ * igual a id inexistente (não dá para descobrir se existe).
  *
- * De cada parte sai so o dado publico (nome publico, foto, verificacoes);
- * telefone e e-mail seguem fora — o contato e pelo chat da plataforma.
+ * As INSTRUÇÕES DE ACESSO seguem a mesma regra do endereço exato: o
+ * proprietário (que as escreveu) vê sempre; o locatário só depois que a
+ * locação está confirmada (paga). A condição está dentro da consulta, não num
+ * `if` depois — nenhum chamador consegue pular a regra.
  */
 export async function getBookingForParticipant(id: string, userId: string) {
+  const instrucoesLiberadas = sql`(${bookings.ownerId} = ${userId} OR ${bookings.status} IN ('active', 'past_due'))`;
   const [row] = await db
     .select({
       ...listSelection,
@@ -318,9 +299,16 @@ export async function getBookingForParticipant(id: string, userId: string) {
       lastPaymentDueDate: lastPaymentDueDateExpr,
       lastPaymentAmountCents: lastPaymentAmountExpr,
       lastPaymentInvoiceUrl: lastPaymentInvoiceUrlExpr,
+      lastPaymentMethod: lastPaymentMethodExpr,
+      paidCount: paidCountExpr,
       depositInvoiceUrl: sql<string | null>`(
         SELECT invoice_url FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
       )`,
+      accessInstructions: sql<string | null>`CASE WHEN ${instrucoesLiberadas} THEN ${bookings.accessInstructions} END`,
+      hasAccessAudio: sql<boolean>`(${instrucoesLiberadas} AND ${bookings.accessAudioPath} IS NOT NULL)`,
+      accessAudioDurationMs: sql<number | null>`CASE WHEN ${instrucoesLiberadas} THEN ${bookings.accessAudioDurationMs} END`,
+      /** O proprietário escreveu instruções (a pessoa que aluga só vê o conteúdo depois do pagamento). */
+      accessProvided: sql<boolean>`(${bookings.accessInstructions} IS NOT NULL OR ${bookings.accessAudioPath} IS NOT NULL)`,
       renter: publicPerson(renterP),
       owner: publicPerson(ownerP),
     })
@@ -336,16 +324,17 @@ export async function getBookingForParticipant(id: string, userId: string) {
 
 export type BookingDetail = NonNullable<Awaited<ReturnType<typeof getBookingForParticipant>>>;
 
-/** Status em que o locatario ja pode ver o endereco exato: reserva confirmada (paga). */
+/** Status em que o locatario ja pode ver o endereco exato (e a rota): locação confirmada (paga). */
 export const ADDRESS_VISIBLE_STATUSES = ['active', 'past_due'] as const;
 
 /**
- * Endereco EXATO do espaco para o locatario de uma reserva confirmada.
+ * Endereço EXATO do espaço para o locatário de uma locação confirmada.
  *
- * O unico caminho de leitura de rua/numero/complemento fora da area do
- * proprio dono. A condicao de status esta no WHERE — nao num `if` depois —
- * para que nenhum chamador consiga pular a regra: antes do primeiro
- * pagamento confirmado, a resposta e simplesmente vazia.
+ * O único caminho de leitura de rua/número/complemento (e das coordenadas
+ * exatas, para "Traçar rota") fora da área do próprio dono. A condição de
+ * status está no WHERE — não num `if` depois — para que nenhum chamador
+ * consiga pular a regra: antes do pagamento confirmado, a resposta é
+ * simplesmente vazia.
  */
 export async function getBookingAddressForRenter(bookingId: string, renterId: string) {
   const [row] = await db
@@ -357,6 +346,8 @@ export async function getBookingAddressForRenter(bookingId: string, renterId: st
       city: spaces.city,
       state: spaces.state,
       postalCode: spaces.postalCode,
+      lat: latOf(spaces.location),
+      lng: lngOf(spaces.location),
     })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
@@ -373,14 +364,14 @@ export async function getBookingAddressForRenter(bookingId: string, renterId: st
 
 /**
  * Solicitacoes recebidas pelo PROPRIETARIO — para a area "Solicitações".
- * `limit`/`offset` opcionais: a tela pagina (Fase 21); sem eles, devolve tudo.
+ * `limit`/`offset` opcionais: a tela pagina; sem eles, devolve tudo.
  */
 export async function listOwnerBookingRequests(
   ownerId: string,
   statusFilter?: BookingStatus[],
   page?: { limit: number; offset: number },
 ) {
-  await expireStaleBookingRequests();
+  await sweepExpiredBookings();
   const condicoes = [eq(bookings.ownerId, ownerId)];
   if (statusFilter?.length) condicoes.push(inArray(bookings.status, statusFilter));
 
@@ -388,6 +379,13 @@ export async function listOwnerBookingRequests(
     .select({
       ...listSelection,
       ...renterPublicSelection,
+      nextDueDate: nextDueDateExpr,
+      subscriptionStatus: latestSubscriptionExpr,
+      lastPaymentStatus: lastPaymentStatusExpr,
+      paidCount: paidCountExpr,
+      /** Vagas do anúncio agora — o proprietário vê se ainda dá para aceitar. */
+      spaceQuantityAvailable: spaces.quantityAvailable,
+      spaceQuantityOffered: spaces.quantityOffered,
     })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
@@ -415,7 +413,7 @@ export async function getOwnerBooking(id: string, ownerId: string) {
 
 /** Quantas solicitacoes aguardam resposta — para o contador no menu do proprietario. */
 export async function countOwnerPendingRequests(ownerId: string): Promise<number> {
-  await expireStaleBookingRequests();
+  await sweepExpiredBookings();
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(bookings)
@@ -423,37 +421,21 @@ export async function countOwnerPendingRequests(ownerId: string): Promise<number
   return row?.n ?? 0;
 }
 
-/** Outras solicitacoes 'requested' do MESMO espaco, exceto a que acabou de ser decidida — para auto-recusar ao aceitar uma. */
-export async function listOtherPendingRequestsForSpace(spaceId: string, excludeBookingId: string) {
-  return db
-    .select({ id: bookings.id, renterId: bookings.renterId })
-    .from(bookings)
-    .where(
-      and(
-        eq(bookings.spaceId, spaceId),
-        eq(bookings.status, 'requested'),
-        ne(bookings.id, excludeBookingId),
-      ),
-    );
-}
-
-/** Alugueis aceitos do proprietario (aprovados em diante) — para a area financeira. */
+/** Locações aceitas do proprietário (aprovadas em diante) — para a área financeira. */
 export async function listOwnerActiveBookings(ownerId: string) {
   return db
     .select(listSelection)
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
-    .where(and(eq(bookings.ownerId, ownerId), inArray(bookings.status, ['approved', 'awaiting_payment', 'active', 'past_due'])))
+    .where(and(eq(bookings.ownerId, ownerId), inArray(bookings.status, [...OCCUPYING_STATUSES])))
     .orderBy(desc(bookings.respondedAt));
 }
 
 /**
- * Pagamentos recebidos pelo proprietario, via a reserva.
+ * Pagamentos recebidos pelo proprietário, via a reserva.
  *
- * Hoje sempre vazio de verdade — nao existe nenhum gateway ligado ainda
- * (ver docs/PAGAMENTOS.md). Fica como consulta real, e nao como texto fixo
- * na tela, porque no dia que existir cobranca de verdade isso passa a
- * mostrar sozinho, sem precisar mudar esta pagina.
+ * Consulta real, e não texto fixo na tela: o que aparece é o que o gateway
+ * confirmou (ver docs/PAGAMENTOS.md).
  */
 export async function listOwnerPayments(ownerId: string) {
   return db
@@ -474,9 +456,9 @@ export async function listOwnerPayments(ownerId: string) {
 }
 
 /**
- * Reserva mais recente entre este espaço e este locatário (Fase 21) — liga
- * a conversa à reserva correspondente. Quem chama já provou que participa
- * da conversa (e portanto do par espaço/locatário).
+ * Reserva mais recente entre este espaço e este locatário — liga a conversa
+ * à reserva correspondente. Quem chama já provou que participa da conversa
+ * (e portanto do par espaço/locatário).
  */
 export async function findLatestBookingForSpaceAndRenter(spaceId: string, renterId: string) {
   const [row] = await db
@@ -488,3 +470,24 @@ export async function findLatestBookingForSpaceAndRenter(spaceId: string, renter
   return row ?? null;
 }
 
+/**
+ * Histórico de pedidos de encerramento de uma locação (do proprietário), do
+ * mais recente ao mais antigo. Só quem participa da locação consulta — quem
+ * chama já provou isso com `getBookingForParticipant`.
+ */
+export async function listEndRequests(bookingId: string) {
+  return (await db.execute(sql`
+    SELECT r.id, r.requested_end_date::text AS "endDate", r.reason, r.status::text AS status,
+           r.created_at AS "createdAt", r.resolved_at AS "resolvedAt"
+      FROM booking_end_requests r
+     WHERE r.booking_id = ${bookingId}
+     ORDER BY r.created_at DESC
+  `)) as unknown as {
+    id: string;
+    endDate: string;
+    reason: string | null;
+    status: 'pending' | 'withdrawn' | 'completed';
+    createdAt: Date;
+    resolvedAt: Date | null;
+  }[];
+}

@@ -45,7 +45,7 @@ type EspacoNovo = {
   price_monthly_cents: number;
   size_m2: string | null;
   available_from: string | null;
-  blocked_until: string | null;
+  upcoming_blocks: { startsOn: string; endsOn: string }[] | null;
   feature_keys: string[];
 };
 
@@ -55,8 +55,9 @@ export async function matchNewSpaceToAlerts(spaceId: string): Promise<{ userIds:
     const [espaco] = (await db.execute(sql`
       SELECT s.id, s.owner_id, s.type::text AS type, s.city, s.district, s.price_monthly_cents,
         s.size_m2::text AS size_m2, s.available_from::text AS available_from,
-        (SELECT max(b.ends_on)::text FROM space_availability_blocks b
-          WHERE b.space_id = s.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE) AS blocked_until,
+        (SELECT json_agg(json_build_object('startsOn', b.starts_on::text, 'endsOn', b.ends_on::text) ORDER BY b.starts_on)
+          FROM space_availability_blocks b
+          WHERE b.space_id = s.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE) AS upcoming_blocks,
         COALESCE((SELECT array_agg(sf.feature_key) FROM space_features sf WHERE sf.space_id = s.id), '{}') AS feature_keys
       FROM spaces s
       WHERE s.id = ${spaceId} AND s.status = 'published' AND s.deleted_at IS NULL
@@ -99,7 +100,7 @@ export async function matchNewSpaceToAlerts(spaceId: string): Promise<{ userIds:
       priceMonthlyCents: espaco.price_monthly_cents,
       featureKeys: espaco.feature_keys ?? [],
       sizeM2: espaco.size_m2,
-      earliestStart: earliestStartFrom(espaco.available_from, espaco.blocked_until, hoje),
+      earliestStart: earliestStartFrom(espaco.available_from, espaco.upcoming_blocks ?? [], hoje),
     };
 
     const bateram: Candidato[] = [];

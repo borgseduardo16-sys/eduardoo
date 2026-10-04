@@ -8,7 +8,7 @@ import { profiles } from '@/db/schema';
 import { requireUser } from '@/lib/auth/dal';
 import { listOwnerSpaces, countOwnerSpacesByStatus } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
-import { PriceTag } from '@/components/rentals/price-tag';
+import { PriceTag } from '@/components/espacos/price-tag';
 import { unitsSummaryBySpace } from '@/lib/rentals/queries';
 import { unitNounFor } from '@/lib/spaces/types';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';

@@ -48,12 +48,22 @@ export const spaceStatus = pgEnum('space_status', [
 ]);
 
 /**
- * Ciclo de vida da reserva.
- * requested -> (approved | rejected | expired | cancelled) -> awaiting_payment -> active -> (ended | cancelled)
+ * Ciclo de vida da locação mensal.
  *
- * `expired` e so alcancavel a partir de `requested`: uma solicitacao que
- * ninguem respondeu dentro do prazo (`booking.request_expiry_days em
- * platform_settings). Ver src/lib/bookings/queries.ts#expireStaleRequests.
+ *   requested ──(proprietário aceita, com instruções de acesso)──▶ approved
+ *   approved ──(locatário inicia o pagamento)──▶ awaiting_payment ──(webhook)──▶ active
+ *   active ──(cobrança do mês falha)──▶ past_due ──(regulariza)──▶ active
+ *   requested ─▶ rejected | expired (24 h sem resposta) | cancelled
+ *   approved/awaiting_payment ─▶ expired (24 h sem pagar) | cancelled
+ *   active/past_due ─▶ ended (encerrada) | past_due vencida (2 h) ─▶ ended
+ *
+ * "Aguardando início" NÃO é um estado gravado: é `active` com `start_date`
+ * no futuro (o rótulo vem da data — ver src/lib/bookings/format.ts).
+ *
+ * Quem OCUPA uma vaga do anúncio: approved, awaiting_payment, active e
+ * past_due (função `booking_occupies`, na migração 0026). Pedido (`requested`)
+ * não ocupa nada: vários pedidos podem disputar a última vaga, e o banco
+ * decide na hora de aceitar (trigger `bookings_guard_capacity`).
  */
 export const bookingStatus = pgEnum('booking_status', [
   'requested',
@@ -255,10 +265,19 @@ export const notificationType = pgEnum('notification_type', [
   /** Relatório mensal de desempenho dos anúncios do proprietário está pronto. */
   'monthly_report',
   // --- Parte 12: aluguel temporário e pagamentos ---
-  /** Aluguel temporário termina em 10 minutos (lembrete; a contagem principal é no app). */
+  /** LEGADO: era o aviso do aluguel por hora (removido na 0033). Valor de enum não se apaga; nada mais o usa. */
   'rental_ending_soon',
   /** Pagamento recebido depois do prazo e devolvido automaticamente. */
   'payment_refunded',
+  // --- Modelo mensal por quantidade (0033) ---
+  /** Proprietário: um pedido está perto de expirar sem resposta. */
+  'booking_request_expiring',
+  /** Pedido expirou (ninguém respondeu) ou a locação aceita expirou sem pagamento. */
+  'booking_expired',
+  /** Proprietário: a locação foi confirmada (pagamento do 1º mês recebido). */
+  'rental_started',
+  /** Locatário: o proprietário pediu o encerramento da locação. */
+  'rental_end_requested',
 ]);
 
 /**
@@ -429,37 +448,32 @@ export const spacePriceMarketWarning = pgEnum('space_price_market_warning', [
 ]);
 
 // ---------------------------------------------------------------------------
-// Parte 12 — unidades, aluguel temporário e contínuo
+// Modelo mensal por quantidade (0033)
 // ---------------------------------------------------------------------------
 
 /**
- * Forma do aluguel. `continuous` = mensal, renovação automática, sem data
- * para terminar (o modelo que existia antes). `temporary` = horas, dias ou
- * semanas, com início e fim exatos.
+ * Por que uma locação terminou — fica gravado na reserva, para o histórico.
+ * Só vale para `ended`, `expired` e `cancelled` (CHECK `bookings_end_reason_matches`).
  */
-export const rentalKind = pgEnum('rental_kind', ['continuous', 'temporary']);
-
-/** Unidade de tempo do aluguel temporário. */
-export const rentalTimeUnit = pgEnum('rental_time_unit', ['hour', 'day', 'week']);
-
-/**
- * Como o grupo cobra o aluguel temporário:
- * - `per_period`: preço por hora/dia/semana até a duração máxima;
- * - `packages`: pacotes fechados ("até 1 hora", "até 5 horas"…).
- */
-export const temporaryPricingMode = pgEnum('temporary_pricing_mode', ['per_period', 'packages']);
-
-/** Funcionamento: 24 horas, ou uma janela diária (ex.: 07:00 às 21:00). */
-export const operatingHoursMode = pgEnum('operating_hours_mode', ['always', 'daily']);
-
-/** Por que um aluguel terminou — fica gravado na reserva, para o histórico. */
 export const bookingEndReason = pgEnum('booking_end_reason', [
-  /** Chegou ao fim (temporário) sem renovação. */
-  'completed',
   'cancelled_by_renter',
   'cancelled_by_owner',
-  /** O prazo de pagamento pendente (40 min + 1 h) terminou sem pagamento. */
+  /** `expired`: o proprietário não respondeu o pedido em 24 h. */
+  'request_not_answered',
+  /** `expired`: a locação aceita não foi paga em 24 h. `ended`: a janela de 2 h do pagamento pendente acabou. */
   'payment_not_received',
-  /** A reserva temporária não foi paga no prazo de pagamento. */
-  'hold_expired',
+  /** `ended`: o proprietário pediu o encerramento e a data pedida chegou. */
+  'owner_end_request',
 ]);
+
+/** Pedido do proprietário para encerrar uma locação em andamento. */
+export const bookingEndRequestStatus = pgEnum('booking_end_request_status', [
+  'pending',
+  /** O proprietário desistiu do pedido antes da data. */
+  'withdrawn',
+  /** A data chegou (ou a locação terminou antes) e o pedido foi cumprido. */
+  'completed',
+]);
+
+/** Tipo da mensagem do chat. Imagens NÃO existem: só texto e áudio. */
+export const messageKind = pgEnum('message_kind', ['text', 'audio']);

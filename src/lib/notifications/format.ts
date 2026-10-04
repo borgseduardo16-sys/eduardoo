@@ -2,7 +2,7 @@ import { createElement, type ReactElement } from 'react';
 import {
   CircleCheck, CircleX, Ban, Wallet, Clock, MessageCircle, Star, ShieldCheck, Info, Bell,
   TrendingDown, Sparkles, Users, Sparkle, Hourglass, MessageSquareHeart,
-  BellRing, SearchCheck, ChartColumn, Timer, Undo2,
+  BellRing, SearchCheck, ChartColumn, Timer, Undo2, TimerOff, KeyRound, CalendarX2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -39,6 +39,11 @@ export const NOTIFICATION_TYPE_INFO: Record<string, { icon: LucideIcon; tone: 'p
   // --- Parte 12 ---
   rental_ending_soon: { icon: Timer, tone: 'caution' },
   payment_refunded: { icon: Undo2, tone: 'neutral' },
+  // --- Locação mensal por quantidade ---
+  booking_request_expiring: { icon: Hourglass, tone: 'caution' },
+  booking_expired: { icon: TimerOff, tone: 'neutral' },
+  rental_started: { icon: KeyRound, tone: 'positive' },
+  rental_end_requested: { icon: CalendarX2, tone: 'caution' },
 };
 
 export function notificationIcon(type: string): LucideIcon {

@@ -2,26 +2,36 @@ import 'server-only';
 import { and, asc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { spaces, spaceAvailabilityBlocks } from '@/db/schema';
+import { addDaysToDate } from '@/lib/time';
+import type { SpaceBlockPublic } from './start-dates';
+
+export { blockCoveringStart, earliestStartDate, type SpaceBlockPublic } from './start-dates';
 
 /**
- * Disponibilidade de um espaço (Fase 23) — a mesma resposta para a página
- * pública, a lista de espera e a validação de solicitação.
+ * Disponibilidade de um anúncio — a mesma resposta para a página pública, a
+ * lista de espera e a validação de solicitação.
  *
- * Parte 12: a ocupação é por UNIDADE (ver src/lib/rentals/queries.ts). Aqui
- * fica o nível do anúncio: está no ar e tem pelo menos uma unidade que não
- * está com aluguel mensal. Horários livres do temporário são por unidade.
+ * O anúncio tem uma QUANTIDADE (ver `spaces.quantity_*`): `quantityOffered`
+ * vagas na plataforma e `quantityAvailable` ainda livres. Quem mantém o
+ * número é o banco — ele é recontado a partir das locações que ocupam vaga
+ * (aceitas, em pagamento, ativas e com pagamento pendente) a cada mudança.
+ * Pedidos ainda sem resposta NÃO ocupam nada.
  */
-
-export type SpaceBlockPublic = { startsOn: string; endsOn: string };
 
 export type SpaceAvailability = {
   status: string;
   availableFrom: string | null;
-  /** Todas as unidades estão com aluguel mensal (anúncio `rented`). */
+  /** Quantas unidades o proprietário oferece na plataforma. */
+  quantityOffered: number;
+  /** Quantas ainda estão livres agora. */
+  quantityAvailable: number;
+  /** Total real do local (opcional, informativo: "80 de 100 vagas na plataforma"). */
+  quantityTotal: number | null;
+  /** Todas as vagas ocupadas (anúncio `rented`). */
   occupied: boolean;
   /** Bloqueios manuais que ainda não terminaram — SEM motivo (motivo é privado). */
   upcomingBlocks: SpaceBlockPublic[];
-  /** Pode receber solicitação agora (no ar e sem ocupação). */
+  /** Pode receber solicitação agora (no ar e com vaga). */
   openForRequests: boolean;
 };
 
@@ -30,6 +40,9 @@ export async function getSpaceAvailability(spaceId: string): Promise<SpaceAvaila
     .select({
       status: sql<string>`${spaces.status}::text`,
       availableFrom: spaces.availableFrom,
+      quantityOffered: spaces.quantityOffered,
+      quantityAvailable: spaces.quantityAvailable,
+      quantityTotal: spaces.quantityTotal,
       deletedAt: spaces.deletedAt,
     })
     .from(spaces)
@@ -39,16 +52,16 @@ export async function getSpaceAvailability(spaceId: string): Promise<SpaceAvaila
 
   const bloqueios = await listUpcomingBlocks(spaceId);
 
-  // Parte 12: o banco marca `rented` só quando TODAS as unidades estão com
-  // aluguel mensal (`space_fully_rented`). Com uma unidade livre que seja,
-  // o anúncio continua no ar e recebendo pedidos.
-  const occupied = space.status === 'rented';
   return {
     status: space.status,
     availableFrom: space.availableFrom,
-    occupied,
+    quantityOffered: space.quantityOffered,
+    quantityAvailable: space.quantityAvailable,
+    quantityTotal: space.quantityTotal,
+    occupied: space.status === 'rented',
     upcomingBlocks: bloqueios,
-    openForRequests: space.status === 'published',
+    // O banco mantém o status: `rented` quando não sobra vaga, `published` quando sobra.
+    openForRequests: space.status === 'published' && space.quantityAvailable > 0,
   };
 }
 
@@ -67,38 +80,7 @@ export async function listUpcomingBlocks(spaceId: string): Promise<SpaceBlockPub
     .orderBy(asc(spaceAvailabilityBlocks.startsOn));
 }
 
-/** yyyy-mm-dd + n dias. Conta em UTC puro: data de calendário, sem hora nem fuso. */
+/** yyyy-mm-dd + n dias (calendário, sem hora nem fuso). */
 export function addDaysISO(iso: string, n: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-/**
- * Primeira data em que um aluguel SEM data de término pode começar.
- *
- * Como o aluguel ocupa o espaço dali para a frente, qualquer bloqueio futuro
- * que ainda não terminou empurra o início para o dia seguinte ao fim do
- * ÚLTIMO bloqueio. Antes disso, o início também não pode ser anterior a
- * "disponível a partir de" nem a hoje.
- */
-export function earliestOpenEndedStart(input: {
-  today: string;
-  availableFrom: string | null;
-  blocks: SpaceBlockPublic[];
-}): string {
-  let inicio = input.today;
-  if (input.availableFrom && input.availableFrom > inicio) inicio = input.availableFrom;
-  for (const b of input.blocks) {
-    if (b.endsOn >= inicio) {
-      const depois = addDaysISO(b.endsOn, 1);
-      if (depois > inicio) inicio = depois;
-    }
-  }
-  return inicio;
-}
-
-/** O bloqueio que um aluguel sem término começando em `start` atravessaria, se houver. */
-export function blockCrossedByOpenEndedStart(start: string, blocks: SpaceBlockPublic[]): SpaceBlockPublic | null {
-  return blocks.find((b) => b.endsOn >= start) ?? null;
+  return addDaysToDate(iso, n);
 }

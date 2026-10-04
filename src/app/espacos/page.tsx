@@ -30,7 +30,7 @@ import { getUserSavedSearch } from '@/lib/alerts/queries';
 import { FiltersBar } from '@/components/espacos/filters-bar';
 import { ResultCard } from '@/components/espacos/result-card';
 import { ResultsMap, MobileMapToggle, type MapSpace } from '@/components/map/spaces-map';
-import { priceHeadline } from '@/lib/rentals/pricing';
+import { priceHeadline } from '@/lib/spaces/price';
 import { Alert } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 
@@ -221,7 +221,7 @@ export default async function EspacosPage({
   for (const r of [...resultados, ...recomendadosBrutos]) {
     if (compatibilidade.has(r.id)) continue;
     compatibilidade.set(r.id, computeMatch(
-      { ...r, earliestStart: earliestStartFrom(r.availableFrom, r.blockedUntil, hoje) },
+      { ...r, earliestStart: earliestStartFrom(r.availableFrom, r.upcomingBlocks, hoje) },
       criterios,
       rotulosCaracteristica,
     ));

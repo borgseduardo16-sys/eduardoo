@@ -105,6 +105,20 @@ export function computeBookingAmounts(
 }
 
 /**
+ * Quanto o proprietário recebe por mês de um anúncio com este preço: o aluguel
+ * menos a taxa de serviço dele. Mesma conta do repasse de uma locação
+ * (`computeBookingAmounts`) — usada para dizer, na hora de anunciar, "Você
+ * receberá R$ 291 por mês", antes de existir qualquer locação.
+ */
+export function ownerNetFor(
+  monthlyRentCents: number,
+  ownerFeeBps: number,
+): { netCents: number; feeCents: number } {
+  const valores = computeBookingAmounts(monthlyRentCents, { renterFeeBps: 0, ownerFeeBps });
+  return { netCents: valores.ownerPayoutCents, feeCents: valores.ownerFeeCents };
+}
+
+/**
  * Receita LIQUIDA da plataforma depois da tarifa do gateway.
  *
  * A tarifa sai do bruto antes do split, entao quem a absorve e a plataforma:
@@ -209,6 +223,20 @@ export function centsToInputString(cents: number): string {
   const reais = Math.trunc(cents / 100);
   const resto = cents % 100;
   return resto === 0 ? String(reais) : `${reais},${String(resto).padStart(2, '0')}`;
+}
+
+/**
+ * Como formatBRL, mas sem os centavos quando são zero ("R$ 291", "R$ 1.291") —
+ * para frases corridas. Com centavos, volta ao formato completo ("R$ 291,50").
+ */
+export function formatBRLShort(cents: number): string {
+  if (cents % 100 !== 0) return formatBRL(cents);
+  return new Intl.NumberFormat('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(cents / 100);
 }
 
 /** 300 bps → "3%"; 250 → "2,5%". So exibicao — conta de dinheiro continua em centavos. */

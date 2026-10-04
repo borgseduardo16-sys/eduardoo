@@ -2,13 +2,12 @@
 import 'server-only';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import {
   profiles,
   bookings,
   ownerPayoutAccounts,
-  renterBillingProfiles,
   subscriptions,
   payments,
   bookingDeposits,
@@ -16,10 +15,12 @@ import {
 } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import * as asaas from './asaas';
-import { DOCUMENT_IN_OTHER_ACCOUNT, documentInUseByOther, saveProfileDocument } from './document';
+import { DOCUMENT_IN_OTHER_ACCOUNT, documentInUseByOther } from './document';
+import { ensureAsaasCustomer } from './customer';
 import { chargeDeposit } from './deposits';
 import { payoutAccountSchema, checkoutSchema } from './schemas';
-import { getOwnerPayoutAccount, getRenterBillingProfile } from './queries';
+import { getOwnerPayoutAccount } from './queries';
+import { PAYMENT_WINDOW_MINUTES } from '@/lib/bookings/payment-window';
 
 export type PayoutAccountActionState = { ok: boolean; message?: string };
 
@@ -108,7 +109,13 @@ function hojeISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** yyyy-mm-dd -> yyyy-mm-dd, nunca antes de hoje (o Asaas nao aceita vencimento no passado). */
+/**
+ * Vencimento da primeira cobrança: a data de início da locação (ou hoje, se já
+ * passou — o Asaas não aceita vencimento no passado). O ciclo mensal conta a
+ * partir dela ("Próximo vencimento"). A pessoa paga ANTES, dentro do prazo de
+ * 24 h do aceite: o Pix da primeira cobrança vale até pagar, e o pagamento
+ * confirma a locação como "aguardando início" até a data chegar.
+ */
 function primeiroVencimento(startDate: string): string {
   return startDate < hojeISO() ? hojeISO() : startDate;
 }
@@ -133,9 +140,16 @@ export async function startCheckoutAction(
   const { bookingId, cpfCnpj, method } = parsed.data;
   const cartao = method === 'card';
 
+  // O prazo de 24 h para pagar pode ter vencido desde que a tela abriu: o banco encerra e a vaga volta.
+  const [alvo] = await db.select({ spaceId: bookings.spaceId }).from(bookings).where(eq(bookings.id, bookingId)).limit(1);
+  if (alvo) await db.execute(sql`SELECT public.release_expired_rentals(${alvo.spaceId})`);
+
   const [booking] = await db.select().from(bookings).where(eq(bookings.id, bookingId)).limit(1);
   if (!booking || booking.renterId !== user.id) {
     return { ok: false, message: 'Reserva não encontrada.' };
+  }
+  if (booking.status === 'expired') {
+    return { ok: false, message: 'O prazo para pagar terminou e a vaga foi liberada. Nada foi cobrado.' };
   }
   if (booking.status !== 'approved') {
     return { ok: false, message: 'Esta reserva não está aguardando pagamento.' };
@@ -149,34 +163,10 @@ export async function startCheckoutAction(
     };
   }
 
-  const documento = await saveProfileDocument(user.id, cpfCnpj);
-  if (!documento.ok) return { ok: false, message: documento.message };
-
-  let billing = await getRenterBillingProfile(user.id);
-  if (!billing) {
-    const [perfil] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
-    let cliente: asaas.AsaasCustomer;
-    try {
-      cliente = await asaas.createCustomer({
-        name: perfil?.fullName ?? user.fullName ?? 'Locatário',
-        cpfCnpj,
-        email: user.email,
-        mobilePhone: perfil?.phone ?? undefined,
-        externalReference: user.id,
-      });
-    } catch (err) {
-      if (err instanceof asaas.AsaasError) {
-        console.error('[checkout] Asaas recusou a criação do cliente:', err.status, err.body);
-        return { ok: false, message: `O Asaas recusou seus dados: ${err.message}` };
-      }
-      throw err;
-    }
-    const [novoBilling] = await db
-      .insert(renterBillingProfiles)
-      .values({ userId: user.id, provider: 'asaas', providerCustomerId: cliente.id })
-      .returning();
-    billing = novoBilling!;
-  }
+  // Cria (na primeira vez) ou reaproveita o cliente do Asaas; o CPF informado fica no perfil.
+  const cliente = await ensureAsaasCustomer(user, cpfCnpj);
+  if (!cliente.ok) return { ok: false, message: cliente.message };
+  const customerId = cliente.customerId;
 
   const nextDueDate = primeiroVencimento(booking.startDate);
   const split = asaas.splitForOwner(contaDoDono.providerWalletId, booking.ownerPayoutCents);
@@ -184,7 +174,7 @@ export async function startCheckoutAction(
   let assinatura: asaas.AsaasSubscription;
   try {
     assinatura = await asaas.createSubscription({
-      customer: billing.providerCustomerId,
+      customer: customerId,
       // Cartão: o Asaas cobra o mesmo cartão todo mês, sozinho. Pix: cada
       // mensalidade vira uma cobrança Pix paga pelo app.
       billingType: cartao ? 'CREDIT_CARD' : 'PIX',
@@ -220,7 +210,7 @@ export async function startCheckoutAction(
   let cobrancaCaucao: asaas.AsaasPayment | null = null;
   if (booking.depositCents > 0) {
     try {
-      cobrancaCaucao = await chargeDeposit(billing.providerCustomerId, booking, nextDueDate);
+      cobrancaCaucao = await chargeDeposit(customerId, booking, nextDueDate);
     } catch (err) {
       if (err instanceof asaas.AsaasError) {
         console.error('[checkout] Asaas recusou a cobrança da caução:', err.status, err.body);
@@ -274,7 +264,14 @@ export async function startCheckoutAction(
         payerStartedAt: new Date(),
       });
 
-      await tx.update(bookings).set({ status: 'awaiting_payment', updatedAt: new Date() }).where(eq(bookings.id, booking.id));
+      // Só sai de "aceita" se ainda estiver aceita: se o prazo de 24 h estourou no meio do
+      // caminho, o banco já a expirou e nada é gravado aqui.
+      const marcadas = await tx
+        .update(bookings)
+        .set({ status: 'awaiting_payment', updatedAt: new Date() })
+        .where(and(eq(bookings.id, booking.id), eq(bookings.status, 'approved')))
+        .returning({ id: bookings.id });
+      if (marcadas.length === 0) throw new Error('RESERVA_FORA_DO_PRAZO');
 
       if (cobrancaCaucao) {
         await tx.insert(bookingDeposits).values({
@@ -303,6 +300,12 @@ export async function startCheckoutAction(
     if (err instanceof Error && err.message === 'Cobrança criada sem invoiceUrl.') {
       return { ok: false, message: 'O gateway não devolveu um link de pagamento. Tente novamente.' };
     }
+    if (err instanceof Error && err.message === 'RESERVA_FORA_DO_PRAZO') {
+      // A locação expirou no meio do caminho: o que acabou de nascer no gateway não pode ficar vivo.
+      await asaas.cancelSubscription(assinatura.id).catch((e) => console.error('[checkout] assinatura órfã não cancelada:', assinatura.id, e));
+      if (cobrancaCaucao) await asaas.deletePayment(cobrancaCaucao.id).catch((e) => console.error('[checkout] caução órfã não excluída:', cobrancaCaucao?.id, e));
+      return { ok: false, message: 'O prazo para pagar terminou e a vaga foi liberada. Nada foi cobrado.' };
+    }
     throw err;
   }
 
@@ -311,4 +314,135 @@ export async function startCheckoutAction(
   // Pix com QR: paga no app. Cartão (ou Pix sem QR): a fatura do Asaas.
   if (!cartao && qr) redirect(`/reservas/${booking.id}/pagar`);
   redirect(faturaUrl);
+}
+
+
+// ---------------------------------------------------------------------------
+// "Pagar com Pix" / "Pagar com cartão" — primeira cobrança e pagamento pendente
+// ---------------------------------------------------------------------------
+
+export type PaymentActionState = { ok: boolean; message?: string; needsCpf?: boolean };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A cobrança em aberto de uma reserva (a mais recente ainda não paga). */
+async function cobrancaEmAberto(bookingId: string) {
+  const [p] = await db
+    .select()
+    .from(payments)
+    .where(and(eq(payments.bookingId, bookingId), inArray(payments.status, ['pending', 'overdue'])))
+    .orderBy(desc(payments.createdAt))
+    .limit(1);
+  return p ?? null;
+}
+
+/**
+ * Troca a forma de pagamento da cobrança em aberto: serve ao pagamento da
+ * locação aceita ("Pagar com Pix"/"Pagar com cartão") e à regularização do
+ * pagamento pendente — "tentar o cartão de novo" ou "pagar por Pix". NUNCA
+ * cria cobrança nova: troca a forma de pagamento da que já existe
+ * (`PUT /payments/{id}`). Clicar duas vezes não faz nada a mais (mesma forma
+ * = nenhuma chamada).
+ *
+ * Nada aqui confirma pagamento: a locação só muda quando o webhook do Asaas
+ * avisar. "Voltei da página do banco" não é pagamento.
+ */
+export async function choosePaymentMethodAction(
+  _prev: PaymentActionState | undefined,
+  formData: FormData,
+): Promise<PaymentActionState> {
+  const user = await requireUserOrThrow();
+  const bookingId = String(formData.get('bookingId') ?? '');
+  const metodo = String(formData.get('method') ?? '');
+  if (!UUID_RE.test(bookingId) || (metodo !== 'pix' && metodo !== 'card')) {
+    return { ok: false, message: 'Recarregue a página e tente de novo.' };
+  }
+
+  // Os prazos (24 h do aceite, 2 h do pagamento pendente) valem pelo relógio do banco.
+  const [alvo] = await db.select({ spaceId: bookings.spaceId }).from(bookings).where(eq(bookings.id, bookingId)).limit(1);
+  if (alvo) await db.execute(sql`SELECT public.release_expired_rentals(${alvo.spaceId})`);
+
+  const [booking] = await db
+    .select({ id: bookings.id, renterId: bookings.renterId, status: bookings.status })
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  if (!booking || booking.renterId !== user.id) return { ok: false, message: 'Reserva não encontrada.' };
+  if (booking.status === 'expired') {
+    return { ok: false, message: 'O prazo para pagar terminou e a vaga foi liberada. Nada foi cobrado.' };
+  }
+  if (booking.status === 'ended') {
+    return {
+      ok: false,
+      message: `Esta locação já foi encerrada. Se o prazo de ${PAYMENT_WINDOW_MINUTES / 60} horas para regularizar o pagamento terminou, nada mais será cobrado.`,
+    };
+  }
+  const pagavel = booking.status === 'awaiting_payment' || booking.status === 'past_due';
+  if (!pagavel) return { ok: false, message: 'Esta reserva não tem pagamento em aberto.' };
+
+  const cobranca = await cobrancaEmAberto(booking.id);
+  if (!cobranca) return { ok: false, message: 'A cobrança ainda está sendo gerada. Atualize a página em instantes.' };
+
+  try {
+    if (metodo === 'pix') {
+      // Trava a cobrança: dois toques ao mesmo tempo passam aqui um de cada
+      // vez, e o segundo já encontra o Pix pronto (nada repetido no gateway).
+      await db.transaction(async (tx) => {
+        const [atual] = await tx
+          .select({ method: payments.method, pixPayload: payments.pixPayload })
+          .from(payments)
+          .where(eq(payments.id, cobranca.id))
+          .for('update');
+        if (atual?.method !== 'pix' || !atual.pixPayload) {
+          if (atual?.method !== 'pix') await asaas.updatePaymentBillingType(cobranca.providerPaymentId, 'PIX');
+          const qr = await asaas.getPixQrCode(cobranca.providerPaymentId);
+          await tx
+            .update(payments)
+            .set({ method: 'pix', pixPayload: qr.payload, pixQrImage: qr.encodedImage, payerStartedAt: new Date(), updatedAt: new Date() })
+            .where(eq(payments.id, cobranca.id));
+        } else {
+          await tx.update(payments).set({ payerStartedAt: new Date(), updatedAt: new Date() }).where(eq(payments.id, cobranca.id));
+        }
+      });
+      await db.insert(auditLogs).values({
+        actorId: user.id, actorRole: user.role, action: 'payment.method_pix',
+        entityType: 'payment', entityId: cobranca.id, metadata: { bookingId: booking.id },
+      });
+      revalidatePath(`/reservas/${booking.id}`);
+      revalidatePath(`/reservas/${booking.id}/pagar`);
+      revalidatePath(`/reservas/${booking.id}/pendente`);
+      return { ok: true };
+    }
+
+    // Cartão (crédito ou débito, conforme a fatura do Asaas oferecer).
+    const fatura = await db.transaction(async (tx) => {
+      const [atual] = await tx
+        .select({ method: payments.method, invoiceUrl: payments.invoiceUrl })
+        .from(payments)
+        .where(eq(payments.id, cobranca.id))
+        .for('update');
+      let link = atual?.invoiceUrl ?? null;
+      if (atual?.method !== 'credit_card') {
+        const atualizada = await asaas.updatePaymentBillingType(cobranca.providerPaymentId, 'CREDIT_CARD');
+        link = atualizada.invoiceUrl ?? link;
+      }
+      await tx
+        .update(payments)
+        .set({ method: 'credit_card', invoiceUrl: link, payerStartedAt: new Date(), updatedAt: new Date() })
+        .where(eq(payments.id, cobranca.id));
+      return link;
+    });
+    await db.insert(auditLogs).values({
+      actorId: user.id, actorRole: user.role, action: 'payment.method_card',
+      entityType: 'payment', entityId: cobranca.id, metadata: { bookingId: booking.id },
+    });
+    if (!fatura) return { ok: false, message: 'O gateway não devolveu o link de pagamento. Tente de novo.' };
+    redirect(fatura);
+  } catch (err) {
+    if (err instanceof asaas.AsaasError) {
+      console.error('[pagamento] Asaas recusou a troca de forma de pagamento:', err.status, err.body);
+      return { ok: false, message: `O gateway recusou: ${err.message}` };
+    }
+    throw err;
+  }
 }

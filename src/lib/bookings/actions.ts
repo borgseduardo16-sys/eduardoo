@@ -3,32 +3,44 @@
 import 'server-only';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { bookings, spaces, auditLogs, profiles, subscriptions, payments } from '@/db/schema';
+import { bookings, bookingEndRequests, spaces, auditLogs, profiles, subscriptions, payments } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { notifyUser, notifyUsers } from '@/lib/notifications/dispatch';
-import { computeBookingAmounts } from '@/lib/money';
+import { computeBookingAmounts, InvalidAmountError } from '@/lib/money';
 import { settingInt } from '@/lib/settings';
 import * as asaas from '@/lib/payments/asaas';
-import { findPendingRequestBySameRenter } from './queries';
-import { requestBookingSchema, respondBookingSchema, cancelBookingSchema } from './schemas';
-import { buildBookingReference } from './reference';
+import { isBlockedBetween } from '@/lib/safety/queries';
 import { postBookingSystemMessage } from '@/lib/messaging/system';
+import { findConversation } from '@/lib/messaging/queries';
+import { isPathInConversation, readChatAudio } from '@/lib/messaging/audio';
 import { onSpaceBecameUnavailable, onSpaceMaybeAvailableAgain } from '@/lib/spaces/availability-events';
-import { getSpaceAvailability, earliestOpenEndedStart, blockCrossedByOpenEndedStart } from '@/lib/spaces/availability';
-import { getGroupRules, getSpaceUnitGroups } from '@/lib/rentals/queries';
-import { findFreeUnit, lockSpaceAndSweep, pgErrorFrom, rentalRuleMessage } from '@/lib/rentals/booking';
-import { brDate, brInstant } from '@/lib/rentals/time';
-import { processPaymentOutbox } from '@/lib/rentals/maintenance';
-import { unitNounFor } from '@/lib/spaces/types';
-import { formatBookingDate } from './format';
+import { blockCoveringStart, earliestStartDate, listUpcomingBlocks } from '@/lib/spaces/availability';
+import { addDaysToDate, brDate } from '@/lib/time';
+import { findPendingRequestBySameRenter } from './queries';
+import {
+  ACCESS_INSTRUCTIONS_MIN,
+  cancelBookingSchema,
+  requestBookingSchema,
+  requestEndSchema,
+  respondBookingSchema,
+  withdrawEndRequestSchema,
+} from './schemas';
+import { buildBookingReference } from './reference';
+import { bookingRuleMessage, pgErrorFrom } from './errors';
+import { formatBookingDate, formatDateShort } from './format';
+import { formatDeadline } from './deadlines';
+import { processPaymentOutbox } from './maintenance';
 
 export type BookingActionState = {
   ok: boolean;
   message?: string;
   bookingId?: string;
 };
+
+/** Recusa de negócio dentro de uma transação: vira mensagem para a pessoa, sem detalhe técnico. */
+class RegraDeNegocio extends Error {}
 
 async function currentFees() {
   const [renterFeeBps, ownerFeeBps] = await Promise.all([
@@ -39,48 +51,30 @@ async function currentFees() {
 }
 
 /**
- * true quando a trigger `bookings_guard_blocked_period` (Fase 23) recusou:
- * o período da reserva cruza um bloqueio de datas do calendário do espaço.
+ * Antes de olhar vagas de um anúncio, encerra o que já venceu nele: um pedido
+ * sem resposta ou um aceite sem pagamento pode estar segurando a última vaga.
+ * Pelo relógio do banco, nunca pelo do servidor da aplicação.
  */
-function isBlockedPeriodConflict(err: unknown): boolean {
-  const pg = pgErrorFrom(err);
-  return pg?.code === '23P01' && pg.constraint_name === 'bookings_period_not_blocked';
-}
-
-/**
- * true quando o banco recusou por ocupação: a restrição de exclusão
- * `bookings_unit_no_overlap` (Parte 12 — a unidade já está alugada nesse
- * período) ou o deadlock que duas aprovações simultâneas às vezes viram.
- */
-function isOccupancyConflict(err: unknown): boolean {
-  const pg = pgErrorFrom(err);
-  if (!pg) return false;
-  if (pg.code === '23P01' && pg.constraint_name === 'bookings_unit_no_overlap') return true;
-  if (pg.code === '40P01') return true; // deadlock_detected
-  return false;
-}
-
-/** Grupo de aluguel MENSAL do pedido: o escolhido, ou o único que aceita mensal. */
-async function resolveContinuousGroup(spaceId: string, groupId: string | null) {
-  if (groupId) {
-    const g = await getGroupRules(spaceId, groupId);
-    return g && g.rules.allowsContinuous && g.rules.monthlyPriceCents != null ? g : null;
-  }
-  const grupos = (await getSpaceUnitGroups(spaceId)).filter((g) => g.rules.allowsContinuous && g.rules.monthlyPriceCents != null);
-  return grupos.length === 1 ? { id: grupos[0]!.id, name: grupos[0]!.name, rules: grupos[0]!.rules } : null;
+async function sweepSpace(spaceId: string): Promise<void> {
+  await db.execute(sql`SELECT public.release_expired_rentals(${spaceId})`);
 }
 
 // ---------------------------------------------------------------------------
-// Locatario pede (aluguel mensal)
+// Locatário solicita (aluguel MENSAL de uma unidade do anúncio)
 // ---------------------------------------------------------------------------
 
 /**
- * Cria uma solicitacao de aluguel MENSAL (contínuo).
+ * Cria uma SOLICITAÇÃO de locação mensal. Nada é cobrado aqui.
  *
- * O navegador manda so `spaceId`, o grupo, a data pretendida e uma mensagem
- * opcional. Preco, taxas e totais sao SEMPRE recalculados aqui (a partir do
- * preço mensal do grupo) — nunca aceitos do cliente — e o banco confere de
- * novo (`bookings_rent_matches_group`). A unidade é escolhida no aceite.
+ * O navegador manda só `spaceId`, a data de início e uma mensagem opcional.
+ * Preço, taxas e totais são SEMPRE calculados aqui (a partir do preço mensal
+ * do anúncio) — nunca aceitos do cliente — e o banco confere de novo
+ * (`bookings_rent_matches_space`). O proprietário tem 24 horas para aceitar ou
+ * recusar; o prazo é gravado pelo banco e o que passar dele expira sozinho.
+ *
+ * Pedir NÃO consome vaga: vários interessados podem pedir ao mesmo tempo. A
+ * vaga é consumida quando o proprietário aceita — e é o banco quem garante
+ * que a última não é aceita duas vezes (`bookings_capacity`).
  */
 export async function requestBookingAction(
   _prev: BookingActionState | undefined,
@@ -97,8 +91,8 @@ export async function requestBookingAction(
     return { ok: false, message: parsed.error.issues[0]?.message ?? 'Dados inválidos.' };
   }
   const { spaceId, startDate, renterMessage } = parsed.data;
-  const groupIdBruto = String(formData.get('groupId') ?? '');
-  const groupId = /^[0-9a-f-]{36}$/i.test(groupIdBruto) ? groupIdBruto : null;
+
+  await sweepSpace(spaceId);
 
   const [space] = await db
     .select({
@@ -106,72 +100,69 @@ export async function requestBookingAction(
       ownerId: spaces.ownerId,
       status: spaces.status,
       title: spaces.title,
-      type: spaces.type,
+      priceMonthlyCents: spaces.priceMonthlyCents,
+      availableFrom: spaces.availableFrom,
+      quantityAvailable: spaces.quantityAvailable,
       deletedAt: spaces.deletedAt,
     })
     .from(spaces)
     .where(eq(spaces.id, spaceId))
     .limit(1);
 
-  if (!space || space.deletedAt || space.status !== 'published') {
+  if (!space || space.deletedAt || (space.status !== 'published' && space.status !== 'rented')) {
     return { ok: false, message: 'Este espaço não está disponível para solicitação agora.' };
   }
   if (space.ownerId === user.id) {
     return { ok: false, message: 'Você não pode solicitar o próprio espaço.' };
   }
-
-  const grupo = await resolveContinuousGroup(space.id, groupId);
-  if (!grupo) {
-    return { ok: false, message: 'Escolha um grupo de aluguel mensal deste anúncio.' };
+  if (await isBlockedBetween(user.id, space.ownerId)) {
+    return { ok: false, message: 'Não é possível enviar esta solicitação.' };
   }
-  const noun = unitNounFor(space.type);
-
-  /*
-   * Disponibilidade de verdade (Fase 23): a data pedida respeita "disponível
-   * a partir de" e os bloqueios do calendário. Como o aluguel é mensal e sem
-   * data para terminar, ele ocupa a unidade da data de início em diante —
-   * um bloqueio futuro também impede começar antes dele.
-   */
-  const disponibilidade = await getSpaceAvailability(space.id);
-  if (!disponibilidade?.openForRequests) {
-    return { ok: false, message: 'Este espaço não está disponível para solicitação agora.' };
+  if (space.status === 'rented' || space.quantityAvailable <= 0) {
+    return {
+      ok: false,
+      message: 'Todas as vagas deste anúncio estão ocupadas agora. Peça um aviso para saber quando abrir uma.',
+    };
   }
+  if (space.priceMonthlyCents == null) {
+    return { ok: false, message: 'Este anúncio ainda não tem preço mensal definido.' };
+  }
+
+  // Data de início: hoje (Brasília) em diante, dentro do limite de antecedência,
+  // depois de "disponível a partir de" e fora dos dias que o proprietário bloqueou.
   const hoje = brDate(new Date());
-  const inicioMinimo = earliestOpenEndedStart({
-    today: hoje,
-    availableFrom: disponibilidade.availableFrom,
-    blocks: disponibilidade.upcomingBlocks,
-  });
-  if (startDate < inicioMinimo) {
-    const bloqueio = blockCrossedByOpenEndedStart(startDate, disponibilidade.upcomingBlocks);
+  const maxDias = await settingInt('booking.max_start_advance_days', 90);
+  if (startDate < hoje) {
+    return { ok: false, message: 'A data de início não pode ser no passado.' };
+  }
+  if (startDate > addDaysToDate(hoje, maxDias)) {
+    return { ok: false, message: `Escolha uma data de início dentro dos próximos ${maxDias} dias.` };
+  }
+  const bloqueios = await listUpcomingBlocks(space.id);
+  const inicioMinimo = earliestStartDate({ today: hoje, availableFrom: space.availableFrom, blocks: bloqueios });
+  if (space.availableFrom && startDate < space.availableFrom) {
+    return { ok: false, message: `Este espaço fica disponível a partir de ${formatBookingDate(space.availableFrom)}.` };
+  }
+  const bloqueio = blockCoveringStart(startDate, bloqueios);
+  if (bloqueio) {
     return {
       ok: false,
-      message: bloqueio
-        ? `O espaço está indisponível de ${formatBookingDate(bloqueio.startsOn)} a ${formatBookingDate(bloqueio.endsOn)}. Como o aluguel é mensal e sem data para terminar, a data de início mais próxima é ${formatBookingDate(inicioMinimo)}.`
-        : `Este espaço fica disponível a partir de ${formatBookingDate(inicioMinimo)}.`,
+      message: `O proprietário não inicia locações de ${formatBookingDate(bloqueio.startsOn)} a ${formatBookingDate(bloqueio.endsOn)}. A primeira data possível é ${formatBookingDate(inicioMinimo)}.`,
     };
   }
 
-  // Parte 12: precisa existir unidade do grupo livre da data pedida em diante.
-  const livre = await findFreeUnit(db, grupo.id, brInstant(startDate, '00:00'), null);
-  if (!livre) {
-    return {
-      ok: false,
-      message: `Todas as ${noun.plural} ${grupo.name === 'Padrão' ? 'deste anúncio' : `de "${grupo.name}"`} estão ocupadas a partir dessa data.`,
-    };
-  }
-
-  const jaTemPendente = await findPendingRequestBySameRenter(spaceId, user.id);
-  if (jaTemPendente) {
+  if (await findPendingRequestBySameRenter(spaceId, user.id)) {
     return { ok: false, message: 'Você já tem uma solicitação pendente para este espaço.' };
   }
 
-  const fees = await currentFees();
   let amounts;
   try {
-    amounts = computeBookingAmounts(grupo.rules.monthlyPriceCents!, fees);
-  } catch {
-    return { ok: false, message: 'Não foi possível calcular os valores deste anúncio agora.' };
+    amounts = computeBookingAmounts(space.priceMonthlyCents, await currentFees());
+  } catch (err) {
+    if (err instanceof InvalidAmountError) {
+      return { ok: false, message: 'Não foi possível calcular os valores deste anúncio agora.' };
+    }
+    throw err;
   }
 
   let bookingId: string | undefined;
@@ -185,8 +176,6 @@ export async function requestBookingAction(
           renterId: user.id,
           ownerId: space.ownerId,
           status: 'requested',
-          kind: 'continuous',
-          groupId: grupo.id,
           startDate,
           monthlyRentCents: amounts.monthlyRentCents,
           renterFeeBps: amounts.renterFeeBps,
@@ -200,13 +189,11 @@ export async function requestBookingAction(
         .returning({ id: bookings.id });
       bookingId = row!.id;
     } catch (err) {
-      // Colisao no codigo de referencia (raríssima): tenta outro. Qualquer
-      // outro erro (ex.: bookings_distinct_parties) sobe de verdade.
+      // Colisão no código de referência (raríssima): tenta outro. Qualquer
+      // outra recusa do banco vira mensagem; o que não é regra conhecida sobe.
       const pg = pgErrorFrom(err);
-      if (pg?.code === '23505' && pg.constraint_name === 'bookings_reference_key') {
-        continue;
-      }
-      const msg = rentalRuleMessage(err, noun);
+      if (pg?.code === '23505' && pg.constraint_name === 'bookings_reference_key') continue;
+      const msg = bookingRuleMessage(err);
       if (msg) return { ok: false, message: msg };
       throw err;
     }
@@ -221,35 +208,48 @@ export async function requestBookingAction(
     action: 'booking.requested',
     entityType: 'booking',
     entityId: bookingId,
-    metadata: { spaceId: space.id, startDate, groupId: grupo.id },
+    metadata: { spaceId: space.id, startDate },
   });
 
   await notifyUser(db, {
     userId: space.ownerId,
     type: 'booking_requested',
-    title: 'Nova solicitação de aluguel',
-    body: `${user.publicName ?? 'Alguém'} quer alugar "${space.title}"${grupo.name === 'Padrão' ? '' : ` (${grupo.name})`}.`,
+    title: 'Nova solicitação de locação',
+    body: `${user.publicName ?? 'Alguém'} quer alugar "${space.title}" a partir de ${formatBookingDate(startDate)}. Você tem 24 horas para aceitar ou recusar.`,
     linkPath: `/meus-espacos/solicitacoes?filtro=pendentes#reserva-${bookingId}`,
-    data: { bookingId }, dedupeKey: `booking_requested:${bookingId}`,
+    data: { bookingId },
+    dedupeKey: `booking_requested:${bookingId}`,
   });
 
   revalidatePath('/meus-espacos/solicitacoes');
   revalidatePath('/reservas');
 
   /*
-   * Redireciona AQUI, no servidor — nao com `router.push` num useEffect do
+   * Redireciona AQUI, no servidor — não com `router.push` num useEffect do
    * cliente escutando `state.ok`. O Next.js atualiza a rota atual sozinho
-   * depois de toda Server Action; como a pagina de solicitar decide o que
-   * mostrar consultando se ja existe uma solicitacao, esse refresh trocaria
-   * o formulario antes do efeito rodar. `redirect()` evita a corrida.
+   * depois de toda Server Action; como a página de solicitar decide o que
+   * mostrar consultando se já existe uma solicitação, esse refresh trocaria
+   * o formulário antes do efeito rodar. `redirect()` evita a corrida.
    */
   redirect(`/reservas/${bookingId}?enviada=1`);
 }
 
 // ---------------------------------------------------------------------------
-// Proprietario responde
+// Proprietário responde
 // ---------------------------------------------------------------------------
 
+/**
+ * O proprietário aceita ou recusa um pedido.
+ *
+ * ACEITAR exige instruções de acesso (texto de 10 a 1000 caracteres e/ou
+ * áudio): é o que o locatário precisa para achar e usar o espaço, e só
+ * aparece para ele depois do pagamento. O aceite acontece numa transação que
+ * TRAVA o anúncio, encerra o que já venceu nele e então grava — o gatilho
+ * `bookings_guard_capacity` recusa se, no instante exato, não sobrar vaga
+ * (duas pessoas aceitas ao mesmo tempo para a última vaga: uma passa).
+ * Quando a última vaga é preenchida, os demais pedidos pendentes são
+ * recusados e avisados; com vaga sobrando, continuam de pé.
+ */
 export async function respondToBookingRequestAction(
   _prev: BookingActionState | undefined,
   formData: FormData,
@@ -260,11 +260,14 @@ export async function respondToBookingRequestAction(
     bookingId: formData.get('bookingId'),
     decision: formData.get('decision'),
     ownerResponse: formData.get('ownerResponse') || undefined,
+    accessInstructions: formData.get('accessInstructions') || undefined,
+    accessAudioPath: formData.get('accessAudioPath') || undefined,
+    accessAudioDurationMs: formData.get('accessAudioDurationMs') || undefined,
   });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? 'Dados inválidos.' };
   }
-  const { bookingId, decision, ownerResponse } = parsed.data;
+  const { bookingId, decision, ownerResponse, accessInstructions, accessAudioPath, accessAudioDurationMs } = parsed.data;
 
   const [booking] = await db
     .select({
@@ -273,7 +276,6 @@ export async function respondToBookingRequestAction(
       renterId: bookings.renterId,
       spaceId: bookings.spaceId,
       status: bookings.status,
-      groupId: bookings.groupId,
       startDate: bookings.startDate,
     })
     .from(bookings)
@@ -283,15 +285,27 @@ export async function respondToBookingRequestAction(
   if (!booking || booking.ownerId !== user.id) {
     return { ok: false, message: 'Solicitação não encontrada.' };
   }
-  if (booking.status !== 'requested') {
+
+  // O prazo de resposta pode ter vencido desde que a tela abriu.
+  await sweepSpace(booking.spaceId);
+  const [atual] = await db.select({ status: bookings.status }).from(bookings).where(eq(bookings.id, bookingId)).limit(1);
+  if (atual?.status === 'expired') {
+    revalidatePath('/meus-espacos/solicitacoes');
+    return { ok: false, message: 'O prazo de 24 horas para responder esta solicitação terminou e ela expirou.' };
+  }
+  if (atual?.status !== 'requested') {
     return { ok: false, message: 'Esta solicitação já foi respondida.' };
   }
 
   if (decision === 'reject') {
-    await db
+    const recusadas = await db
       .update(bookings)
       .set({ status: 'rejected', ownerResponse: ownerResponse || null, respondedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(bookings.id, bookingId), eq(bookings.status, 'requested')));
+      .where(and(eq(bookings.id, bookingId), eq(bookings.status, 'requested')))
+      .returning({ id: bookings.id });
+    if (recusadas.length === 0) {
+      return { ok: false, message: 'Esta solicitação já foi respondida em outra aba ou dispositivo.' };
+    }
 
     await db.insert(auditLogs).values({
       actorId: user.id, actorRole: user.role, action: 'booking.rejected',
@@ -299,7 +313,7 @@ export async function respondToBookingRequestAction(
     });
     await notifyUser(db, {
       userId: booking.renterId, type: 'booking_rejected', title: 'Solicitação recusada',
-      body: 'O proprietário não aceitou sua solicitação desta vez.', linkPath: `/reservas/${bookingId}`,
+      body: 'O proprietário não aceitou sua solicitação desta vez. Nada foi cobrado.', linkPath: `/reservas/${bookingId}`,
       data: { bookingId }, dedupeKey: `booking_rejected:${bookingId}`,
     });
 
@@ -308,53 +322,76 @@ export async function respondToBookingRequestAction(
     return { ok: true, bookingId };
   }
 
-  // --- aceitar ---
-  const [space] = await db
-    .select({
-      id: spaces.id, status: spaces.status, type: spaces.type,
-      title: spaces.title, deletedAt: spaces.deletedAt, depositEnabled: spaces.depositEnabled,
-    })
-    .from(spaces)
-    .where(eq(spaces.id, booking.spaceId))
-    .limit(1);
-  if (!space || space.deletedAt) {
-    return { ok: false, message: 'Este espaço não existe mais.' };
+  // --- aceitar: instruções de acesso OBRIGATÓRIAS (texto e/ou áudio) ---
+  const texto = accessInstructions?.trim() || null;
+  if (texto && texto.length < ACCESS_INSTRUCTIONS_MIN) {
+    return { ok: false, message: `Escreva pelo menos ${ACCESS_INSTRUCTIONS_MIN} caracteres nas instruções de acesso, ou grave um áudio.` };
   }
-  const noun = unitNounFor(space.type);
 
-  // Solicitações anteriores à Parte 12 não tinham grupo: vale o único mensal.
-  const grupo = await resolveContinuousGroup(space.id, booking.groupId);
-  if (!grupo) {
-    return { ok: false, message: 'O grupo desta solicitação não aceita mais aluguel mensal. Recuse e combine pelo chat.' };
+  let audio: { path: string; durationMs: number; mime: string } | null = null;
+  if (accessAudioPath) {
+    // O áudio mora na pasta da conversa DESTE pedido e já foi enviado e validado
+    // (formato por conteúdo, tamanho). Revalida aqui: nunca confia no caminho que veio do formulário.
+    const conversa = await findConversation(booking.spaceId, booking.renterId);
+    if (!conversa || !isPathInConversation(accessAudioPath, conversa.id)) {
+      return { ok: false, message: 'O áudio das instruções não é desta solicitação. Grave de novo.' };
+    }
+    const arquivo = await readChatAudio(accessAudioPath);
+    if (!arquivo) {
+      return { ok: false, message: 'O áudio das instruções não foi encontrado. Grave de novo.' };
+    }
+    audio = { path: accessAudioPath, durationMs: accessAudioDurationMs ?? 0, mime: arquivo.format.mime };
+    if (audio.durationMs < 1000) {
+      return { ok: false, message: 'Duração do áudio inválida. Grave de novo.' };
+    }
+  }
+  if (!texto && !audio) {
+    return { ok: false, message: 'Informe como o locatário encontra e usa o espaço — por texto ou por áudio.' };
   }
 
   const fees = await currentFees();
-  let amounts;
-  try {
-    amounts = computeBookingAmounts(grupo.rules.monthlyPriceCents!, fees);
-  } catch {
-    return { ok: false, message: 'Não foi possível calcular os valores deste anúncio agora.' };
-  }
-  // Congelado no aceite, como todo o resto — 1x o aluguel mensal do grupo, nunca um valor digitado por alguém.
-  const depositCents = space.depositEnabled ? amounts.monthlyRentCents : 0;
-
+  let spaceTitle = '';
+  let aceita: { firstPaymentDeadlineAt: Date | null } | undefined;
   let preteridos: { id: string; renterId: string }[] = [];
-  let unidade: { id: string; label: string } | null = null;
-  // Motivo dito a quem perdeu a vez: com uma unidade só, "outro foi aceito";
-  // com várias, "todas foram alugadas" (com o gênero certo: vagas, boxes).
-  let motivoPreterido = 'Outro interessado foi aceito primeiro.';
+  let lotou = false;
+  const motivoPreterido = 'As vagas deste anúncio foram preenchidas por outras solicitações.';
+
   try {
     await db.transaction(async (tx) => {
-      await lockSpaceAndSweep(tx, space.id);
-      unidade = await findFreeUnit(tx, grupo.id, brInstant(booking.startDate, '00:00'), null);
-      if (!unidade) throw new Error('LOTADO');
+      // 1) trava o anúncio e encerra o que já venceu nele (libera vagas presas);
+      await tx.execute(sql`SELECT 1 FROM spaces WHERE id = ${booking.spaceId} FOR UPDATE`);
+      await tx.execute(sql`SELECT public.release_expired_rentals(${booking.spaceId})`);
 
+      // 2) lê o preço VIGENTE já com o anúncio travado: o aceite congela este valor.
+      const [sp] = await tx
+        .select({
+          title: spaces.title, priceMonthlyCents: spaces.priceMonthlyCents,
+          depositEnabled: spaces.depositEnabled, deletedAt: spaces.deletedAt,
+        })
+        .from(spaces)
+        .where(eq(spaces.id, booking.spaceId))
+        .limit(1);
+      if (!sp || sp.deletedAt) throw new RegraDeNegocio('Este espaço não existe mais.');
+      if (sp.priceMonthlyCents == null) throw new RegraDeNegocio('Este anúncio está sem preço mensal. Defina o preço antes de aceitar.');
+      spaceTitle = sp.title;
+
+      let amounts;
+      try {
+        amounts = computeBookingAmounts(sp.priceMonthlyCents, fees);
+      } catch (err) {
+        if (err instanceof InvalidAmountError) throw new RegraDeNegocio('Não foi possível calcular os valores deste anúncio agora.');
+        throw err;
+      }
+      // Congelado no aceite, como todo o resto — 1x o aluguel mensal, nunca um valor digitado por alguém.
+      const depositCents = sp.depositEnabled ? amounts.monthlyRentCents : 0;
+
+      // 3) o aceite. O WHERE status = 'requested' impede aceitar duas vezes o MESMO pedido
+      // (segunda aba, duplo clique); os gatilhos do banco conferem prazo, instruções,
+      // preço, calendário e a ÚLTIMA VAGA.
       const atualizadas = await tx
         .update(bookings)
         .set({
           status: 'approved',
-          groupId: grupo.id,
-          unitId: unidade.id,
           monthlyRentCents: amounts.monthlyRentCents,
           renterFeeBps: amounts.renterFeeBps,
           ownerFeeBps: amounts.ownerFeeBps,
@@ -363,79 +400,60 @@ export async function respondToBookingRequestAction(
           totalChargedCents: amounts.totalChargedCents,
           ownerPayoutCents: amounts.ownerPayoutCents,
           depositCents,
+          accessInstructions: texto,
+          accessAudioPath: audio?.path ?? null,
+          accessAudioDurationMs: audio?.durationMs ?? null,
+          accessAudioMime: audio?.mime ?? null,
           termsSnapshot: {
             renterFeeBps: amounts.renterFeeBps, ownerFeeBps: amounts.ownerFeeBps,
-            priceMonthlyCentsAtAccept: amounts.monthlyRentCents, group: grupo.name, unit: unidade.label,
+            priceMonthlyCentsAtAccept: amounts.monthlyRentCents, startDate: booking.startDate,
           },
           ownerResponse: ownerResponse || null,
           respondedAt: new Date(),
           updatedAt: new Date(),
         })
-        // Trava dupla: WHERE status='requested' garante que ninguem aceitou/recusou
-        // essa MESMA solicitacao entre a leitura e a escrita (segunda aba, duplo clique).
         .where(and(eq(bookings.id, bookingId), eq(bookings.status, 'requested')))
-        .returning({ id: bookings.id });
-
+        .returning({ firstPaymentDeadlineAt: bookings.firstPaymentDeadlineAt });
       if (atualizadas.length === 0) {
-        throw new Error('CONCORRENCIA: a solicitação já não estava mais pendente.');
+        throw new RegraDeNegocio('Esta solicitação já foi respondida ou expirou. Recarregue a página.');
       }
+      aceita = atualizadas[0];
 
-      // Com unidades (Parte 12), quem mais pediu só perde a vez quando o
-      // GRUPO lotou — com vaga sobrando, a solicitação continua de pé. De
-      // forma explícita: o motivo fica na linha e cada um é avisado.
-      const aindaLivre = await findFreeUnit(tx, grupo.id, brInstant(booking.startDate, '00:00'), null);
-      if (!aindaLivre) {
+      // 4) Lotou? Quem mais pediu só perde a vez quando NÃO sobra vaga — com vaga
+      // sobrando, o pedido continua de pé. O motivo fica na linha e cada um é avisado.
+      const [folga] = (await tx.execute(
+        sql`SELECT quantity_available::int AS livres FROM spaces WHERE id = ${booking.spaceId}`,
+      )) as unknown as { livres: number }[];
+      if ((folga?.livres ?? 1) <= 0) {
+        lotou = true;
         preteridos = await tx
           .select({ id: bookings.id, renterId: bookings.renterId })
           .from(bookings)
-          .where(and(
-            eq(bookings.spaceId, space.id),
-            eq(bookings.status, 'requested'),
-            ne(bookings.id, bookingId),
-            or(eq(bookings.groupId, grupo.id), isNull(bookings.groupId)),
-          ));
+          .where(and(eq(bookings.spaceId, booking.spaceId), eq(bookings.status, 'requested'), ne(bookings.id, bookingId)));
         if (preteridos.length > 0) {
-          const [unidadesDoGrupo] = (await tx.execute(
-            sql`SELECT count(*)::int AS n FROM space_units WHERE group_id = ${grupo.id} AND active`,
-          )) as unknown as { n: number }[];
-          if ((unidadesDoGrupo?.n ?? 1) > 1) {
-            motivoPreterido = noun.feminino
-              ? `Todas as ${noun.plural} foram alugadas.`
-              : `Todos os ${noun.plural} foram alugados.`;
-          }
           await tx
             .update(bookings)
-            .set({
-              status: 'rejected',
-              ownerResponse: motivoPreterido,
-              respondedAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(inArray(bookings.id, preteridos.map((o) => o.id)));
+            .set({ status: 'rejected', ownerResponse: motivoPreterido, respondedAt: new Date(), updatedAt: new Date() })
+            .where(inArray(bookings.id, preteridos.map((p) => p.id)));
         }
       }
     });
   } catch (err) {
-    if (err instanceof Error && err.message === 'LOTADO') {
+    if (err instanceof RegraDeNegocio) return { ok: false, message: err.message };
+    const pg = pgErrorFrom(err);
+    if (pg?.constraint_name === 'bookings_capacity') {
       return {
         ok: false,
-        message: `Nenhuma ${noun.singular} ${grupo.name === 'Padrão' ? '' : `de "${grupo.name}" `}fica livre a partir de ${formatBookingDate(booking.startDate)}. Recuse ou combine outra data pelo chat.`,
+        message: 'Todas as vagas deste anúncio já estão ocupadas. Recuse esta solicitação ou aumente a quantidade oferecida.',
       };
     }
-    if (isOccupancyConflict(err)) {
-      return { ok: false, message: `Esta ${noun.singular} acabou de ser alugada por outra pessoa. Tente aceitar de novo.` };
-    }
-    if (isBlockedPeriodConflict(err)) {
+    if (pg?.constraint_name === 'bookings_period_not_blocked') {
       return {
         ok: false,
-        message:
-          'O calendário deste espaço tem datas bloqueadas depois do início pedido. Como o aluguel é mensal e sem data para terminar, desfaça o bloqueio no calendário antes de aceitar.',
+        message: 'A data de início pedida cai num período que você bloqueou no calendário. Desfaça o bloqueio ou recuse e combine outra data pelo chat.',
       };
     }
-    if (err instanceof Error && err.message.startsWith('CONCORRENCIA')) {
-      return { ok: false, message: 'Esta solicitação já foi respondida em outra aba ou dispositivo.' };
-    }
-    const msg = rentalRuleMessage(err, noun);
+    const msg = bookingRuleMessage(err);
     if (msg) return { ok: false, message: msg };
     throw err;
   }
@@ -443,14 +461,14 @@ export async function respondToBookingRequestAction(
   await db.insert(auditLogs).values({
     actorId: user.id, actorRole: user.role, action: 'booking.approved',
     entityType: 'booking', entityId: bookingId,
-    metadata: {
-      totalChargedCents: amounts.totalChargedCents, ownerPayoutCents: amounts.ownerPayoutCents,
-      groupId: grupo.id, unitId: (unidade as { id: string } | null)?.id ?? null,
-    },
+    metadata: { accessText: Boolean(texto), accessAudio: Boolean(audio), soldOut: lotou },
   });
+
+  const agora = new Date();
+  const prazo = aceita?.firstPaymentDeadlineAt ?? null;
   await notifyUser(db, {
     userId: booking.renterId, type: 'booking_approved', title: 'Solicitação aceita!',
-    body: `O proprietário aceitou sua solicitação para "${space.title}". Confirme o pagamento para garantir o espaço.`,
+    body: `O proprietário aceitou sua solicitação para "${spaceTitle}". Pague ${prazo ? formatDeadline(prazo, agora) : 'em até 24 horas'} para garantir a vaga; depois disso ela é liberada.`,
     linkPath: `/reservas/${bookingId}`,
     data: { bookingId }, dedupeKey: `booking_approved:${bookingId}`,
   });
@@ -462,7 +480,7 @@ export async function respondToBookingRequestAction(
         userId: p.renterId,
         type: 'booking_rejected' as const,
         title: 'Solicitação recusada',
-        body: `${motivoPreterido} Anúncio: "${space.title}".`,
+        body: `${motivoPreterido} Anúncio: "${spaceTitle}". Nada foi cobrado.`,
         linkPath: `/reservas/${p.id}`,
         data: { bookingId: p.id },
         dedupeKey: `booking_rejected:${p.id}`,
@@ -474,21 +492,20 @@ export async function respondToBookingRequestAction(
   revalidatePath('/reservas');
   revalidatePath('/espacos');
 
-  // Fase 23: se o banco marcou o espaço como alugado (todas as unidades),
-  // quem favoritou fica sabendo (menos quem acabou de alugar). Best-effort.
-  await onSpaceBecameUnavailable(booking.spaceId, [booking.renterId]);
+  // Se a última vaga foi preenchida, quem favoritou fica sabendo (menos quem acabou de alugar).
+  if (lotou) await onSpaceBecameUnavailable(booking.spaceId, [booking.renterId]);
 
-  // A partir de uma reserva aceita, as duas partes quase sempre precisam
-  // combinar algo (acesso, horário) — por isso cria a conversa se ainda não
-  // existir, diferente do cancelamento (ver postBookingSystemMessage).
+  // A partir de uma locação aceita as duas partes quase sempre precisam combinar algo —
+  // por isso cria a conversa se ainda não existir. As instruções NÃO vão no chat agora:
+  // só depois do pagamento confirmado (a localização exata é privada até lá).
   await postBookingSystemMessage({
     spaceId: booking.spaceId,
     renterId: booking.renterId,
     ownerId: booking.ownerId,
-    spaceTitle: space.title,
+    spaceTitle,
     actorId: user.id,
     recipientId: booking.renterId,
-    body: 'Reserva aceita. A partir de agora vocês podem combinar os detalhes por aqui.',
+    body: `Solicitação aceita. Para garantir a vaga, o pagamento precisa ser feito ${prazo ? formatDeadline(prazo, agora) : 'em até 24 horas'}. As instruções de acesso e o endereço exato aparecem aqui e em Meus aluguéis assim que o pagamento for confirmado.`,
     createIfMissing: true,
   });
 
@@ -496,11 +513,11 @@ export async function respondToBookingRequestAction(
 }
 
 // ---------------------------------------------------------------------------
-// Cancelar (antes de o aluguel começar a valer)
+// Cancelar (antes de a locação começar a valer)
 // ---------------------------------------------------------------------------
 
 /**
- * Cancela uma solicitação ou reserva que ainda não está em andamento.
+ * Cancela uma solicitação ou locação que ainda não está em andamento.
  *
  * Locatário: a própria, em 'requested', 'approved' ou 'awaiting_payment'
  * (desistiu antes de pagar). Proprietário: só em 'approved' (o combinado
@@ -508,8 +525,7 @@ export async function respondToBookingRequestAction(
  *
  * Se já existe cobrança no gateway (assinatura do mensal), ela é cancelada
  * no Asaas ANTES de qualquer mudança aqui: se o Asaas recusar, nada muda e
- * a pessoa vê o motivo. Cobrança avulsa do temporário fica marcada para
- * exclusão e é excluída na hora (e repetida pelo agendador se falhar).
+ * a pessoa vê o motivo. A vaga volta sozinha (o banco recontou).
  */
 export async function cancelBookingAction(
   _prev: BookingActionState | undefined,
@@ -532,7 +548,6 @@ export async function cancelBookingAction(
       ownerId: bookings.ownerId,
       renterId: bookings.renterId,
       status: bookings.status,
-      kind: bookings.kind,
       spaceId: bookings.spaceId,
       spaceTitle: spaces.title,
     })
@@ -554,7 +569,7 @@ export async function cancelBookingAction(
     return { ok: false, message: 'Esta reserva não pode mais ser cancelada por aqui.' };
   }
 
-  // Mensal aguardando pagamento: a assinatura já existe no Asaas.
+  // Aceita e já em pagamento: a assinatura já existe no Asaas.
   const [assinatura] = await db
     .select({ id: subscriptions.id, providerSubscriptionId: subscriptions.providerSubscriptionId, status: subscriptions.status })
     .from(subscriptions)
@@ -582,7 +597,6 @@ export async function cancelBookingAction(
         cancelledAt: new Date(),
         cancelledBy: user.id,
         cancellationReason: reason || null,
-        holdExpiresAt: null,
         updatedAt: new Date(),
       })
       .where(and(eq(bookings.id, bookingId), inArray(bookings.status, ['requested', 'approved', 'awaiting_payment'])))
@@ -595,7 +609,7 @@ export async function cancelBookingAction(
         .set({ status: 'cancelled', cancelledAt: new Date(), providerCancelledAt: new Date(), updatedAt: new Date() })
         .where(eq(subscriptions.id, assinatura.id));
     }
-    // Cobrança em aberto que não deve mais ser paga (temporário): exclusão no gateway.
+    // Cobrança em aberto que não deve mais ser paga: exclusão no gateway (a manutenção repete até confirmar).
     await tx
       .update(payments)
       .set({ deleteRequestedAt: new Date(), updatedAt: new Date() })
@@ -603,11 +617,10 @@ export async function cancelBookingAction(
         eq(payments.bookingId, bookingId),
         inArray(payments.status, ['pending', 'overdue']),
         isNull(payments.deleteRequestedAt),
-        isNull(payments.subscriptionId),
       ));
     await tx.insert(auditLogs).values({
       actorId: user.id, actorRole: user.role, action: 'booking.cancelled',
-      entityType: 'booking', entityId: bookingId, metadata: { kind: booking.kind, previousStatus: booking.status },
+      entityType: 'booking', entityId: bookingId, metadata: { previousStatus: booking.status },
     });
     return linhas.length;
   });
@@ -630,8 +643,7 @@ export async function cancelBookingAction(
   revalidatePath('/reservas');
   revalidatePath('/espacos');
 
-  // Fase 23: cancelar uma reserva aceita pode devolver o espaço ao ar
-  // (trigger no banco) — lista de espera e favoritos ficam sabendo.
+  // A vaga voltou (o banco recontou): lista de espera e favoritos ficam sabendo.
   await onSpaceMaybeAvailableAgain(booking.spaceId);
 
   await postBookingSystemMessage({
@@ -648,16 +660,23 @@ export async function cancelBookingAction(
   return { ok: true, bookingId };
 }
 
+// ---------------------------------------------------------------------------
+// Encerrar — quem aluga encerra na hora; o proprietário PEDE o encerramento
+// ---------------------------------------------------------------------------
+
 /**
- * Encerra um aluguel MENSAL em andamento ('active' ou 'past_due') — o
- * "Cancelar aluguel" da Parte 12, imediato: recorrência cancelada no Asaas
- * (o DELETE da assinatura também remove a cobrança em aberto ou vencida),
- * aluguel encerrado, unidade liberada, histórico com o motivo.
+ * O LOCATÁRIO encerra uma locação em andamento ('active' ou 'past_due'),
+ * imediatamente: recorrência cancelada no Asaas (o DELETE da assinatura também
+ * remove a cobrança em aberto ou vencida), locação encerrada, vaga devolvida
+ * (o banco recontou), histórico com o motivo.
  *
  * A assinatura é cancelada no gateway ANTES de qualquer escrita no banco —
  * se o Asaas recusar, nada muda por aqui, e a pessoa não sai da tela achando
  * que parou de pagar quando na verdade não parou. Um 404 (assinatura já
  * cancelada de outro jeito) é tratado como sucesso, não como erro.
+ *
+ * O proprietário não encerra por aqui: ele registra um pedido de encerramento
+ * (`requestRentalEndAction`), com data, e o locatário é avisado.
  */
 export async function endBookingAction(
   _prev: BookingActionState | undefined,
@@ -680,7 +699,6 @@ export async function endBookingAction(
       ownerId: bookings.ownerId,
       renterId: bookings.renterId,
       status: bookings.status,
-      kind: bookings.kind,
       spaceId: bookings.spaceId,
       spaceTitle: spaces.title,
     })
@@ -692,12 +710,12 @@ export async function endBookingAction(
   if (!booking || (booking.ownerId !== user.id && booking.renterId !== user.id)) {
     return { ok: false, message: 'Reserva não encontrada.' };
   }
-
-  if (booking.kind !== 'continuous' || (booking.status !== 'active' && booking.status !== 'past_due')) {
-    return { ok: false, message: 'Só é possível encerrar um aluguel mensal em andamento.' };
+  if (booking.renterId !== user.id) {
+    return { ok: false, message: 'Quem encerra na hora é quem aluga. Como proprietário, peça o encerramento com uma data.' };
   }
-
-  const souLocatario = booking.renterId === user.id;
+  if (booking.status !== 'active' && booking.status !== 'past_due') {
+    return { ok: false, message: 'Só é possível encerrar uma locação em andamento.' };
+  }
 
   const [assinatura] = await db
     .select({ id: subscriptions.id, providerSubscriptionId: subscriptions.providerSubscriptionId })
@@ -721,16 +739,18 @@ export async function endBookingAction(
     }
   }
 
-  await db.transaction(async (tx) => {
-    await tx
+  const encerradas = await db.transaction(async (tx) => {
+    const linhas = await tx
       .update(bookings)
       .set({
         status: 'ended',
-        endReason: souLocatario ? 'cancelled_by_renter' : 'cancelled_by_owner',
+        endReason: 'cancelled_by_renter',
         endedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(and(eq(bookings.id, bookingId), inArray(bookings.status, ['active', 'past_due'])));
+      .where(and(eq(bookings.id, bookingId), inArray(bookings.status, ['active', 'past_due'])))
+      .returning({ id: bookings.id });
+    if (linhas.length === 0) return 0;
 
     if (assinatura) {
       await tx
@@ -738,29 +758,36 @@ export async function endBookingAction(
         .set({ status: 'cancelled', cancelledAt: new Date(), providerCancelledAt: new Date(), updatedAt: new Date() })
         .where(eq(subscriptions.id, assinatura.id));
     }
+    // Se o proprietário tinha pedido o encerramento, o pedido se cumpriu: nada mais a esperar.
+    await tx
+      .update(bookingEndRequests)
+      .set({ status: 'completed', resolvedAt: new Date() })
+      .where(and(eq(bookingEndRequests.bookingId, bookingId), eq(bookingEndRequests.status, 'pending')));
 
     await tx.insert(auditLogs).values({
       actorId: user.id, actorRole: user.role, action: 'booking.ended',
       entityType: 'booking', entityId: bookingId,
-      metadata: { reason: reason ?? null, previousStatus: booking.status, by: souLocatario ? 'renter' : 'owner' },
+      metadata: { reason: reason ?? null, previousStatus: booking.status, by: 'renter' },
     });
+    return linhas.length;
   });
+  if (encerradas === 0) {
+    return { ok: false, message: 'Esta locação mudou de situação agora há pouco. Recarregue a página.' };
+  }
 
-  const outraParte = souLocatario ? booking.ownerId : booking.renterId;
   const [autor] = await db.select({ publicName: profiles.publicName }).from(profiles).where(eq(profiles.id, user.id)).limit(1);
-  // A outra parte fica sabendo do encerramento (categoria reservas — essencial)
-  // e, no mesmo aviso, que já pode avaliar. Quem encerrou recebe só o
-  // "avaliação disponível" (categoria avaliações). Uma notificação por
-  // pessoa, nunca duas pelo mesmo evento.
+  // O proprietário fica sabendo do encerramento (categoria reservas — essencial) e, no mesmo
+  // aviso, que já pode avaliar. Quem encerrou recebe só o "avaliação disponível". Uma
+  // notificação por pessoa, nunca duas pelo mesmo evento.
   await notifyUsers(db, [
     {
-      userId: outraParte, type: 'booking_cancelled', title: 'Aluguel encerrado',
-      body: `${autor?.publicName ?? 'A outra parte'} encerrou o aluguel de "${booking.spaceTitle}". Conte como foi: a avaliação já está disponível.`,
+      userId: booking.ownerId, type: 'booking_cancelled', title: 'Locação encerrada',
+      body: `${autor?.publicName ?? 'O locatário'} encerrou a locação de "${booking.spaceTitle}". A vaga voltou a ficar disponível e a avaliação já está disponível.`,
       linkPath: `/reservas/${bookingId}`, data: { bookingId }, dedupeKey: `booking_ended:${bookingId}`,
     },
     {
       userId: user.id, type: 'review_available', title: 'Avaliação disponível',
-      body: `Conte como foi o aluguel de "${booking.spaceTitle}" — sua avaliação ajuda as próximas pessoas.`,
+      body: `Conte como foi a locação de "${booking.spaceTitle}" — sua avaliação ajuda as próximas pessoas.`,
       linkPath: `/reservas/${bookingId}`, data: { bookingId }, dedupeKey: `review_available:${bookingId}`,
     },
   ]);
@@ -770,8 +797,7 @@ export async function endBookingAction(
   revalidatePath('/reservas');
   revalidatePath('/espacos');
 
-  // Fase 23: o aluguel acabou e o espaço pode ter voltado ao ar (trigger no
-  // banco) — quem estava na lista de espera é avisado. Best-effort.
+  // A vaga voltou — quem estava na lista de espera é avisado. Melhor esforço.
   await onSpaceMaybeAvailableAgain(booking.spaceId);
 
   await postBookingSystemMessage({
@@ -780,10 +806,157 @@ export async function endBookingAction(
     ownerId: booking.ownerId,
     spaceTitle: booking.spaceTitle,
     actorId: user.id,
-    recipientId: outraParte,
-    body: `Aluguel encerrado por ${autor?.publicName ?? 'a outra parte'}.`,
+    recipientId: booking.ownerId,
+    body: `Locação encerrada por ${autor?.publicName ?? 'quem alugava'}.`,
     createIfMissing: false,
   });
 
+  return { ok: true, bookingId };
+}
+
+/**
+ * O PROPRIETÁRIO pede o encerramento de uma locação em andamento.
+ *
+ * Não apaga nada: registra o pedido (data e, se quiser, motivo), avisa o
+ * locatário e preserva o histórico. Quando a data chega, a manutenção do banco
+ * (`release_expired_rentals`) encerra a locação, cancela a cobrança
+ * automática e devolve a vaga. Multa e aviso prévio mínimo ainda não estão
+ * definidos: o prazo mínimo vem de `rental.end_request_min_notice_days` (hoje
+ * 0) e é conferido pelo banco, para a regra poder mudar sem deploy.
+ */
+export async function requestRentalEndAction(
+  _prev: BookingActionState | undefined,
+  formData: FormData,
+): Promise<BookingActionState> {
+  const user = await requireUserOrThrow();
+
+  const parsed = requestEndSchema.safeParse({
+    bookingId: formData.get('bookingId'),
+    endDate: formData.get('endDate'),
+    reason: formData.get('reason') || undefined,
+  });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? 'Dados inválidos.' };
+  }
+  const { bookingId, endDate, reason } = parsed.data;
+
+  const [booking] = await db
+    .select({
+      id: bookings.id,
+      ownerId: bookings.ownerId,
+      renterId: bookings.renterId,
+      status: bookings.status,
+      spaceId: bookings.spaceId,
+      spaceTitle: spaces.title,
+    })
+    .from(bookings)
+    .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  if (!booking || booking.ownerId !== user.id) {
+    return { ok: false, message: 'Locação não encontrada.' };
+  }
+  if (booking.status !== 'active' && booking.status !== 'past_due') {
+    return { ok: false, message: 'Só é possível pedir o encerramento de uma locação em andamento.' };
+  }
+  if (endDate < brDate(new Date())) {
+    return { ok: false, message: 'A data de encerramento não pode ser no passado.' };
+  }
+
+  try {
+    await db.transaction(async (tx) => {
+      await tx.insert(bookingEndRequests).values({
+        bookingId, requestedBy: user.id, requestedEndDate: endDate, reason: reason || null,
+      });
+      await tx.insert(auditLogs).values({
+        actorId: user.id, actorRole: user.role, action: 'booking.end_requested',
+        entityType: 'booking', entityId: bookingId, metadata: { endDate, hasReason: Boolean(reason) },
+      });
+    });
+  } catch (err) {
+    const msg = bookingRuleMessage(err);
+    if (msg) return { ok: false, message: msg };
+    throw err;
+  }
+
+  const dataTexto = formatDateShort(endDate);
+  await notifyUser(db, {
+    userId: booking.renterId, type: 'rental_end_requested', title: 'O proprietário pediu o encerramento da locação',
+    body: `A locação de "${booking.spaceTitle}" será encerrada em ${dataTexto}.${reason ? ` Motivo informado: ${reason}` : ''} Até lá, ela segue normalmente. Nenhuma multa é cobrada pela plataforma.`,
+    linkPath: `/reservas/${bookingId}`, data: { bookingId, endDate },
+    dedupeKey: `rental_end_requested:${bookingId}:${endDate}`,
+  });
+
+  await postBookingSystemMessage({
+    spaceId: booking.spaceId,
+    renterId: booking.renterId,
+    ownerId: booking.ownerId,
+    spaceTitle: booking.spaceTitle,
+    actorId: user.id,
+    recipientId: booking.renterId,
+    body: `O proprietário pediu o encerramento desta locação para ${dataTexto}.${reason ? ` Motivo: ${reason}` : ''}`,
+    createIfMissing: false,
+  });
+
+  revalidatePath(`/reservas/${bookingId}`);
+  revalidatePath('/reservas');
+  revalidatePath('/meus-espacos/solicitacoes');
+  return { ok: true, bookingId };
+}
+
+/** O proprietário retira o pedido de encerramento que ainda não se cumpriu. */
+export async function withdrawRentalEndRequestAction(
+  _prev: BookingActionState | undefined,
+  formData: FormData,
+): Promise<BookingActionState> {
+  const user = await requireUserOrThrow();
+
+  const parsed = withdrawEndRequestSchema.safeParse({ bookingId: formData.get('bookingId') });
+  if (!parsed.success) return { ok: false, message: 'Locação inválida.' };
+  const { bookingId } = parsed.data;
+
+  const [booking] = await db
+    .select({
+      id: bookings.id, ownerId: bookings.ownerId, renterId: bookings.renterId,
+      status: bookings.status, spaceId: bookings.spaceId, spaceTitle: spaces.title,
+    })
+    .from(bookings)
+    .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
+    .where(eq(bookings.id, bookingId))
+    .limit(1);
+  if (!booking || booking.ownerId !== user.id) return { ok: false, message: 'Locação não encontrada.' };
+
+  const retirados = await db
+    .update(bookingEndRequests)
+    .set({ status: 'withdrawn', resolvedAt: new Date() })
+    .where(and(eq(bookingEndRequests.bookingId, bookingId), eq(bookingEndRequests.status, 'pending')))
+    .returning({ id: bookingEndRequests.id, endDate: bookingEndRequests.requestedEndDate });
+  if (retirados.length === 0) {
+    return { ok: false, message: 'Não há pedido de encerramento em aberto para retirar.' };
+  }
+
+  await db.insert(auditLogs).values({
+    actorId: user.id, actorRole: user.role, action: 'booking.end_request_withdrawn',
+    entityType: 'booking', entityId: bookingId, metadata: {},
+  });
+  await notifyUser(db, {
+    userId: booking.renterId, type: 'rental_end_requested', title: 'Pedido de encerramento retirado',
+    body: `O proprietário retirou o pedido de encerramento da locação de "${booking.spaceTitle}". Ela continua normalmente.`,
+    linkPath: `/reservas/${bookingId}`, data: { bookingId },
+    dedupeKey: `rental_end_withdrawn:${retirados[0]!.id}`,
+  });
+  await postBookingSystemMessage({
+    spaceId: booking.spaceId,
+    renterId: booking.renterId,
+    ownerId: booking.ownerId,
+    spaceTitle: booking.spaceTitle,
+    actorId: user.id,
+    recipientId: booking.renterId,
+    body: 'O proprietário retirou o pedido de encerramento. A locação continua normalmente.',
+    createIfMissing: false,
+  });
+
+  revalidatePath(`/reservas/${bookingId}`);
+  revalidatePath('/reservas');
   return { ok: true, bookingId };
 }

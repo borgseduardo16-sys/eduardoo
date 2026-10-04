@@ -13,7 +13,7 @@ import {
   date,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
-import { spaceType, spaceStatus, rentalTimeUnit } from './enums';
+import { spaceType, spaceStatus } from './enums';
 import { profiles } from './users';
 import { pointColumn } from './_types';
 
@@ -88,25 +88,34 @@ export const spaces = pgTable(
     sizeM2: numeric('size_m2', { precision: 10, scale: 2 }),
     ceilingHeightM: numeric('ceiling_height_m', { precision: 5, scale: 2 }),
 
-    // ---- Preco ----
+    // ---- Preco e quantidade ----
     /**
-     * Preço MENSAL de referência (aluguel contínuo). Parte 12: mantido pelo
-     * banco a partir dos grupos de unidades (o menor preço mensal entre os
-     * grupos ativos que aceitam contínuo) e NULL quando o anúncio só aluga
-     * por hora/dia/semana — nunca um "preço mensal" inventado.
+     * Preço da mensalidade de UMA unidade. NULL só em rascunho que ainda não
+     * chegou na etapa de preço; anúncio no ar exige preço (CHECK
+     * `spaces_published_requires_price`).
      */
     priceMonthlyCents: integer('price_monthly_cents'),
-    /**
-     * Resumo do aluguel temporário, também mantido pelo banco a partir dos
-     * grupos (Parte 12) — é o que cartão, mapa e busca mostram sem precisar
-     * abrir as regras: "R$ 50/hora" (por período, `tempFromUnits` = 1) ou
-     * "R$ 120 por até 5 horas" (pacote mais curto). NULL nos três = não
-     * aluga por hora/dia/semana.
-     */
-    tempFromCents: integer('temp_from_cents'),
-    tempFromUnits: integer('temp_from_units'),
-    tempFromUnit: rentalTimeUnit('temp_from_unit'),
     currency: text('currency').notNull().default('BRL'),
+
+    /**
+     * Quantas unidades o proprietário põe À DISPONIBILIDADE na plataforma
+     * ("Disponíveis na plataforma: 80"). É o que ele edita. Uma garagem com
+     * uma vaga tem 1; um estacionamento com 100 vagas pode oferecer 80.
+     */
+    quantityOffered: integer('quantity_offered').notNull().default(1),
+    /**
+     * Quantidade total do local (os 100 do exemplo), só informativa. Nunca
+     * menor que o oferecido. Não entra em nenhuma conta de disponibilidade.
+     */
+    quantityTotal: integer('quantity_total'),
+    /**
+     * Quantas vagas ainda estão livres: `quantity_offered` menos as reservas
+     * que ocupam. NINGUÉM escreve aqui — as triggers da migração 0033 a
+     * recalculam a cada mudança de reserva ou de quantidade (recontando, não
+     * somando/subtraindo, para nunca divergir). 0 = lotado: o anúncio fica
+     * `rented` e quem quiser entra na lista "avise-me".
+     */
+    quantityAvailable: integer('quantity_available').notNull().default(1),
 
     // ---- Regras ----
     rulesText: text('rules_text'),
@@ -155,11 +164,20 @@ export const spaces = pgTable(
     /** Preco nunca negativo e teto de sanidade (R$ 1.000.000,00/mes). */
     check('spaces_price_positive', sql`${t.priceMonthlyCents} IS NULL OR ${t.priceMonthlyCents} > 0`),
     check('spaces_price_sane', sql`${t.priceMonthlyCents} IS NULL OR ${t.priceMonthlyCents} <= 100000000`),
-    /** Resumo temporário: os três juntos ou nenhum. */
+    /** Anúncio no ar precisa de preço mensal. */
     check(
-      'spaces_temp_summary_complete',
-      sql`(${t.tempFromCents} IS NULL AND ${t.tempFromUnits} IS NULL AND ${t.tempFromUnit} IS NULL)
-          OR (${t.tempFromCents} > 0 AND ${t.tempFromUnits} > 0 AND ${t.tempFromUnit} IS NOT NULL)`,
+      'spaces_published_requires_price',
+      sql`${t.status} NOT IN ('published', 'rented') OR ${t.priceMonthlyCents} IS NOT NULL`,
+    ),
+    check('spaces_quantity_offered_range', sql`${t.quantityOffered} BETWEEN 1 AND 10000`),
+    check(
+      'spaces_quantity_total_covers_offered',
+      sql`${t.quantityTotal} IS NULL OR ${t.quantityTotal} >= ${t.quantityOffered}`,
+    ),
+    /** Nunca negativa (overbooking) e nunca acima do oferecido. */
+    check(
+      'spaces_quantity_available_range',
+      sql`${t.quantityAvailable} BETWEEN 0 AND ${t.quantityOffered}`,
     ),
     check('spaces_size_positive', sql`${t.sizeM2} IS NULL OR ${t.sizeM2} > 0`),
     /** Um anuncio publicado precisa de coordenada, senao nao aparece em busca por distancia. */

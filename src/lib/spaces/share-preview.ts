@@ -1,4 +1,4 @@
-import { priceHeadline, type PriceSummary } from '@/lib/rentals/pricing';
+import { priceHeadline, type PriceSummary } from './price';
 import { spaceTypeLabel, type SpaceTypeKey } from './types';
 
 /**

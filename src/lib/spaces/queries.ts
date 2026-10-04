@@ -6,6 +6,7 @@ import { spaces, spaceImages, spaceFeatures, features, profiles } from '@/db/sch
 import { latOf, lngOf, withinMeters, distanceMeters, type LatLng } from '@/db/schema/_types';
 import { gatedPromotionTierExpr } from '@/lib/promotions/queries';
 import { compatibilityScoreExpr } from '@/lib/promotions/compatibility';
+import { upcomingBlocksExpr } from './sql';
 
 /**
  * Leitura de anuncios.
@@ -51,9 +52,9 @@ const publicColumns = {
   sizeM2: spaces.sizeM2,
   ceilingHeightM: spaces.ceilingHeightM,
   priceMonthlyCents: spaces.priceMonthlyCents,
-  tempFromCents: spaces.tempFromCents,
-  tempFromUnits: spaces.tempFromUnits,
-  tempFromUnit: spaces.tempFromUnit,
+  quantityOffered: spaces.quantityOffered,
+  quantityTotal: spaces.quantityTotal,
+  quantityAvailable: spaces.quantityAvailable,
   rulesText: spaces.rulesText,
   allowedItems: spaces.allowedItems,
   forbiddenItems: spaces.forbiddenItems,
@@ -77,11 +78,10 @@ export type PublicSpace = {
   district: string | null;
   city: string | null;
   state: string | null;
-  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
   priceMonthlyCents: number | null;
-  tempFromCents: number | null;
-  tempFromUnits: number | null;
-  tempFromUnit: 'hour' | 'day' | 'week' | null;
+  /** Quantas unidades ainda estão livres e quantas o anúncio oferece. */
+  quantityAvailable: number;
+  quantityOffered: number;
   approxLat: number | null;
   approxLng: number | null;
   coverPath: string | null;
@@ -103,8 +103,8 @@ export type PublicSpace = {
   featureKeys: string[];
   sizeM2: string | null;
   availableFrom: string | null;
-  /** Último dia de bloqueio ativo do calendário daqui para frente; null = nenhum. */
-  blockedUntil: string | null;
+  /** Bloqueios ativos do calendário daqui para frente (sem motivo): dias fechados para INICIAR locação. */
+  upcomingBlocks: { startsOn: string; endsOn: string }[];
 };
 
 export type SearchSort = 'distance' | 'price_asc' | 'price_desc' | 'recent' | 'compatibility';
@@ -141,9 +141,8 @@ export type SearchSpacesOptions = {
   /** Chaves de `features`. Semantica E: o espaco precisa ter todas. */
   featureKeys?: readonly string[];
   /**
-   * So espacos em que um aluguel pode comecar hoje: `available_from <= hoje`
-   * e nenhum bloqueio do calendario pela frente (Fase 23 — o aluguel e
-   * mensal e sem data para terminar, entao atravessaria o bloqueio).
+   * So espacos em que uma locacao pode comecar hoje: `available_from <= hoje`,
+   * com vaga livre e hoje fora de qualquer bloqueio do calendario.
    */
   availableNow?: boolean;
   /** Mesma regra de `availableNow`, para uma data de inicio ('AAAA-MM-DD'). */
@@ -163,18 +162,20 @@ export type SearchSpacesOptions = {
 };
 
 /**
- * Um aluguel que comeca em `dia` e possivel? Disponivel a partir de antes
- * disso, e sem bloqueio ativo do calendario terminando em `dia` ou depois
- * (Fase 23). Mesma regra de `earliestOpenEndedStart` em
- * src/lib/spaces/availability.ts, que valida a solicitacao — a busca nunca
- * mostra como disponivel algo que a solicitacao recusaria.
+ * Uma locacao que comeca em `dia` e possivel? Disponivel a partir de antes
+ * disso, com vaga livre, e sem bloqueio ativo do calendario cobrindo `dia`
+ * (o bloqueio fecha dias para o INICIO de locacoes novas). Mesma regra de
+ * `earliestStartDate` em src/lib/spaces/start-dates.ts, que valida a
+ * solicitacao — a busca nunca mostra como disponivel algo que a solicitacao
+ * recusaria.
  */
-export function openEndedStartPossibleBy(dia: SQL): SQL {
+export function startPossibleOn(dia: SQL): SQL {
   return sql`(
     ${spaces.availableFrom} <= ${dia}
+    AND ${spaces.quantityAvailable} > 0
     AND NOT EXISTS (
       SELECT 1 FROM space_availability_blocks b
-      WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= ${dia}
+      WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND ${dia} BETWEEN b.starts_on AND b.ends_on
     )
   )`;
 }
@@ -234,7 +235,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
     conditions.push(sql`${spaces.sizeM2} >= ${options.sizeMinM2}`);
   }
   if (options?.startBy) {
-    conditions.push(openEndedStartPossibleBy(sql`${options.startBy}::date`));
+    conditions.push(startPossibleOn(sql`${options.startBy}::date`));
   }
   if (options?.priceMinCents != null) {
     conditions.push(gte(spaces.priceMonthlyCents, options.priceMinCents));
@@ -243,7 +244,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
     conditions.push(lte(spaces.priceMonthlyCents, options.priceMaxCents));
   }
   if (options?.availableNow) {
-    conditions.push(openEndedStartPossibleBy(sql`CURRENT_DATE`));
+    conditions.push(startPossibleOn(sql`CURRENT_DATE`));
   }
   if (point && options?.radiusMeters) {
     conditions.push(withinMeters(spaces.approxLocation, point, options.radiusMeters));
@@ -343,9 +344,8 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
       city: spaces.city,
       state: spaces.state,
       priceMonthlyCents: spaces.priceMonthlyCents,
-      tempFromCents: spaces.tempFromCents,
-      tempFromUnits: spaces.tempFromUnits,
-      tempFromUnit: spaces.tempFromUnit,
+      quantityAvailable: spaces.quantityAvailable,
+      quantityOffered: spaces.quantityOffered,
       approxLat: latOf(spaces.approxLocation),
       approxLng: lngOf(spaces.approxLocation),
       distanceMeters: distanceExpr,
@@ -386,10 +386,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
       )`,
       sizeM2: spaces.sizeM2,
       availableFrom: spaces.availableFrom,
-      blockedUntil: sql<string | null>`(
-        SELECT max(b.ends_on)::text FROM space_availability_blocks b
-        WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE
-      )`,
+      upcomingBlocks: upcomingBlocksExpr,
     })
     .from(spaces)
     .where(and(...conditions))
@@ -514,9 +511,9 @@ export async function getOwnedSpace(spaceId: string, userId: string) {
       sizeM2: spaces.sizeM2,
       ceilingHeightM: spaces.ceilingHeightM,
       priceMonthlyCents: spaces.priceMonthlyCents,
-      tempFromCents: spaces.tempFromCents,
-      tempFromUnits: spaces.tempFromUnits,
-      tempFromUnit: spaces.tempFromUnit,
+      quantityOffered: spaces.quantityOffered,
+      quantityTotal: spaces.quantityTotal,
+      quantityAvailable: spaces.quantityAvailable,
       availableFrom: spaces.availableFrom,
       rulesText: spaces.rulesText,
       allowedItems: spaces.allowedItems,
@@ -576,9 +573,6 @@ export async function listOwnerSpaces(userId: string, status?: string[]) {
       city: spaces.city,
       district: spaces.district,
       priceMonthlyCents: spaces.priceMonthlyCents,
-      tempFromCents: spaces.tempFromCents,
-      tempFromUnits: spaces.tempFromUnits,
-      tempFromUnit: spaces.tempFromUnit,
       draftStep: spaces.draftStep,
       publishedAt: spaces.publishedAt,
       updatedAt: spaces.updatedAt,

@@ -70,3 +70,62 @@ export async function postBookingSystemMessage(
     console.error('[messaging] falha ao publicar mensagem de sistema da reserva:', err);
   }
 }
+
+export type PostAccessInstructionsInput = {
+  spaceId: string;
+  renterId: string;
+  ownerId: string;
+  spaceTitle: string;
+  /** Instruções escritas pelo proprietário no aceite (se houver). */
+  text: string | null;
+  /** Áudio das instruções, já gravado na pasta da conversa (se houver). */
+  audio: { path: string; durationMs: number; mime: string } | null;
+};
+
+/**
+ * Libera no chat as instruções de acesso que o proprietário deu ao aceitar —
+ * só depois que o pagamento está confirmado (antes disso a localização exata
+ * é privada). O texto vai como mensagem do sistema; o áudio, como mensagem de
+ * áudio enviada pelo proprietário (o arquivo já mora na pasta desta conversa).
+ *
+ * Melhor esforço, como as demais mensagens do sistema: nunca derruba o webhook
+ * de pagamento. O aviso por e-mail NÃO leva o conteúdo — instruções de acesso
+ * podem conter o endereço, e e-mail não é lugar para isso.
+ */
+export async function postAccessInstructions(input: PostAccessInstructionsInput): Promise<void> {
+  try {
+    const conversationId = await getOrCreateConversation(input.spaceId, input.renterId, input.ownerId);
+
+    const corpo = input.text
+      ? `Pagamento confirmado. Instruções de acesso do proprietário:\n\n${input.text}`
+      : 'Pagamento confirmado. O proprietário gravou as instruções de acesso:';
+    await db.insert(messages).values({
+      conversationId,
+      senderId: input.ownerId,
+      body: corpo,
+      isSystem: true,
+    });
+    if (input.audio) {
+      await db.insert(messages).values({
+        conversationId,
+        senderId: input.ownerId,
+        kind: 'audio',
+        body: '',
+        audioPath: input.audio.path,
+        audioDurationMs: input.audio.durationMs,
+        audioMime: input.audio.mime,
+      });
+    }
+    await db.update(conversations).set({ lastMessageAt: new Date() }).where(eq(conversations.id, conversationId));
+
+    await notifyNewMessage({
+      recipientId: input.renterId,
+      conversationId,
+      senderName: 'MyPlace',
+      spaceTitle: input.spaceTitle,
+      preview: 'As instruções de acesso foram liberadas.',
+    });
+  } catch (err) {
+    console.error('[messaging] falha ao publicar as instruções de acesso:', err);
+  }
+}

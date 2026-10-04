@@ -27,7 +27,7 @@ export const ESSENTIAL_CATEGORIES: readonly NotificationCategory[] = ['reservas'
 export const CATEGORY_INFO: Record<NotificationCategory, { label: string; description: string }> = {
   reservas: {
     label: 'Solicitações e reservas',
-    description: 'Pedido novo, aceite, recusa, cancelamento e fim do aluguel.',
+    description: 'Pedido novo, prazo para responder, aceite, recusa, início, cancelamento e fim da locação.',
   },
   pagamentos: {
     label: 'Pagamentos',
@@ -69,7 +69,12 @@ const TIPO_PARA_CATEGORIA: Record<string, NotificationCategory> = {
   payment_failed: 'pagamentos',
   payment_refunded: 'pagamentos',
   payout_settled: 'pagamentos',
-  // Parte 12: "Seu aluguel termina em 10 minutos." — reservas (essencial).
+  // Fluxo mensal por quantidade: prazos, início e encerramento — todos "reservas" (essencial).
+  booking_request_expiring: 'reservas',
+  booking_expired: 'reservas',
+  rental_started: 'reservas',
+  rental_end_requested: 'reservas',
+  // Legado: o aluguel por tempo deixou de existir, mas as notificações antigas continuam no histórico.
   rental_ending_soon: 'reservas',
   new_message: 'mensagens',
   review_received: 'avaliacoes',
