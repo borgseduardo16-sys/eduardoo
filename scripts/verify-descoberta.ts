@@ -536,7 +536,7 @@ async function main() {
   const j1 = await joinWaitlistAction(undefined, fdJ);
   assert('entra na lista de espera do espaço alugado', j1.ok, j1.message);
   const j2 = await joinWaitlistAction(undefined, fdJ);
-  assert('segunda tentativa não duplica', j2.ok && /já está/.test(j2.message ?? ''), j2.message);
+  assert('segunda tentativa não duplica', j2.ok && /já vai ser avisado/.test(j2.message ?? ''), j2.message);
   const [{ n: linhasEspera }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM waitlist_entries WHERE user_id=${esperaId} AND space_id=${e6.id}`;
   expect('uma linha só', linhasEspera, 1);
 

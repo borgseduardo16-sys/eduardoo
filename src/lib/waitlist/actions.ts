@@ -40,7 +40,7 @@ export async function joinWaitlistAction(
   try {
     user = await requireUserOrThrow();
   } catch {
-    return { ok: false, message: 'Entre na sua conta para entrar na lista de espera.' };
+    return { ok: false, message: 'Entre na sua conta para ser avisado quando houver vaga.' };
   }
 
   const parsed = schema.safeParse({ spaceId: formData.get('spaceId') });
@@ -70,17 +70,17 @@ export async function joinWaitlistAction(
   } catch (err) {
     const pg = pgError(err);
     if (pg?.code === '23505' && pg.constraint_name === 'waitlist_entries_one_waiting_per_user_space') {
-      return { ok: true, message: 'Você já está na lista de espera deste espaço.' };
+      return { ok: true, message: 'Você já vai ser avisado quando houver vaga neste espaço.' };
     }
     if (pg?.constraint_name === 'waitlist_entries_not_blocked') {
-      return { ok: false, message: 'Não é possível entrar na lista de espera deste espaço.' };
+      return { ok: false, message: 'Não é possível pedir aviso para este espaço.' };
     }
     throw err;
   }
 
   revalidatePath(`/espacos/${space.slug}`);
   revalidatePath('/favoritos');
-  return { ok: true, message: 'Pronto. Avisaremos quando o espaço voltar a ficar disponível.' };
+  return { ok: true, message: 'Pronto. Avisaremos quando houver vaga neste espaço.' };
 }
 
 /** Sair da lista. A entrada fica registrada como `left` — sair não apaga história. */
@@ -111,10 +111,10 @@ export async function leaveWaitlistAction(
     )
     .returning({ id: waitlistEntries.id });
 
-  if (saidas.length === 0) return { ok: false, message: 'Você não está na lista de espera deste espaço.' };
+  if (saidas.length === 0) return { ok: false, message: 'Você não pediu aviso para este espaço.' };
 
   const [space] = await db.select({ slug: spaces.slug }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (space) revalidatePath(`/espacos/${space.slug}`);
   revalidatePath('/favoritos');
-  return { ok: true, message: 'Você saiu da lista de espera.' };
+  return { ok: true, message: 'Tudo certo: você não receberá mais o aviso deste espaço.' };
 }

@@ -61,11 +61,11 @@ export default async function FavoritosPage() {
             <div className="space-y-0.5">
               <h2 id="espera-titulo" className="font-semibold flex items-center gap-2">
                 <BellRing className="size-4 text-[var(--accent)]" aria-hidden />
-                Lista de espera
+                Avisos de vaga
               </h2>
               <p className="text-[0.8125rem] text-[var(--content-muted)]">
-                Espaços indisponíveis que você pediu para acompanhar. Nenhum deles fica reservado: quando um
-                voltar, você envia a solicitação normalmente.
+                Espaços sem vaga que você pediu para acompanhar. Nenhuma vaga fica reservada: quando uma for
+                liberada, você é avisado e envia a solicitação normalmente.
               </p>
             </div>
             <ul className="rounded-[var(--radius-card)] border divide-y">
