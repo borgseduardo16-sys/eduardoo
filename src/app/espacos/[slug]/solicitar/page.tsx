@@ -7,13 +7,14 @@ import { getPublicSpaceBySlug } from '@/lib/spaces/queries';
 import { getViewerActiveBookingForSpace } from '@/lib/bookings/queries';
 import { getReputation } from '@/lib/reviews/reputation';
 import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
-import { getSpaceAvailability, earliestOpenEndedStart } from '@/lib/spaces/availability';
+import { getSpaceAvailability, earliestStartDate } from '@/lib/spaces/availability';
 import { requireUser } from '@/lib/auth/dal';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { settingInt } from '@/lib/settings';
 import { formatBRL } from '@/lib/money';
-import { spaceTypeLabel, unitNounFor, type SpaceTypeKey } from '@/lib/spaces/types';
-import { getSpaceUnitGroups } from '@/lib/rentals/queries';
+import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
+import { availabilityText } from '@/lib/spaces/quantity';
+import { addDaysToDate } from '@/lib/time';
 import { todayInSaoPaulo } from '@/lib/dates';
 import { bookingStatusLabel, formatBookingDate } from '@/lib/bookings/format';
 import { SiteHeader } from '@/components/layout/site-header';
@@ -23,24 +24,18 @@ import { PersonTrustCard } from '@/components/profile/person-trust-card';
 import { Badge } from '@/components/ui/badge';
 import { Alert } from '@/components/ui/alert';
 
-export const metadata: Metadata = { title: 'Solicitar aluguel' };
+export const metadata: Metadata = { title: 'Solicitar locação' };
 export const dynamic = 'force-dynamic';
 
-export default async function SolicitarAluguelPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ slug: string }>;
-  searchParams: Promise<{ grupo?: string }>;
-}) {
-  const [{ slug }, sp] = await Promise.all([params, searchParams]);
+export default async function SolicitarAluguelPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
   const user = await requireUser(`/espacos/${slug}/solicitar`);
   const space = await getPublicSpaceBySlug(slug);
   if (!space) notFound();
 
   const isOwner = space.ownerId === user.id;
 
-  const [urls, existing, renterFeeBps, ownerFeeBps, ownerReputation, ownerResponse, disponibilidade, grupos] = await Promise.all([
+  const [urls, existing, renterFeeBps, ownerFeeBps, maxAdvanceDays, ownerReputation, ownerResponse, disponibilidade] = await Promise.all([
     signImagePaths(
       [...space.images.slice(0, 1).map((i) => i.thumbPath ?? i.storagePath), space.owner?.avatarPath].filter(
         Boolean,
@@ -49,41 +44,24 @@ export default async function SolicitarAluguelPage({
     isOwner ? Promise.resolve(null) : getViewerActiveBookingForSpace(space.id, user.id),
     settingInt('fees.renter_fee_bps', 300),
     settingInt('fees.owner_fee_bps', 300),
+    settingInt('booking.max_start_advance_days', 90),
     space.owner ? getReputation(space.owner.id) : Promise.resolve(null),
     space.owner ? getOwnerResponseStats(space.owner.id) : Promise.resolve(null),
     getSpaceAvailability(space.id),
-    getSpaceUnitGroups(space.id),
   ]);
-
-  // Parte 12: só os grupos que aceitam aluguel mensal, com a ocupação de agora.
-  const mensais = grupos
-    .filter((g) => g.rules.allowsContinuous && g.rules.monthlyPriceCents != null)
-    .map((g) => ({
-      id: g.id,
-      name: g.name,
-      monthlyRentCents: g.rules.monthlyPriceCents!,
-      freeForMonthly: g.freeForMonthly,
-      total: g.totalUnits,
-    }));
-  const grupoInicial =
-    mensais.find((g) => g.id === sp.grupo && g.freeForMonthly > 0)
-    ?? mensais.find((g) => g.freeForMonthly > 0)
-    ?? mensais[0]
-    ?? null;
-  const temVagaMensal = mensais.some((g) => g.freeForMonthly > 0);
-  const nome = unitNounFor(space.type);
 
   const capa = space.images[0];
   const capaUrl = capa ? urls.get(capa.thumbPath ?? capa.storagePath) : null;
   const hoje = todayInSaoPaulo();
-  // Primeira data possível de verdade (Fase 23): "disponível a partir de" e
-  // os bloqueios do calendário — o servidor confere de novo ao enviar.
-  const inicioMinimo = earliestOpenEndedStart({
+  // Primeira data possível de verdade: "disponível a partir de", hoje e os dias
+  // que o proprietário fechou no calendário — o servidor confere de novo ao enviar.
+  const inicioMinimo = earliestStartDate({
     today: hoje,
     availableFrom: disponibilidade?.availableFrom ?? null,
     blocks: disponibilidade?.upcomingBlocks ?? [],
   });
   const aberto = disponibilidade?.openForRequests ?? false;
+  const preco = space.priceMonthlyCents;
 
   return (
     <>
@@ -117,11 +95,15 @@ export default async function SolicitarAluguelPage({
               <MapPin className="size-3.5 shrink-0" aria-hidden />
               <span className="truncate">{[space.district, space.city].filter(Boolean).join(', ')}</span>
             </p>
-            {grupoInicial && (
+            {preco != null && (
               <p className="font-semibold tabular-nums">
-                {mensais.length > 1 ? 'A partir de ' : ''}
-                {formatBRL(Math.min(...mensais.map((g) => g.monthlyRentCents)))}
+                {formatBRL(preco)}
                 <span className="font-normal text-[var(--content-muted)] text-[0.875rem]"> /mês</span>
+                {disponibilidade && (
+                  <span className="font-normal text-[var(--content-muted)] text-[0.8125rem]">
+                    {' · '}{availabilityText(space.type, disponibilidade.quantityAvailable, disponibilidade.quantityOffered)}
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -181,10 +163,10 @@ export default async function SolicitarAluguelPage({
           </>
         )}
 
-        {space.depositEnabled && grupoInicial && (
-          <Alert tone="info" title="Este anúncio exige caução no aluguel mensal">
-            Equivale a 1 mês de aluguel da opção escolhida, cobrada junto do primeiro pagamento se a
-            solicitação for aceita. Devolvida integralmente ao fim do aluguel, sem dano registrado.
+        {space.depositEnabled && preco != null && (
+          <Alert tone="info" title="Este anúncio exige caução">
+            Equivale a 1 mês de aluguel, cobrada junto do primeiro pagamento se a solicitação for
+            aceita. Devolvida integralmente ao fim da locação, sem dano registrado.
           </Alert>
         )}
 
@@ -196,12 +178,12 @@ export default async function SolicitarAluguelPage({
           <div className="rounded-[var(--radius-card)] border p-5 space-y-3">
             <div className="flex items-center gap-2">
               <p className="font-medium">Você já tem uma solicitação para este espaço</p>
-              <Badge tone={existing.status === 'approved' ? 'positive' : 'caution'}>
+              <Badge tone={existing.status === 'requested' ? 'caution' : 'positive'}>
                 {bookingStatusLabel(existing.status)}
               </Badge>
             </div>
             <p className="text-[0.875rem] text-[var(--content-muted)]">
-              Código {existing.reference}. Acompanhe o andamento na sua área de reservas.
+              Código {existing.reference}. Acompanhe o andamento em Meus aluguéis.
             </p>
             <Link
               href={`/reservas/${existing.id}`}
@@ -210,26 +192,16 @@ export default async function SolicitarAluguelPage({
               Ver detalhes da solicitação
             </Link>
           </div>
-        ) : !grupoInicial ? (
-          <Alert tone="info" title="Este anúncio não tem aluguel mensal">
-            <p>
-              Ele aluga só por hora, dia ou semana.{' '}
-              <Link href={`/espacos/${space.slug}#alugar`} className="underline underline-offset-2">
-                Voltar ao anúncio para reservar
-              </Link>
-              .
-            </p>
-          </Alert>
-        ) : !aberto || !temVagaMensal ? (
+        ) : !aberto || preco == null ? (
           <Alert tone="warning" title="Este espaço não está disponível para solicitação agora">
             <p>
               {space.status === 'paused'
                 ? 'O proprietário pausou o anúncio.'
-                : `Todas as ${nome.plural} para aluguel mensal estão ocupadas no momento.`}{' '}
+                : 'Todas as vagas deste anúncio estão ocupadas no momento.'}{' '}
               <Link href={`/espacos/${space.slug}`} className="underline underline-offset-2">
                 Voltar ao anúncio
               </Link>{' '}
-              para entrar na lista de espera.
+              para pedir um aviso quando uma vaga abrir.
             </p>
           </Alert>
         ) : (
@@ -237,19 +209,20 @@ export default async function SolicitarAluguelPage({
             {inicioMinimo > hoje && (
               <Alert tone="info" title={`Disponível a partir de ${formatBookingDate(inicioMinimo)}`}>
                 {(disponibilidade?.upcomingBlocks.length ?? 0) > 0
-                  ? 'O proprietário bloqueou algumas datas no calendário. Como o aluguel é mensal e sem data para terminar, ele só pode começar depois do último bloqueio.'
+                  ? 'O proprietário fechou algumas datas no calendário: a locação não pode começar nelas.'
                   : 'É a data a partir da qual o proprietário disponibilizou o espaço.'}
               </Alert>
             )}
             <RequestBookingForm
               spaceId={space.id}
               spaceTitle={space.title}
-              groups={mensais}
-              initialGroupId={grupoInicial.id}
-              unitPlural={nome.plural}
+              priceMonthlyCents={preco}
               renterFeeBps={renterFeeBps}
               ownerFeeBps={ownerFeeBps}
+              depositEnabled={space.depositEnabled}
               minStartDate={inicioMinimo}
+              maxStartDate={addDaysToDate(hoje, maxAdvanceDays)}
+              blocks={disponibilidade?.upcomingBlocks ?? []}
             />
           </>
         )}

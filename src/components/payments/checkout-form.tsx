@@ -22,8 +22,8 @@ const METODOS = [
 ] as const;
 
 /**
- * Confirmacao final antes de criar a assinatura no Asaas (Parte 12: com a
- * escolha de COMO pagar as mensalidades).
+ * Confirmacao final antes de criar a assinatura no Asaas, com a
+ * escolha de COMO pagar as mensalidades.
  *
  * Pede o CPF/CNPJ porque e o unico dado que falta pra identificar a
  * cobranca — nome e e-mail ja vem da conta logada. Cartao: vai para a
@@ -76,7 +76,7 @@ export function CheckoutForm({ bookingId, cpfSugerido }: { bookingId: string; cp
 
       <p className="text-[0.75rem] text-[var(--content-subtle)] leading-relaxed">
         {metodo === 'card'
-          ? 'Você vai para uma página segura do Asaas informar o cartão. Nenhum dado de cartão é digitado neste site. Dá para cancelar o aluguel quando quiser: a cobrança automática para na hora.'
+          ? 'Você vai para uma página segura do Asaas informar o cartão. Nenhum dado de cartão é digitado neste site. Dá para encerrar a locação quando quiser: a cobrança automática para na hora.'
           : 'O QR Code da primeira mensalidade aparece na próxima tela. Nos meses seguintes, a cobrança aparece em Meus aluguéis.'}
       </p>
     </form>

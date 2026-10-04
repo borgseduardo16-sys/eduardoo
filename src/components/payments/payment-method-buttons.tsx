@@ -3,7 +3,7 @@
 import { useActionState, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { CreditCard, QrCode } from 'lucide-react';
-import { choosePaymentMethodAction, type RentalActionState } from '@/lib/rentals/actions';
+import { choosePaymentMethodAction, type PaymentActionState } from '@/lib/payments/actions';
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 
@@ -22,7 +22,7 @@ function Botao({ method, label, variant }: { method: 'pix' | 'card'; label: stri
 }
 
 /**
- * "Pagar com Pix" / "Pagar com cartão" sobre a MESMA cobrança (Parte 12).
+ * "Pagar com Pix" / "Pagar com cartão" sobre a MESMA cobrança.
  * Os dois botões travam enquanto um envia — o duplo toque não sai do
  * aparelho; e, se sair, o servidor não cria nada novo (só troca a forma de
  * pagamento da cobrança que já existe).
@@ -42,7 +42,7 @@ export function PaymentMethodButtons({
   cardLabel?: string;
   primary?: 'pix' | 'card';
 }) {
-  const [state, action] = useActionState<RentalActionState | undefined, FormData>(choosePaymentMethodAction, undefined);
+  const [state, action] = useActionState<PaymentActionState | undefined, FormData>(choosePaymentMethodAction, undefined);
   return (
     <form action={action} className="space-y-2.5">
       <input type="hidden" name="bookingId" value={bookingId} />
@@ -54,7 +54,7 @@ export function PaymentMethodButtons({
 }
 
 /**
- * "Pagar agora" do pagamento pendente (Parte 12): um botão só; ao tocar,
+ * "Pagar agora" do pagamento pendente: um botão só; ao tocar,
  * aparecem as formas de pagamento — sempre sobre a cobrança que já existe.
  */
 export function PayNowChooser({ bookingId }: { bookingId: string }) {

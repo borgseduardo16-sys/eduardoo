@@ -753,9 +753,9 @@ export async function deleteSpaceAction(
   }
 
   const spaceId = String(formData.get('spaceId') ?? '');
-  let space;
   try {
-    space = await getOwnedSpace(spaceId, user.id);
+    // Só a posse importa aqui: o anúncio de outra pessoa não existe para quem pede.
+    await getOwnedSpace(spaceId, user.id);
   } catch {
     return { ok: false, message: 'Anúncio não encontrado.' };
   }

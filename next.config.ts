@@ -58,6 +58,16 @@ const ROTAS_COM_MAPA = ['/espacos', '/espacos/:slug*', '/anunciar/:id/localizaca
 
 const nextConfig: NextConfig = {
   /*
+   * Limite do corpo de uma Server Action: o padrao (1 MB) nao comporta um
+   * audio de ate 3 minutos. 4 MB cobre o teto de 3 MB do audio mais o
+   * overhead do multipart; o servidor ainda confere o tamanho de verdade
+   * (src/lib/messaging/audio-format.ts).
+   */
+  experimental: {
+    serverActions: { bodySizeLimit: '4mb' },
+  },
+
+  /*
    * Pasta de saida da compilacao.
    *
    * Configuravel para que o teste de integracao possa compilar numa pasta
@@ -87,7 +97,8 @@ const nextConfig: NextConfig = {
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
       {
         key: 'Permissions-Policy',
-        value: 'camera=(), microphone=(), payment=(), usb=(), geolocation=(self)',
+        // Microfone só para o próprio site (gravar áudio no chat e nas instruções de acesso).
+        value: 'camera=(), microphone=(self), payment=(), usb=(), geolocation=(self)',
       },
       {
         key: 'Strict-Transport-Security',

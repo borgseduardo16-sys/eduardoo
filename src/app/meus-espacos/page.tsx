@@ -9,9 +9,14 @@ import { requireUser } from '@/lib/auth/dal';
 import { listOwnerSpaces, countOwnerSpacesByStatus } from '@/lib/spaces/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { PriceTag } from '@/components/espacos/price-tag';
-import { unitsSummaryBySpace } from '@/lib/rentals/queries';
-import { unitNounFor } from '@/lib/spaces/types';
+import { availabilityText, totalPlaceText } from '@/lib/spaces/quantity';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
+import { getOwnerOverview, getSpaceBookingCounts, listUpcomingRenewals } from '@/lib/bookings/owner-dashboard';
+import { getOwnerPayoutSummary } from '@/lib/payments/queries';
+import { getRatingSummaries } from '@/lib/reviews/reputation';
+import { ratingSummaryLabel } from '@/lib/reviews/format';
+import { formatBRL } from '@/lib/money';
+import { formatDateShort } from '@/lib/bookings/format';
 import { TOTAL_STEPS } from '@/lib/spaces/schemas';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -23,6 +28,7 @@ import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Meus espaços' };
+export const dynamic = 'force-dynamic';
 
 const FILTROS = [
   { key: 'todos', label: 'Todos', status: undefined },
@@ -56,12 +62,18 @@ export default async function MeusEspacosPage({
     db.select({ cpfCnpj: profiles.cpfCnpj }).from(profiles).where(eq(profiles.id, user.id)).limit(1),
   ]);
 
-  const [urls, promocoesPorEspaco, unidadesPorEspaco] = await Promise.all([
+  const [urls, promocoesPorEspaco, contagemPorEspaco, resumo, renovacoes, repasses, reputacao] = await Promise.all([
     signImagePaths(spaces.map((s) => s.coverPath).filter(Boolean) as string[]),
     getActivePromotionsForSpaces(spaces.map((s) => s.id)),
-    unitsSummaryBySpace(spaces.filter((s) => s.status !== 'draft').map((s) => s.id)),
+    getSpaceBookingCounts(user.id, spaces.filter((s) => s.status !== 'draft').map((s) => s.id)),
+    getOwnerOverview(user.id),
+    listUpcomingRenewals(user.id, 5),
+    getOwnerPayoutSummary(user.id),
+    getRatingSummaries([user.id], 'renter_to_space'),
   ]);
   const total = Object.values(contagem).reduce((a, b) => a + b, 0);
+  const minhaNota = reputacao.get(user.id);
+  const notaTexto = minhaNota ? ratingSummaryLabel(minhaNota.average, minhaNota.count) : null;
 
   return (
     <>
@@ -87,6 +99,70 @@ export default async function MeusEspacosPage({
             <span className="hidden sm:inline">Novo espaço</span>
           </Link>
         </header>
+
+        {total > 0 && (
+          <section aria-labelledby="resumo-painel" className="rounded-[var(--radius-card)] border" data-testid="painel-proprietario">
+            <h2 id="resumo-painel" className="sr-only">Resumo dos seus aluguéis</h2>
+            <dl className="grid grid-cols-2 sm:grid-cols-4 [&>div]:p-4 [&>div]:border-b sm:[&>div]:border-b-0 [&>div:nth-child(odd)]:border-r sm:[&>div]:border-r sm:[&>div:last-child]:border-r-0 [&>div:nth-last-child(-n+2)]:border-b-0">
+              <Numero
+                rotulo="Solicitações pendentes"
+                valor={String(resumo.pendingRequests)}
+                href={resumo.pendingRequests > 0 ? '/meus-espacos/solicitacoes?filtro=pendentes' : undefined}
+                apoio={resumo.awaitingPayment > 0 ? `${resumo.awaitingPayment} aguardando pagamento` : undefined}
+              />
+              <Numero
+                rotulo="Locações ativas"
+                valor={String(resumo.activeRentals)}
+                href={resumo.activeRentals > 0 ? '/meus-espacos/solicitacoes?filtro=andamento' : undefined}
+                apoio={resumo.pastDue > 0 ? `${resumo.pastDue} com pagamento pendente` : undefined}
+              />
+              <Numero
+                rotulo="Vagas livres"
+                valor={resumo.slotsOffered > 0 ? `${resumo.slotsAvailable} de ${resumo.slotsOffered}` : '—'}
+                apoio="nos anúncios publicados"
+              />
+              <Numero
+                rotulo="Você recebe por mês"
+                valor={formatBRL(resumo.monthlyPayoutCents)}
+                apoio="das locações ativas, já com a taxa descontada"
+                href="/meus-espacos/financeiro"
+              />
+            </dl>
+            {(notaTexto || repasses.settledCents > 0 || repasses.pendingCents > 0) && (
+              <p className="border-t px-4 py-2.5 text-[0.8125rem] text-[var(--content-muted)]">
+                {[
+                  notaTexto ? `Avaliação como proprietário: ${notaTexto}` : null,
+                  repasses.settledCents > 0 ? `Já recebido: ${formatBRL(repasses.settledCents)}` : null,
+                  repasses.pendingCents > 0 ? `A receber: ${formatBRL(repasses.pendingCents)}` : null,
+                ].filter(Boolean).join(' · ')}
+              </p>
+            )}
+          </section>
+        )}
+
+        {renovacoes.length > 0 && (
+          <section aria-labelledby="renovacoes-titulo" className="space-y-2">
+            <h2 id="renovacoes-titulo" className="text-[0.8125rem] font-medium uppercase tracking-wide text-[var(--content-subtle)]">
+              Próximos vencimentos
+            </h2>
+            <ul className="divide-y rounded-[var(--radius-card)] border" data-testid="proximos-vencimentos">
+              {renovacoes.map((r) => (
+                <li key={r.bookingId} className="flex items-center justify-between gap-3 px-4 py-3 text-[0.875rem]">
+                  <div className="min-w-0">
+                    <Link href={`/reservas/${r.bookingId}`} className="font-medium truncate block hover:underline">
+                      {r.spaceTitle}
+                    </Link>
+                    <p className="text-[0.8125rem] text-[var(--content-muted)] truncate">
+                      {r.pastDue ? 'Pagamento pendente · ' : ''}
+                      {r.renterName ? `${r.renterName} · ` : ''}vence em {formatDateShort(r.dueDate)}
+                    </p>
+                  </div>
+                  <p className="shrink-0 tabular-nums font-medium">{formatBRL(r.ownerPayoutCents)}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         {total > 0 && (
           <nav aria-label="Filtrar por situação" className="flex gap-1.5 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0 pb-1">
@@ -141,7 +217,7 @@ export default async function MeusEspacosPage({
               const url = s.coverPath ? urls.get(s.coverPath) : null;
               const promocao = promocoesPorEspaco.get(s.id) ?? null;
 
-              const unidades = unidadesPorEspaco.get(s.id);
+              const movimento = contagemPorEspaco.get(s.id);
               return (
                 <li key={s.id} className="rounded-[var(--radius-card)] border overflow-hidden">
                   <div className="flex gap-4 p-3 sm:p-4">
@@ -181,9 +257,14 @@ export default async function MeusEspacosPage({
                           <PriceTag summary={s} />
                         )}
                       </p>
-                      {unidades && unidades.total > 1 && (
-                        <p className="text-[0.8125rem] text-[var(--content-muted)]" data-testid="resumo-unidades">
-                          {unitsLine(s.type, unidades)}
+                      {s.status !== 'draft' && (
+                        <p className="text-[0.8125rem] text-[var(--content-muted)]" data-testid="resumo-vagas">
+                          {[
+                            availabilityText(s.type, s.quantityAvailable, s.quantityOffered),
+                            movimento?.pending ? `${movimento.pending} ${movimento.pending === 1 ? 'solicitação pendente' : 'solicitações pendentes'}` : null,
+                            movimento?.active ? `${movimento.active} ${movimento.active === 1 ? 'locação ativa' : 'locações ativas'}` : null,
+                          ].filter(Boolean).join(' · ')}
+                          {totalPlaceText(s.type, s.quantityOffered, s.quantityTotal) && ` · ${totalPlaceText(s.type, s.quantityOffered, s.quantityTotal)}`}
                         </p>
                       )}
                     </div>
@@ -207,9 +288,20 @@ export default async function MeusEspacosPage({
   );
 }
 
-/** "10 vagas · 7 disponíveis · 3 ocupadas" (Parte 12). */
-function unitsLine(type: string, u: { total: number; occupiedNow: number; availableNow: number }): string {
-  const nome = unitNounFor(type);
-  const ocupadas = nome.feminino ? (u.occupiedNow === 1 ? 'ocupada' : 'ocupadas') : (u.occupiedNow === 1 ? 'ocupado' : 'ocupados');
-  return `${u.total} ${u.total === 1 ? nome.singular : nome.plural} · ${u.availableNow} ${u.availableNow === 1 ? 'disponível' : 'disponíveis'} · ${u.occupiedNow} ${ocupadas}`;
+/** Um número do painel: rótulo pequeno, valor grande e, se houver, uma linha de apoio. Link só quando leva a algum lugar útil. */
+function Numero({ rotulo, valor, apoio, href }: { rotulo: string; valor: string; apoio?: string; href?: string }) {
+  const conteudo = (
+    <>
+      <dt className="text-[0.75rem] text-[var(--content-subtle)]">{rotulo}</dt>
+      <dd className="text-[1.375rem] font-semibold tabular-nums leading-tight mt-0.5">{valor}</dd>
+      {apoio && <dd className="text-[0.75rem] text-[var(--content-muted)] mt-0.5 leading-snug">{apoio}</dd>}
+    </>
+  );
+  return href ? (
+    <div>
+      <Link href={href} className="block -m-4 p-4 hover:bg-[var(--surface-sunken)] transition-colors">{conteudo}</Link>
+    </div>
+  ) : (
+    <div>{conteudo}</div>
+  );
 }

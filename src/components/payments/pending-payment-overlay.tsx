@@ -4,8 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { CircleAlert, X } from 'lucide-react';
-import { paymentWindowState } from '@/lib/rentals/pricing';
-import { brTime } from '@/lib/rentals/time';
+import { brTime } from '@/lib/time';
 import { buttonVariants } from '@/components/ui/button';
 import { EndBookingButton } from '@/components/bookings/end-booking-button';
 import { Countdown } from './live';
@@ -14,7 +13,6 @@ import { cn } from '@/lib/utils';
 export type PaymentIssueView = {
   bookingId: string;
   spaceTitle: string;
-  unitLabel: string | null;
   startedAt: string;
   deadlineAt: string;
 };
@@ -55,7 +53,7 @@ function assinar(ouvir: () => void) {
 }
 
 /**
- * Pagamento pendente ao abrir o app (Parte 12): antes de qualquer outra
+ * Pagamento pendente ao abrir o app: antes de qualquer outra
  * coisa, a tela de pagamento pendente — com um X para fechar. Fechou, não
  * volta nesta sessão (a mesma pendência); abriu o app de novo, aparece de
  * novo enquanto não for resolvida. Os indicadores (ponto no menu, "!" no
@@ -96,10 +94,6 @@ export function PendingPaymentOverlay({ issues, serverNow }: { issues: PaymentIs
     if (atual) dispensar(atual);
   };
 
-  const janela = atual
-    ? paymentWindowState(new Date(atual.startedAt), new Date(atual.deadlineAt), new Date(serverNow))
-    : null;
-
   return (
     <dialog
       ref={dialogRef}
@@ -118,7 +112,7 @@ export function PendingPaymentOverlay({ issues, serverNow }: { issues: PaymentIs
       )}
       data-testid="aviso-pagamento-pendente"
     >
-      {atual && janela && (
+      {atual && (
         <>
           <div className="flex items-start justify-between gap-4 p-5 pb-2">
             <h2 id="pendente-overlay-titulo" className="flex items-center gap-2 text-[1.125rem] font-semibold">
@@ -137,21 +131,21 @@ export function PendingPaymentOverlay({ issues, serverNow }: { issues: PaymentIs
 
           <div className="px-5 pb-5 space-y-4">
             <p className="text-[0.9375rem] leading-relaxed">
-              Não conseguimos concluir a cobrança automática do seu aluguel. Regularize o pagamento para continuar
-              utilizando este espaço.
+              Não conseguimos concluir a cobrança deste mês. Regularize o pagamento dentro do prazo abaixo para continuar
+              usando este espaço.
             </p>
             <p className="text-[0.875rem] text-[var(--content-muted)] break-words">
-              {[atual.spaceTitle, atual.unitLabel].filter(Boolean).join(' · ')}
+              {atual.spaceTitle}
             </p>
             <p className="text-[0.9375rem]">
-              {janela.phase === 'first' ? 'Tempo restante: ' : 'Último prazo: '}
+              Tempo restante:{' '}
               <Countdown
-                target={janela.phaseEndsAt.toISOString()}
+                target={atual.deadlineAt}
                 serverNow={serverNow}
                 className="font-semibold"
                 endedText="prazo encerrado"
               />
-              <span className="text-[var(--content-muted)]"> — até {brTime(janela.phaseEndsAt)}</span>
+              <span className="text-[var(--content-muted)]"> — até {brTime(new Date(atual.deadlineAt))}</span>
             </p>
 
             <div className="space-y-1">
@@ -162,12 +156,12 @@ export function PendingPaymentOverlay({ issues, serverNow }: { issues: PaymentIs
               >
                 Pagar agora
               </Link>
-              <EndBookingButton bookingId={atual.bookingId} status="past_due" kind="continuous" label="Cancelar aluguel" />
+              <EndBookingButton bookingId={atual.bookingId} status="past_due" label="Encerrar locação" />
             </div>
 
             {outras > 0 && (
               <p className="text-[0.8125rem] text-[var(--content-muted)]">
-                Você tem mais {outras} {outras === 1 ? 'aluguel' : 'aluguéis'} com pagamento pendente.{' '}
+                Você tem mais {outras} {outras === 1 ? 'locação' : 'locações'} com pagamento pendente.{' '}
                 <Link href="/reservas" onClick={fechar} className="text-[var(--accent)] underline underline-offset-4">
                   Ver Meus aluguéis
                 </Link>

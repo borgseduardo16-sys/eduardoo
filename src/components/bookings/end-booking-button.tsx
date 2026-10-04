@@ -7,20 +7,20 @@ import { Alert } from '@/components/ui/alert';
 import { SubmitButton } from '@/components/auth/form-shell';
 
 /**
- * Encerra um aluguel EM ANDAMENTO — mesmo padrão de `CancelBookingButton`
- * (confirmação em duas etapas, estado de sucesso checado antes do `status`
- * pra não sumir da tela assim que o próprio clique muda o status).
+ * Encerra uma locação EM ANDAMENTO — é do LOCATÁRIO (quem aluga pode sair
+ * quando quiser; o proprietário pede o encerramento pelo `EndRequestPanel`).
+ *
+ * Mesmo padrão de `CancelBookingButton`: confirmação em duas etapas e estado
+ * de sucesso checado antes do `status`, para não sumir da tela assim que o
+ * próprio clique muda o status.
  */
 export function EndBookingButton({
   bookingId,
   status,
-  kind = 'continuous',
-  label = 'Cancelar aluguel',
+  label = 'Encerrar locação',
 }: {
   bookingId: string;
   status: string;
-  /** Parte 12: só o aluguel mensal é encerrado por aqui (o temporário acaba no horário). */
-  kind?: string;
   label?: string;
 }) {
   const [confirmando, setConfirmando] = useState(false);
@@ -32,12 +32,12 @@ export function EndBookingButton({
   if (state?.ok) {
     return (
       <div className="pt-1">
-        <Alert tone="info">Aluguel cancelado. A cobrança automática foi interrompida e nada mais será cobrado.</Alert>
+        <Alert tone="info">Locação encerrada. A cobrança automática foi interrompida e nada mais será cobrado.</Alert>
       </div>
     );
   }
 
-  if (kind !== 'continuous' || (status !== 'active' && status !== 'past_due')) {
+  if (status !== 'active' && status !== 'past_due') {
     return null;
   }
 
@@ -55,12 +55,12 @@ export function EndBookingButton({
     <form action={action} className="pt-1 space-y-2">
       {state?.message && !state.ok && <Alert tone="critical">{state.message}</Alert>}
       <input type="hidden" name="bookingId" value={bookingId} />
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-[0.8125rem] text-[var(--content-muted)]">
-          Cancelar agora? A cobrança automática para na hora e a unidade é liberada.
+          Encerrar agora? A cobrança automática para na hora e a vaga volta para o anúncio.
         </span>
         <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmando(false)}>Não</Button>
-        <SubmitButton size="sm" block={false} variant="critical">Sim, cancelar</SubmitButton>
+        <SubmitButton size="sm" block={false} variant="critical">Sim, encerrar</SubmitButton>
       </div>
     </form>
   );

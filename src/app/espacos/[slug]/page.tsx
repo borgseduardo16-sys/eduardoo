@@ -11,18 +11,14 @@ import { bookingStatusLabel } from '@/lib/bookings/format';
 import { listReviewsForSpace, parsePage } from '@/lib/reviews/queries';
 import { getReputation } from '@/lib/reviews/reputation';
 import { getOwnerResponseStats } from '@/lib/bookings/response-stats';
-import { getSpaceAvailability, earliestOpenEndedStart } from '@/lib/spaces/availability';
+import { getSpaceAvailability, earliestStartDate } from '@/lib/spaces/availability';
 import { getUserWaitlistEntry } from '@/lib/waitlist/queries';
 import { getPublicPriceHistory } from '@/lib/spaces/price-history';
 import { formatBookingDate as formatarData } from '@/lib/bookings/format';
-import { serverEnv, isIntegrationConfigured } from '@/lib/env';
-import { unitNounFor, type SpaceTypeKey } from '@/lib/spaces/types';
-import { settingInt } from '@/lib/settings';
-import { getSpaceUnitGroups } from '@/lib/rentals/queries';
-import { operatingHoursLabel, temporaryDurationOptions } from '@/lib/rentals/pricing';
-import { addDaysToDate } from '@/lib/rentals/time';
-import { getOwnerPayoutAccount, getRenterBillingProfile } from '@/lib/payments/queries';
-import { RentalPanel } from '@/components/rentals/rental-panel';
+import { serverEnv } from '@/lib/env';
+import { type SpaceTypeKey } from '@/lib/spaces/types';
+import { RentalCta } from '@/components/espacos/rental-cta';
+import { isExactLocationType } from '@/lib/spaces/privacy';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SpacePreview } from '@/components/anunciar/space-preview';
@@ -132,34 +128,6 @@ export default async function EspacoPage({
     viewer && !isOwner ? listUserFavoriteIds(viewer.id) : Promise.resolve(new Set<string>()),
   ]);
 
-  // Parte 12: unidades, grupos e o que dá para alugar agora.
-  const [grupos, contaDoDono, cobrancaDoLocatario, minCharge, holdMinutes, maxAdvanceDays, renterFeeBps] = await Promise.all([
-    getSpaceUnitGroups(space.id),
-    getOwnerPayoutAccount(space.ownerId),
-    viewer && !isOwner ? getRenterBillingProfile(viewer.id) : Promise.resolve(null),
-    settingInt('booking.min_rent_cents', 3500),
-    settingInt('rental.hold_minutes', 15),
-    settingInt('rental.max_advance_days', 30),
-    settingInt('fees.renter_fee_bps', 300),
-  ]);
-  const nomeUnidade = unitNounFor(space.type);
-  const reservaveis = grupos
-    .filter((g) => g.rules.allowsTemporary)
-    .map((g) => ({
-      id: g.id,
-      name: g.name,
-      hoursLabel: operatingHoursLabel(g.rules),
-      durations: temporaryDurationOptions(g.rules, minCharge),
-      availableNow: g.totalUnits - g.occupiedNow,
-      total: g.totalUnits,
-      renewalAllowed: g.rules.renewalAllowed,
-    }))
-    .filter((g) => g.durations.length > 0);
-  const bloqueioTemporario = !isIntegrationConfigured('payments')
-    ? 'A reserva por tempo ainda não está ativa: os pagamentos da plataforma não foram configurados.'
-    : !contaDoDono?.canReceive || !contaDoDono.providerWalletId
-      ? 'A reserva por tempo fica disponível assim que o proprietário configurar o recebimento.'
-      : null;
   const favorited = estadoFavorito != null;
   const hoje = todayInSaoPaulo();
   // Fase 23: alugado, pausado ou com reserva vigente — a página abre, mas não
@@ -168,7 +136,7 @@ export default async function EspacoPage({
   const motivoIndisponivel =
     space.status === 'paused'
       ? 'O proprietário pausou este anúncio por enquanto.'
-      : `Todas as ${unitNounFor(space.type).plural} estão alugadas por mês. Como o aluguel mensal não tem data para terminar, não há previsão de quando uma fica livre.`;
+      : 'Todas as vagas deste anúncio estão ocupadas no momento. Como a locação é mensal e renova sozinha, não há previsão de quando uma abre.';
 
   // Uma chamada só para assinar fotos do anúncio, foto do proprietário e de quem avaliou.
   const urls = await signImagePaths(
@@ -274,9 +242,9 @@ export default async function EspacoPage({
               <>
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-semibold text-[1.0625rem]">
-                    {existingBooking.status === 'requested' || existingBooking.status === 'approved'
+                    {existingBooking.status === 'requested' || existingBooking.status === 'approved' || existingBooking.status === 'awaiting_payment'
                       ? 'Sua solicitação'
-                      : 'Seu aluguel'}
+                      : 'Sua locação'}
                   </p>
                   <Badge
                     tone={
@@ -296,9 +264,9 @@ export default async function EspacoPage({
                     href={`/reservas/${existingBooking.id}`}
                     className="inline-flex items-center gap-1.5 h-11 px-5 font-medium rounded-[var(--radius-field)] border hover:bg-[var(--surface-sunken)] transition-colors"
                   >
-                    {existingBooking.status === 'requested' || existingBooking.status === 'approved'
+                    {existingBooking.status === 'requested' || existingBooking.status === 'approved' || existingBooking.status === 'awaiting_payment'
                       ? 'Ver detalhes da solicitação'
-                      : 'Ver meu aluguel'}
+                      : 'Ver minha locação'}
                   </Link>
                   <StartConversationButton spaceId={space.id} />
                 </div>
@@ -345,27 +313,19 @@ export default async function EspacoPage({
           </section>
         )}
 
-        {/* Parte 12: unidades, regras e reserva (por tempo ou mensal). */}
-        {(isOwner || disponivel) && grupos.length > 0 && (
-          <RentalPanel
+        {/* Preço mensal, vagas livres e o caminho até a locação. */}
+        {space.priceMonthlyCents != null && (isOwner || (disponivel && !existingBooking)) && (
+          <RentalCta
             slug={space.slug}
             spaceId={space.id}
-            noun={nomeUnidade}
-            groups={grupos}
+            spaceType={space.type}
+            priceMonthlyCents={space.priceMonthlyCents}
+            quantityAvailable={space.quantityAvailable}
+            quantityOffered={space.quantityOffered}
+            quantityTotal={space.quantityTotal}
             loggedIn={Boolean(viewer)}
             ownerView={isOwner}
-            temporaryBookable={reservaveis}
-            temporaryBlockedReason={bloqueioTemporario}
-            monthlyOpen={disponivel && !(existingBooking && existingBooking.kind === 'continuous')}
-            depositNote={space.depositEnabled ? 'O aluguel mensal exige caução de 1 mês de aluguel, devolvida ao final sem dano.' : null}
-            temporaryFormProps={{
-              needsCpf: !cobrancaDoLocatario,
-              renterFeeBps,
-              today: hoje,
-              maxDate: addDaysToDate(hoje, maxAdvanceDays),
-              holdMinutes,
-              idempotencyKey: crypto.randomUUID(),
-            }}
+            depositNote={space.depositEnabled ? 'Este anúncio exige caução de 1 mês de aluguel, devolvida ao final da locação sem dano.' : null}
           />
         )}
 
@@ -382,11 +342,11 @@ export default async function EspacoPage({
           />
         )}
 
-        {/* Fase 23: quando dá para começar, e as datas indisponíveis (sem motivo). Só para o mensal. */}
+        {/* Quando dá para começar, e os dias em que o proprietário não inicia locações (sem motivo). */}
         {disponivel && disponibilidade && space.priceMonthlyCents != null && (
           <PublicAvailability
             today={hoje}
-            earliestStart={earliestOpenEndedStart({
+            earliestStart={earliestStartDate({
               today: hoje,
               availableFrom: disponibilidade.availableFrom,
               blocks: disponibilidade.upcomingBlocks,
@@ -452,7 +412,7 @@ export default async function EspacoPage({
             <p className="text-[var(--content-muted)]">
               {[space.district, space.city, space.state].filter(Boolean).join(', ')}
             </p>
-            <AreaMap lat={space.approxLat} lng={space.approxLng} />
+            <AreaMap lat={space.approxLat} lng={space.approxLng} exact={await isExactLocationType(space.type)} />
           </section>
         )}
 

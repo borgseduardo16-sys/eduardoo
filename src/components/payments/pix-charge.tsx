@@ -1,7 +1,7 @@
 import { CopyButton } from './live';
 
 /**
- * Pix de uma cobrança que já existe (Parte 12): o QR e o "copia e cola" são
+ * Pix de uma cobrança que já existe: o QR e o "copia e cola" são
  * os que o Asaas devolveu — nunca montados aqui. A confirmação só chega pelo
  * webhook do Asaas; a tela em volta pergunta de novo ao servidor sozinha.
  */

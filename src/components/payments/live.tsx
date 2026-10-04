@@ -6,7 +6,7 @@ import { Check, Copy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
- * Contagem regressiva pelo relógio do SERVIDOR (Parte 12).
+ * Contagem regressiva pelo relógio do SERVIDOR.
  *
  * O servidor manda o instante do fim e a hora dele no momento em que montou
  * a página; aqui só se mede quanto tempo passou desde então. O relógio do
@@ -59,13 +59,13 @@ export function Countdown({
   return (
     <span className={cn('tabular-nums', className)} role="timer" aria-live="off">
       {prefix}
-      {restante <= 0 ? endedText : formatRemaining(restante)}
+      {restante <= 0 ? endedText : formatCountdown(restante)}
     </span>
   );
 }
 
-/** 3 h 05 min · 12 min 30 s · 45 s */
-export function formatRemaining(ms: number): string {
+/** 3 h 05 min · 12 min 30 s · 45 s — contagem ao vivo, com segundos (a do servidor, em minutos, está em bookings/deadlines.ts). */
+export function formatCountdown(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const dias = Math.floor(total / 86_400);
   const horas = Math.floor((total % 86_400) / 3600);

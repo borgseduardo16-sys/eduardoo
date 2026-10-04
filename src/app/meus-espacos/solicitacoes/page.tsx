@@ -16,14 +16,16 @@ import {
 import { displayNameOr } from '@/lib/profiles/format';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
-import { formatBookingDate } from '@/lib/bookings/format';
-import { formatRentalDuration, formatRentalPeriod, rentalBadge, rentalPhaseOf, unitLine } from '@/lib/rentals/format';
+import { addDaysToDate, brDate, formatBrDate } from '@/lib/time';
+import { bookingBadge, endReasonLabel, formatDateShort, formatDueDate } from '@/lib/bookings/format';
+import { formatDeadline } from '@/lib/bookings/deadlines';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { OwnerSubnav } from '@/components/layout/owner-subnav';
 import { RespondRequestActions } from '@/components/bookings/respond-request-actions';
-import { EndBookingButton } from '@/components/bookings/end-booking-button';
+import { CancelBookingButton } from '@/components/bookings/cancel-booking-button';
+import { EndRequestPanel } from '@/components/bookings/end-request-panel';
 import { ReviewPrompt } from '@/components/reviews/review-prompt';
 import { PersonTrustCard } from '@/components/profile/person-trust-card';
 import { ReportDialog } from '@/components/safety/report-dialog';
@@ -36,13 +38,51 @@ export const dynamic = 'force-dynamic';
 
 const PAGE_SIZE = 20;
 
+/**
+ * Filtros por estado. Os estados seguem o fluxo, sem redundância:
+ *   pendente → aceita (falta pagar) → em andamento → encerrada
+ * "Aguardando início" não é filtro à parte: é uma locação em andamento cuja
+ * data de início ainda não chegou (o selo do cartão diz isso).
+ */
 const FILTROS = [
   { key: 'todas', label: 'Todas', status: undefined },
   { key: 'pendentes', label: 'Pendentes', status: ['requested'] },
-  { key: 'aceitas', label: 'Aceitas', status: ['approved'] },
-  { key: 'andamento', label: 'Em andamento', status: ['awaiting_payment', 'active', 'past_due'] },
+  { key: 'aceitas', label: 'Aceitas', status: ['approved', 'awaiting_payment'] },
+  { key: 'andamento', label: 'Em andamento', status: ['active', 'past_due'] },
   { key: 'encerradas', label: 'Encerradas', status: ['rejected', 'expired', 'cancelled', 'ended'] },
 ] as const;
+
+type Linha = Awaited<ReturnType<typeof listOwnerBookingRequests>>[number];
+
+/** Uma linha de texto sobre onde a locação está, com os prazos que importam ao proprietário. */
+function situacaoDoCartao(s: Linha, agora: Date, hoje: string): string | null {
+  switch (s.status) {
+    case 'approved':
+    case 'awaiting_payment':
+      return s.firstPaymentDeadlineAt
+        ? `Aguardando o pagamento do locatário até ${formatDeadline(s.firstPaymentDeadlineAt, agora)}. Sem pagamento, a solicitação expira e a vaga volta para o anúncio.`
+        : 'Aguardando o pagamento do locatário.';
+    case 'active': {
+      const comeco = s.startDate > hoje ? `Começa em ${formatDateShort(s.startDate)}.` : `Em andamento desde ${formatDateShort(s.startDate)}.`;
+      const vencimento = s.nextDueDate ? ` Próximo vencimento: ${formatDueDate(s.nextDueDate)}.` : '';
+      const pagas = s.paidCount > 0 ? ` ${s.paidCount} ${s.paidCount === 1 ? 'mensalidade paga' : 'mensalidades pagas'}.` : '';
+      return `${comeco}${vencimento}${pagas}`;
+    }
+    case 'past_due':
+      return s.paymentIssueDeadlineAt
+        ? `Pagamento pendente: o locatário tem até ${formatDeadline(s.paymentIssueDeadlineAt, agora)} para regularizar. Depois disso a locação é encerrada e a vaga volta para o anúncio.`
+        : 'Pagamento pendente: o locatário ainda pode regularizar.';
+    case 'rejected':
+    case 'expired':
+    case 'cancelled':
+    case 'ended': {
+      const motivo = endReasonLabel(s.endReason, { status: s.status, viewer: 'owner' });
+      return motivo ? `${motivo}.` : null;
+    }
+    default:
+      return null;
+  }
+}
 
 export default async function SolicitacoesPage({
   searchParams,
@@ -64,6 +104,9 @@ export default async function SolicitacoesPage({
   ]);
   const solicitacoes = linhas.slice(0, PAGE_SIZE);
   const agora = new Date();
+  const hoje = brDate(agora);
+  const sugestaoEncerramento = addDaysToDate(hoje, 30);
+  const limiteEncerramento = addDaysToDate(hoje, 365);
   const minhaTaxa = responseRatePercent(minhasRespostas);
   const minhaFaixa = typicalResponseBucket(minhasRespostas);
 
@@ -98,7 +141,7 @@ export default async function SolicitacoesPage({
                 '. Quem vê seus anúncios vê essa informação.'
               : `Sua taxa de resposta aparece nos seus anúncios a partir de ${MIN_DECIDED_FOR_RATE} solicitações respondidas ou vencidas` +
                 (minhasRespostas.decided > 0 ? ` (até agora: ${minhasRespostas.decided}).` : '.')}{' '}
-            Pedido sem resposta vence sozinho e conta como não respondido.
+            Você tem 24 horas para responder; pedido sem resposta vence sozinho e conta como não respondido.
           </p>
         </header>
 
@@ -128,16 +171,16 @@ export default async function SolicitacoesPage({
             <Inbox className="size-6 mx-auto text-[var(--content-subtle)]" aria-hidden />
             <p className="font-medium">Nada por aqui</p>
             <p className="text-[0.9375rem] text-[var(--content-muted)] max-w-sm mx-auto leading-relaxed">
-              Quando alguém solicitar ou reservar um dos seus espaços, aparece aqui.
+              Quando alguém solicitar um dos seus espaços, aparece aqui.
             </p>
           </div>
         ) : (
           <ul className="space-y-3">
             {solicitacoes.map((s) => {
               const url = s.spaceCoverPath ? urls.get(s.spaceCoverPath) : null;
-              const info = rentalBadge(s.status, rentalPhaseOf(s, agora));
-              const unidade = unitLine(s.unitLabel, s.groupName, s.spaceGroupCount);
-              const temporario = s.kind === 'temporary';
+              const info = bookingBadge(s, hoje);
+              const situacao = situacaoDoCartao(s, agora, hoje);
+              const semVaga = s.status === 'requested' && s.spaceQuantityAvailable <= 0;
               return (
                 <li key={s.id} id={`reserva-${s.id}`} className="rounded-[var(--radius-card)] border p-4 space-y-3 scroll-mt-20">
                   <div className="flex gap-3">
@@ -166,22 +209,12 @@ export default async function SolicitacoesPage({
                           {info.label}
                         </Badge>
                       </div>
-                      {unidade && <p className="text-[0.8125rem] font-medium">{unidade}</p>}
-                      {temporario && s.startsAt && s.endsAt ? (
-                        <p className="text-[0.8125rem] text-[var(--content-muted)]">
-                          {displayNameOr(s.renterPublicName, 'Interessado')} · {formatRentalPeriod(s.startsAt, s.endsAt, agora)} ·{' '}
-                          {formatRentalDuration(s.durationUnits, s.durationUnit)}
-                        </p>
-                      ) : (
-                        <p className="text-[0.8125rem] text-[var(--content-muted)]">
-                          {displayNameOr(s.renterPublicName, 'Interessado')} · a partir de {formatBookingDate(s.startDate)} · solicitado em {formatBookingDate(s.requestedAt)}
-                        </p>
-                      )}
+                      <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                        {displayNameOr(s.renterPublicName, 'Interessado')} · quer começar em {formatDateShort(s.startDate)} · pediu em {formatBrDate(s.requestedAt)}
+                      </p>
                       <p className="text-[0.9375rem] font-medium tabular-nums">
-                        Você recebe {formatBRL(s.ownerPayoutCents)}
-                        <span className="font-normal text-[var(--content-muted)]">
-                          {temporario ? ` (aluguel ${formatBRL(s.monthlyRentCents)})` : ` /mês (aluguel ${formatBRL(s.monthlyRentCents)})`}
-                        </span>
+                        Você recebe {formatBRL(s.ownerPayoutCents)} por mês
+                        <span className="font-normal text-[var(--content-muted)]"> (aluguel {formatBRL(s.monthlyRentCents)}, já com a taxa de serviço)</span>
                       </p>
                     </div>
                   </div>
@@ -220,20 +253,52 @@ export default async function SolicitacoesPage({
                     />
                   </details>
 
+                  {s.status === 'requested' && (
+                    <p
+                      className={cn('text-[0.8125rem]', semVaga ? 'text-[var(--color-critical)]' : 'text-[var(--content-muted)]')}
+                      data-testid="vagas-do-anuncio"
+                    >
+                      {semVaga
+                        ? 'Este anúncio está sem vagas livres agora. Para aceitar, uma locação precisa terminar antes.'
+                        : `Vagas livres agora: ${s.spaceQuantityAvailable} de ${s.spaceQuantityOffered}. Aceitar esta solicitação ocupa uma.`}
+                    </p>
+                  )}
+
+                  {situacao && <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">{situacao}</p>}
+
                   {s.ownerResponse && s.status !== 'requested' && (
                     <p className="text-[0.8125rem] text-[var(--content-subtle)]">
                       Sua resposta: {s.ownerResponse}
                     </p>
                   )}
 
-                  <RespondRequestActions bookingId={s.id} status={s.status} />
+                  <RespondRequestActions
+                    bookingId={s.id}
+                    status={s.status}
+                    deadlineLabel={s.responseDeadlineAt ? formatDeadline(s.responseDeadlineAt, agora) : null}
+                    acceptBlockedReason={semVaga ? 'Sem vagas livres neste anúncio agora.' : null}
+                  />
+                  <CancelBookingButton
+                    bookingId={s.id}
+                    status={s.status}
+                    cancellable={['approved']}
+                    label="Desfazer o aceite"
+                    confirmText="Desfazer o aceite? A vaga volta para o anúncio e o locatário é avisado."
+                  />
+                  <EndRequestPanel
+                    bookingId={s.id}
+                    status={s.status}
+                    pending={s.pendingEndDate ? { endDate: s.pendingEndDate, reason: s.pendingEndReason } : null}
+                    today={hoje}
+                    suggestedDate={sugestaoEncerramento}
+                    maxDate={limiteEncerramento}
+                  />
                   <Link
                     href={`/reservas/${s.id}`}
                     className="inline-block text-[0.8125rem] text-[var(--accent)] underline underline-offset-4"
                   >
-                    Ver detalhes da reserva
+                    Ver detalhes e instruções de acesso
                   </Link>
-                  <EndBookingButton bookingId={s.id} status={s.status} kind={s.kind} label="Encerrar aluguel" />
                   <ReviewPrompt
                     bookingId={s.id}
                     kind="owner_to_renter"

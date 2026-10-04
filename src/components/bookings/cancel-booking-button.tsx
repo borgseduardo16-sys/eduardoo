@@ -22,10 +22,19 @@ export function CancelBookingButton({
   bookingId,
   status,
   label = 'Cancelar',
+  cancellable = ['requested', 'approved', 'awaiting_payment'],
+  confirmText = 'Cancelar mesmo?',
 }: {
   bookingId: string;
   status: string;
   label?: string;
+  /**
+   * Em quais status esta pessoa pode cancelar. O locatário desiste de pedido,
+   * aceite e pagamento aberto; o proprietário só desfaz um aceite que ainda não
+   * foi pago. O servidor confere de novo — isto só esconde o botão que não vale.
+   */
+  cancellable?: readonly string[];
+  confirmText?: string;
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [state, action] = useActionState<BookingActionState | undefined, FormData>(
@@ -41,8 +50,7 @@ export function CancelBookingButton({
     );
   }
 
-  // Parte 12: quem ainda não pagou também pode desistir (o servidor confere o resto).
-  if (status !== 'requested' && status !== 'approved' && status !== 'awaiting_payment') {
+  if (!cancellable.includes(status)) {
     return null;
   }
 
@@ -62,7 +70,7 @@ export function CancelBookingButton({
       {state?.message && !state.ok && (
         <p role="alert" className="text-[0.8125rem] text-[var(--color-critical)]">{state.message}</p>
       )}
-      <span className="text-[0.8125rem] text-[var(--content-muted)]">Cancelar mesmo?</span>
+      <span className="text-[0.8125rem] text-[var(--content-muted)]">{confirmText}</span>
       <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmando(false)}>Não</Button>
       <SubmitButton size="sm" block={false} variant="critical">Sim, cancelar</SubmitButton>
     </form>

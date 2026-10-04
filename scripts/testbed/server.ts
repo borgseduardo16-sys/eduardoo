@@ -14,7 +14,11 @@
  *
  *   - Supabase Auth   — GET /auth/v1/user
  *   - Supabase Storage— POST/DELETE /storage/v1/object/...,
- *                       POST /storage/v1/object/sign/... (URL assinada)
+ *                       POST /storage/v1/object/sign/... (URL assinada, em
+ *                       lote ou de um caminho só), GET do arquivo assinado
+ *                       (com `Range`) e GET /storage/v1/object/<bucket>/...
+ *                       (download autenticado). Dois buckets: `space-images`
+ *                       (8 MB) e `chat-audio` (5 MB, só os 4 tipos de áudio).
  *   - Tiles de mapa   — GET /tiles/{z}/{x}/{y}.png, PNG gerado de verdade
  *   - CEP             — GET /api/cep/v2/:cep (formato BrasilAPI)
  *                       GET /ws/:cep/json/   (formato ViaCEP)
@@ -92,8 +96,10 @@ export type Testbed = {
   url: string;
   /** Tudo que bateu no servidor. Os testes conferem o trafego de verdade. */
   log: RequestLog[];
-  /** Arquivos guardados no "Storage", por caminho. */
+  /** Arquivos guardados no bucket `space-images`, por caminho. */
   objects: Map<string, { bytes: Buffer; contentType: string }>;
+  /** Arquivos guardados no bucket privado `chat-audio` (áudio do chat e das instruções), por caminho. */
+  audioObjects: Map<string, { bytes: Buffer; contentType: string }>;
   users: Map<string, TestbedUser>;
   /** CEPs que o "servico" conhece. Vazio = responde 404. */
   ceps: Map<string, unknown>;
@@ -161,17 +167,27 @@ export type AnthropicStubReply = {
   delayMs?: number;
 };
 
-const BUCKET = 'space-images';
+/** Buckets que o dublê conhece: nome → limite de tamanho e tipos aceitos (como no bucket real). */
+const BUCKETS = {
+  'space-images': { limite: 8 * 1024 * 1024, tipos: null },
+  'chat-audio': { limite: 5 * 1024 * 1024, tipos: ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg'] },
+} as const;
+type NomeBucket = keyof typeof BUCKETS;
 
 export async function startTestbed(port = 0): Promise<Testbed> {
   const log: RequestLog[] = [];
   const objects = new Map<string, { bytes: Buffer; contentType: string }>();
+  const audioObjects = new Map<string, { bytes: Buffer; contentType: string }>();
+  const armazenamento: Record<NomeBucket, Map<string, { bytes: Buffer; contentType: string }>> = {
+    'space-images': objects,
+    'chat-audio': audioObjects,
+  };
   const users = new Map<string, TestbedUser>();
   const ceps = new Map<string, unknown>();
   const geocodes = new Map<string, { lat: number; lon: number; display_name: string }>();
   const tiles: { z: number; x: number; y: number }[] = [];
   const tileCache = new Map<string, Buffer>();
-  const assinaturas = new Map<string, { path: string; expiraEm: number }>();
+  const assinaturas = new Map<string, { bucket: NomeBucket; path: string; expiraEm: number }>();
 
   const estado = {
     cepFora: false, brasilApiFora: false, asaasSemChavePix: false,
@@ -204,6 +220,39 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     const partes: Buffer[] = [];
     for await (const chunk of req) partes.push(chunk as Buffer);
     return Buffer.concat(partes);
+  }
+
+  /** Responde um arquivo guardado, com `Range` (206) quando o navegador/servidor pede — como o Storage real. */
+  function enviarArquivo(req: IncomingMessage, res: ServerResponse, obj: { bytes: Buffer; contentType: string }): number {
+    const faixa = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    if (faixa) {
+      const total = obj.bytes.length;
+      const inicio = faixa[1] === '' ? Math.max(0, total - Number(faixa[2])) : Number(faixa[1]);
+      const fim = faixa[1] === '' || faixa[2] === '' ? total - 1 : Math.min(Number(faixa[2]), total - 1);
+      if (inicio >= total || inicio > fim) {
+        res.writeHead(416, { 'content-range': `bytes */${total}` });
+        res.end();
+        return 416;
+      }
+      const parte = obj.bytes.subarray(inicio, fim + 1);
+      res.writeHead(206, {
+        'content-type': obj.contentType,
+        'content-length': parte.length,
+        'content-range': `bytes ${inicio}-${fim}/${total}`,
+        'accept-ranges': 'bytes',
+        'cache-control': 'max-age=3600',
+      });
+      res.end(parte);
+      return 206;
+    }
+    res.writeHead(200, {
+      'content-type': obj.contentType,
+      'content-length': obj.bytes.length,
+      'accept-ranges': 'bytes',
+      'cache-control': 'max-age=3600',
+    });
+    res.end(obj.bytes);
+    return 200;
   }
 
   function json(res: ServerResponse, status: number, body: unknown) {
@@ -304,94 +353,89 @@ export async function startTestbed(port = 0): Promise<Testbed> {
         }
 
         // ---------------------------------------------------------------
-        // Storage — URL assinada (lote): POST /storage/v1/object/sign/<bucket>
+        // Storage (qualquer bucket conhecido): /storage/v1/object/...
         // ---------------------------------------------------------------
-        else if (req.method === 'POST' && rota === `/storage/v1/object/sign/${BUCKET}`) {
-          const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
-            expiresIn?: number;
-            paths?: string[];
-          };
-          const expiresIn = corpo.expiresIn ?? 3600;
+        else if (rota.startsWith('/storage/v1/object/')) {
+          const resto = rota.slice('/storage/v1/object/'.length);
+          const ehAssinatura = resto.startsWith('sign/');
+          const [nomeBucket, ...caminhoPartes] = (ehAssinatura ? resto.slice('sign/'.length) : resto).split('/');
+          const bucket = nomeBucket as NomeBucket;
+          const caminho = decodeURIComponent(caminhoPartes.join('/'));
+          const arquivos = armazenamento[bucket];
 
-          const saida = (corpo.paths ?? []).map((caminho) => {
-            if (!objects.has(caminho)) {
-              return { error: 'Object not found', path: caminho, signedURL: null };
+          if (!arquivos) {
+            status = json(res, 404, { statusCode: '404', error: 'Bucket not found', message: 'Bucket not found' });
+          }
+          // URL assinada em lote: POST /object/sign/<bucket>
+          else if (req.method === 'POST' && ehAssinatura && caminho === '') {
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { expiresIn?: number; paths?: string[] };
+            const expiresIn = corpo.expiresIn ?? 3600;
+            const saida = (corpo.paths ?? []).map((c) => {
+              if (!arquivos.has(c)) return { error: 'Object not found', path: c, signedURL: null };
+              const token = randomUUID();
+              assinaturas.set(token, { bucket, path: c, expiraEm: Date.now() + expiresIn * 1000 });
+              return { error: null, path: c, signedURL: `/object/sign/${bucket}/${c}?token=${token}` };
+            });
+            status = json(res, 200, saida);
+          }
+          // URL assinada de um caminho só: POST /object/sign/<bucket>/<caminho>
+          else if (req.method === 'POST' && ehAssinatura) {
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { expiresIn?: number };
+            if (!arquivos.has(caminho)) {
+              status = json(res, 400, { statusCode: '404', error: 'not_found', message: 'Object not found' });
+            } else {
+              const token = randomUUID();
+              assinaturas.set(token, { bucket, path: caminho, expiraEm: Date.now() + (corpo.expiresIn ?? 3600) * 1000 });
+              status = json(res, 200, { signedURL: `/object/sign/${bucket}/${caminho}?token=${token}` });
             }
-            const token = randomUUID();
-            assinaturas.set(token, { path: caminho, expiraEm: Date.now() + expiresIn * 1000 });
-            return {
-              error: null,
-              path: caminho,
-              signedURL: `/object/sign/${BUCKET}/${caminho}?token=${token}`,
-            };
-          });
-          status = json(res, 200, saida);
-        }
-
-        // ---------------------------------------------------------------
-        // Storage — leitura pela URL assinada
-        // ---------------------------------------------------------------
-        else if (req.method === 'GET' && rota.startsWith(`/storage/v1/object/sign/${BUCKET}/`)) {
-          const token = url.searchParams.get('token') ?? '';
-          const assinatura = assinaturas.get(token);
-          const caminho = decodeURIComponent(
-            rota.slice(`/storage/v1/object/sign/${BUCKET}/`.length),
-          );
-
-          if (!assinatura || assinatura.path !== caminho) {
-            status = json(res, 400, { statusCode: '400', error: 'InvalidJWT', message: 'invalid signature' });
-          } else if (assinatura.expiraEm < Date.now()) {
-            status = json(res, 400, { statusCode: '400', error: 'ExpiredToken', message: 'expired' });
+          }
+          // Leitura pela URL assinada (com suporte a `Range`)
+          else if (req.method === 'GET' && ehAssinatura) {
+            const token = url.searchParams.get('token') ?? '';
+            const assinatura = assinaturas.get(token);
+            if (!assinatura || assinatura.path !== caminho || assinatura.bucket !== bucket) {
+              status = json(res, 400, { statusCode: '400', error: 'InvalidJWT', message: 'invalid signature' });
+            } else if (assinatura.expiraEm < Date.now()) {
+              status = json(res, 400, { statusCode: '400', error: 'ExpiredToken', message: 'expired' });
+            } else {
+              status = enviarArquivo(req, res, arquivos.get(caminho)!);
+            }
+          }
+          // Download autenticado: GET /object/<bucket>/<caminho> (supabase-js `download`)
+          else if (req.method === 'GET') {
+            const obj = arquivos.get(caminho);
+            status = obj
+              ? enviarArquivo(req, res, obj)
+              : json(res, 400, { statusCode: '404', error: 'not_found', message: 'Object not found' });
+          }
+          // Envio
+          else if ((req.method === 'POST' || req.method === 'PUT') && caminho !== '') {
+            const corpo = await lerCorpo(req);
+            const contentType = String(req.headers['content-type'] ?? 'application/octet-stream');
+            const regra = BUCKETS[bucket];
+            if (req.method === 'POST' && arquivos.has(caminho)) {
+              status = json(res, 409, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
+            } else if (corpo.length > regra.limite) {
+              // O bucket real tem limite de tamanho; aqui vale o mesmo.
+              status = json(res, 413, { statusCode: '413', error: 'Payload too large', message: 'exceeded the maximum allowed size' });
+            } else if (regra.tipos && !(regra.tipos as readonly string[]).includes(contentType.split(';')[0]!.trim())) {
+              status = json(res, 415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime type not supported' });
+            } else {
+              arquivos.set(caminho, { bytes: corpo, contentType });
+              status = json(res, 200, { Id: randomUUID(), Key: `${bucket}/${caminho}` });
+            }
+          }
+          // Remoção: DELETE /object/<bucket> { prefixes: [...] }
+          else if (req.method === 'DELETE' && caminho === '') {
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { prefixes?: string[] };
+            const removidos: unknown[] = [];
+            for (const p of corpo.prefixes ?? []) {
+              if (arquivos.delete(p)) removidos.push({ name: p });
+            }
+            status = json(res, 200, removidos);
           } else {
-            const obj = objects.get(caminho)!;
-            res.writeHead(200, {
-              'content-type': obj.contentType,
-              'content-length': obj.bytes.length,
-              'cache-control': 'max-age=3600',
-            });
-            res.end(obj.bytes);
-            status = 200;
+            status = json(res, 405, { message: 'metodo nao tratado pelo dublê de Storage' });
           }
-        }
-
-        // ---------------------------------------------------------------
-        // Storage — envio
-        // ---------------------------------------------------------------
-        else if (
-          (req.method === 'POST' || req.method === 'PUT') &&
-          rota.startsWith(`/storage/v1/object/${BUCKET}/`)
-        ) {
-          const caminho = decodeURIComponent(rota.slice(`/storage/v1/object/${BUCKET}/`.length));
-          const corpo = await lerCorpo(req);
-          const contentType = String(req.headers['content-type'] ?? 'application/octet-stream');
-
-          if (req.method === 'POST' && objects.has(caminho)) {
-            status = json(res, 409, {
-              statusCode: '409', error: 'Duplicate', message: 'The resource already exists',
-            });
-          } else if (corpo.length > 8 * 1024 * 1024) {
-            // O bucket real tem limite de 8 MB; aqui vale o mesmo.
-            status = json(res, 413, {
-              statusCode: '413', error: 'Payload too large', message: 'exceeded the maximum allowed size',
-            });
-          } else {
-            objects.set(caminho, { bytes: corpo, contentType });
-            status = json(res, 200, { Id: randomUUID(), Key: `${BUCKET}/${caminho}` });
-          }
-        }
-
-        // ---------------------------------------------------------------
-        // Storage — remocao
-        // ---------------------------------------------------------------
-        else if (req.method === 'DELETE' && rota === `/storage/v1/object/${BUCKET}`) {
-          const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
-            prefixes?: string[];
-          };
-          const removidos: unknown[] = [];
-          for (const p of corpo.prefixes ?? []) {
-            if (objects.delete(p)) removidos.push({ name: p });
-          }
-          status = json(res, 200, removidos);
         }
 
         // ---------------------------------------------------------------
@@ -831,6 +875,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     url: `http://127.0.0.1:${endereco.port}`,
     log,
     objects,
+    audioObjects,
     users,
     ceps,
     geocodes,

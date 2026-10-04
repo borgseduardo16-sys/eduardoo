@@ -16,6 +16,7 @@ import { markConversationReadAction } from '@/lib/messaging/actions';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { SendMessageForm } from '@/components/messaging/send-message-form';
+import { AudioPlayer } from '@/components/audio/audio-player';
 import { ReportDialog } from '@/components/safety/report-dialog';
 import { ProtectionNotice } from '@/components/safety/protection-notice';
 import { cn } from '@/lib/utils';
@@ -137,6 +138,8 @@ export default async function ConversaPage({ params }: { params: Promise<{ id: s
                       <EyeOff className="size-3.5" aria-hidden />
                       Mensagem removida pela moderação.
                     </p>
+                  ) : m.kind === 'audio' ? (
+                    <AudioPlayer src={`/api/mensagens/${m.id}/audio`} durationMs={m.audioDurationMs} />
                   ) : (
                     <p className="text-[0.9375rem] whitespace-pre-wrap break-words">{m.body}</p>
                   )}

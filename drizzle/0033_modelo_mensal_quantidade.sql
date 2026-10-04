@@ -1017,6 +1017,86 @@ INSERT INTO public.platform_settings (key, value, description, is_public) VALUES
 ON CONFLICT (key) DO NOTHING;
 --> statement-breakpoint
 
+-- Privacidade da localização por TIPO de espaço. O mapa público só lê
+-- `approx_location`. Para residências e tipos pessoais ela é um ponto
+-- DESLOCADO (o endereço só é liberado depois da locação confirmada). Para os
+-- tipos comerciais listados em `privacy.exact_location_types` o endereço já é
+-- público por natureza (loja, escritório, galpão…) e `approx_location` é o
+-- ponto exato — assim nenhuma consulta pública precisa saber da exceção:
+-- nenhuma delas lê `location`. Rua, número e complemento continuam privados
+-- até a locação ser confirmada, para qualquer tipo.
+CREATE OR REPLACE FUNCTION public.sync_approx_location()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, extensions
+AS $$
+DECLARE
+  raio integer;
+  exatos jsonb;
+BEGIN
+  IF NEW.location IS NULL THEN
+    NEW.approx_location := NULL;
+    RETURN NEW;
+  END IF;
+
+  SELECT value INTO exatos FROM public.platform_settings WHERE key = 'privacy.exact_location_types';
+  IF jsonb_typeof(exatos) = 'array' AND exatos ? NEW.type::text THEN
+    NEW.approx_location := NEW.location;
+    RETURN NEW;
+  END IF;
+
+  -- So recalcula quando o ponto exato (ou o tipo) muda. Assim o deslocamento
+  -- de um anuncio publicado nao "pula" a cada edicao de titulo ou preco.
+  IF TG_OP = 'UPDATE'
+     AND OLD.location IS NOT NULL
+     AND ST_Equals(OLD.location, NEW.location)
+     AND OLD.type IS NOT DISTINCT FROM NEW.type
+     AND NEW.approx_location IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT COALESCE((value #>> '{}')::integer, 300) INTO raio
+  FROM public.platform_settings WHERE key = 'privacy.approx_location_meters';
+
+  NEW.approx_location := public.fuzz_location(NEW.location, NEW.id, COALESCE(raio, 300));
+  RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+
+DROP TRIGGER IF EXISTS spaces_sync_approx_location ON public.spaces;
+--> statement-breakpoint
+CREATE TRIGGER spaces_sync_approx_location
+  BEFORE INSERT OR UPDATE OF location, type ON public.spaces
+  FOR EACH ROW EXECUTE FUNCTION public.sync_approx_location();
+--> statement-breakpoint
+
+-- Mudou a lista de tipos (ou o raio): os anúncios existentes são recalculados
+-- na hora. O deslocamento dos que continuam aproximados é determinístico por
+-- anúncio, então não "pula".
+CREATE OR REPLACE FUNCTION public.resync_approx_after_privacy_setting()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  UPDATE public.spaces SET approx_location = NULL, location = location WHERE location IS NOT NULL;
+  RETURN NULL;
+END;
+$$;
+--> statement-breakpoint
+
+CREATE TRIGGER platform_settings_privacy_resync
+  AFTER INSERT OR UPDATE OF value ON public.platform_settings
+  FOR EACH ROW
+  WHEN (NEW.key IN ('privacy.exact_location_types', 'privacy.approx_location_meters'))
+  EXECUTE FUNCTION public.resync_approx_after_privacy_setting();
+--> statement-breakpoint
+
+-- Aplica a regra aos anúncios que já existem.
+UPDATE public.spaces SET approx_location = NULL, location = location WHERE location IS NOT NULL;
+--> statement-breakpoint
+
 DO $mp_audio_bucket$
 BEGIN
   IF to_regclass('storage.buckets') IS NULL THEN

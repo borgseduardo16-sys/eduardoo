@@ -18,7 +18,12 @@ Produto real em construção (marketplace de espaços ociosos), não protótipo.
 5. **Segredo nunca leva `NEXT_PUBLIC_`.** Módulos de servidor começam com
    `import 'server-only'`.
 6. **Localização exata é privada.** Respostas públicas usam `approx_location`;
-   `street`/`number`/`complement` só após reserva ativa.
+   `street`/`number`/`complement` (e as coordenadas exatas, usadas em "Traçar
+   rota") só após locação ativa. Exceção configurável por tipo: os tipos
+   comerciais de `platform_settings['privacy.exact_location_types']` (loja,
+   escritório, galpão…) têm `approx_location` = ponto exato — quem faz isso é o
+   trigger `sync_approx_location`, então nenhuma consulta pública lê `location`.
+   Rua, número e complemento continuam privados para qualquer tipo.
 
 ## Ao mexer no banco
 

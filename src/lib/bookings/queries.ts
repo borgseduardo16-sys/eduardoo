@@ -233,7 +233,7 @@ export async function listRenterBookings(renterId: string) {
 /** Uma reserva do locatario, com checagem de posse embutida na propria consulta. */
 export async function getRenterBooking(id: string, renterId: string) {
   const [row] = await db
-    .select({ ...listSelection, nextDueDate: nextDueDateExpr })
+    .select({ ...listSelection, renterFeeBps: bookings.renterFeeBps, nextDueDate: nextDueDateExpr })
     .from(bookings)
     .innerJoin(spaces, eq(spaces.id, bookings.spaceId))
     .where(and(eq(bookings.id, id), eq(bookings.renterId, renterId)))
@@ -304,6 +304,8 @@ export async function getBookingForParticipant(id: string, userId: string) {
       depositInvoiceUrl: sql<string | null>`(
         SELECT invoice_url FROM booking_deposits bd WHERE bd.booking_id = bookings.id LIMIT 1
       )`,
+      /** Vagas livres do anúncio agora — o proprietário vê se ainda dá para aceitar. */
+      spaceQuantityAvailable: spaces.quantityAvailable,
       accessInstructions: sql<string | null>`CASE WHEN ${instrucoesLiberadas} THEN ${bookings.accessInstructions} END`,
       hasAccessAudio: sql<boolean>`(${instrucoesLiberadas} AND ${bookings.accessAudioPath} IS NOT NULL)`,
       accessAudioDurationMs: sql<number | null>`CASE WHEN ${instrucoesLiberadas} THEN ${bookings.accessAudioDurationMs} END`,
@@ -490,4 +492,30 @@ export async function listEndRequests(bookingId: string) {
     createdAt: Date;
     resolvedAt: Date | null;
   }[];
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Caminho (no bucket privado) do áudio das instruções de acesso de uma
+ * locação. O proprietário vê sempre; o locatário só com a locação confirmada
+ * (`active`/`past_due`) — a regra do pagamento está no WHERE, não num `if`
+ * depois. Quem não participa recebe `null`.
+ */
+export async function accessAudioPathForUser(bookingId: string, userId: string): Promise<string | null> {
+  if (!UUID_RE.test(bookingId)) return null;
+  const [row] = await db
+    .select({ path: bookings.accessAudioPath })
+    .from(bookings)
+    .where(
+      and(
+        eq(bookings.id, bookingId),
+        or(
+          eq(bookings.ownerId, userId),
+          and(eq(bookings.renterId, userId), inArray(bookings.status, [...ADDRESS_VISIBLE_STATUSES])),
+        ),
+      ),
+    )
+    .limit(1);
+  return row?.path ?? null;
 }

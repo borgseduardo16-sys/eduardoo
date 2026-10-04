@@ -1,13 +1,15 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { CalendarX, CircleAlert, Heart, ImageOff } from 'lucide-react';
+import { CalendarX, CalendarX2, CircleAlert, Heart, ImageOff } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { listRenterBookings } from '@/lib/bookings/queries';
 import { listReviewedBookingIds } from '@/lib/reviews/queries';
 import { signImagePaths } from '@/lib/storage/signed-urls';
 import { formatBRL } from '@/lib/money';
-import { formatBookingDate } from '@/lib/bookings/format';
+import { brDate } from '@/lib/time';
+import { bookingBadge, endReasonLabel, formatDateShort, formatDueDate } from '@/lib/bookings/format';
+import { formatDeadline } from '@/lib/bookings/deadlines';
 import {
   paymentStatusLabel,
   PAYMENT_STATUS_INFO,
@@ -15,26 +17,12 @@ import {
   DEPOSIT_RELEASE_STATUS_INFO,
 } from '@/lib/payments/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
-import { settingInt } from '@/lib/settings';
-import { getGroupRules } from '@/lib/rentals/queries';
-import { RENEWAL_WINDOW_MINUTES, paymentWindowState, temporaryDurationOptions, type PricedDurationOption } from '@/lib/rentals/pricing';
-import { pricedDurationOptions } from '@/lib/rentals/booking';
-import {
-  endReasonLabel,
-  formatRentalDuration,
-  formatRentalPeriod,
-  rentalBadge,
-  rentalPhaseOf,
-  unitLine,
-} from '@/lib/rentals/format';
-import { brTime } from '@/lib/rentals/time';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { CancelBookingButton } from '@/components/bookings/cancel-booking-button';
 import { EndBookingButton } from '@/components/bookings/end-booking-button';
 import { ReviewPrompt } from '@/components/reviews/review-prompt';
-import { Countdown } from '@/components/rentals/live';
-import { RenewForm } from '@/components/rentals/renew-form';
+import { Countdown } from '@/components/payments/live';
 import { Badge } from '@/components/ui/badge';
 import { buttonVariants } from '@/components/ui/button';
 
@@ -43,66 +31,50 @@ export const dynamic = 'force-dynamic';
 
 type ReservaRow = Awaited<ReturnType<typeof listRenterBookings>>[number];
 
-type Secao = 'pendente' | 'andamento' | 'proximos' | 'aguardando' | 'historico';
+type Secao = 'pendente' | 'andamento' | 'inicio' | 'aguardando' | 'historico';
 
 const SECOES: { key: Secao; titulo: string }[] = [
   { key: 'pendente', titulo: 'Pagamento pendente' },
   { key: 'andamento', titulo: 'Em andamento' },
-  { key: 'proximos', titulo: 'Próximos' },
-  { key: 'aguardando', titulo: 'Aguardando' },
+  { key: 'inicio', titulo: 'Aguardando início' },
+  { key: 'aguardando', titulo: 'Solicitações' },
   { key: 'historico', titulo: 'Histórico' },
 ];
 
-/** Em que parte da tela o aluguel aparece — derivado do status e do relógio, nunca gravado. */
-function secaoDe(r: ReservaRow, agora: Date): Secao {
+/** Em que parte da tela a locação aparece — derivado do status e da data, nunca gravado. */
+function secaoDe(r: ReservaRow, hoje: string): Secao {
   if (r.status === 'past_due') return 'pendente';
   if (r.status === 'requested' || r.status === 'approved' || r.status === 'awaiting_payment') return 'aguardando';
-  if (r.status === 'active') {
-    if (r.kind === 'temporary' && r.startsAt && r.startsAt.getTime() > agora.getTime()) return 'proximos';
-    return 'andamento';
-  }
+  if (r.status === 'active') return r.startDate > hoje ? 'inicio' : 'andamento';
   return 'historico';
 }
 
 /**
- * Meus aluguéis (Parte 12). A contagem regressiva do aluguel temporário
- * aparece AQUI (e no detalhe do aluguel), não na tela principal. O "!" de
- * problema de pagamento aparece só no aluguel que teve o problema.
+ * Meus aluguéis. Cada locação mostra o que importa a quem aluga: onde ela
+ * está no fluxo (pedido, aceite, pagamento, ativa), a data de início, o
+ * próximo vencimento, a situação do pagamento e, no fim, como terminou. O
+ * "!" de problema de pagamento aparece só na locação que teve o problema.
  *
- * Todo tempo é do relógio do banco/servidor: a tela recebe a hora do
- * servidor e os instantes gravados; o relógio do aparelho não decide nada.
+ * Todo prazo é do banco: a tela recebe a hora do servidor e os instantes
+ * gravados; o relógio do aparelho não decide nada.
  */
 export default async function ReservasPage() {
   const user = await requireUser('/reservas');
   const reservas = await listRenterBookings(user.id);
   const agora = new Date();
-
-  // Durações para renovar: as regras ATUAIS do grupo de cada aluguel temporário que ainda pode renovar.
-  const minCharge = await settingInt('booking.min_rent_cents', 3500);
-  const renovaveis = reservas.filter((r) => {
-    if (r.kind !== 'temporary' || r.status !== 'active' || !r.renewalAllowed || r.renewalId || !r.endsAt) return false;
-    return agora.getTime() < r.endsAt.getTime() + RENEWAL_WINDOW_MINUTES * 60_000;
-  });
-  const duracoesPorReserva = new Map<string, PricedDurationOption[]>();
-  await Promise.all(
-    renovaveis.map(async (r) => {
-      if (!r.groupId) return;
-      const g = await getGroupRules(r.spaceId, r.groupId);
-      if (g) duracoesPorReserva.set(r.id, await pricedDurationOptions(temporaryDurationOptions(g.rules, minCharge)));
-    }),
-  );
+  const hoje = brDate(agora);
 
   const [urls, avaliadas] = await Promise.all([
     signImagePaths(reservas.map((r) => r.spaceCoverPath).filter(Boolean) as string[]),
     listReviewedBookingIds(user.id, 'renter_to_space'),
   ]);
 
-  // Uma lista SO, ordenada por seção (sort estável) — não um <ul> por seção:
-  // se o próprio cancelamento mudasse a reserva de lista, o item trocaria de
+  // Uma lista SÓ, ordenada por seção (sort estável) — não um <ul> por seção:
+  // se o próprio cancelamento mudasse a locação de lista, o item trocaria de
   // pai no React e perderia o estado ("Cancelado.") antes de aparecer.
   const ordem = new Map(SECOES.map((s, i) => [s.key, i]));
   const ordenadas = reservas
-    .map((r) => ({ r, secao: secaoDe(r, agora) }))
+    .map((r) => ({ r, secao: secaoDe(r, hoje) }))
     .sort((a, b) => (ordem.get(a.secao)! - ordem.get(b.secao)!));
 
   return (
@@ -116,7 +88,7 @@ export default async function ReservasPage() {
             <p className="text-[var(--content-muted)]">
               {reservas.length === 0
                 ? 'Você ainda não alugou nenhum espaço.'
-                : `${reservas.length} ${reservas.length === 1 ? 'aluguel ou solicitação' : 'aluguéis e solicitações'} no total.`}
+                : `${reservas.length} ${reservas.length === 1 ? 'locação ou solicitação' : 'locações e solicitações'} no total.`}
             </p>
           </div>
           <Link
@@ -133,7 +105,7 @@ export default async function ReservasPage() {
             <CalendarX className="size-6 mx-auto text-[var(--content-subtle)]" aria-hidden />
             <p className="font-medium">Nada por aqui ainda</p>
             <p className="text-[0.9375rem] text-[var(--content-muted)] max-w-sm mx-auto leading-relaxed">
-              Encontre um espaço e reserve por hora ou peça um aluguel mensal — ele aparece aqui na hora.
+              Encontre um espaço e peça o aluguel mensal — a solicitação aparece aqui na hora.
             </p>
             <Link href="/espacos" className="inline-block mt-2 text-[0.875rem] text-[var(--accent)] underline underline-offset-4">
               Explorar espaços
@@ -154,9 +126,9 @@ export default async function ReservasPage() {
                   <AluguelCard
                     r={r}
                     agora={agora}
+                    hoje={hoje}
                     coverUrl={r.spaceCoverPath ? (urls.get(r.spaceCoverPath) ?? null) : null}
                     jaAvaliada={avaliadas.has(r.id)}
-                    duracoesRenovar={duracoesPorReserva.get(r.id) ?? []}
                   />
                 </div>
               );
@@ -171,20 +143,18 @@ export default async function ReservasPage() {
 }
 
 function AluguelCard({
-  r, agora, coverUrl, jaAvaliada, duracoesRenovar,
+  r, agora, hoje, coverUrl, jaAvaliada,
 }: {
   r: ReservaRow;
   agora: Date;
+  hoje: string;
   coverUrl: string | null;
   jaAvaliada: boolean;
-  duracoesRenovar: PricedDurationOption[];
 }) {
-  const fase = rentalPhaseOf(r, agora);
-  const s = rentalBadge(r.status, fase);
-  const temporario = r.kind === 'temporary';
-  const unidade = unitLine(r.unitLabel, r.groupName, r.spaceGroupCount);
+  const s = bookingBadge(r, hoje);
   const serverNow = agora.toISOString();
   const problema = r.status === 'past_due';
+  const motivoFim = endReasonLabel(r.endReason, { status: r.status, viewer: 'renter' });
 
   return (
     <div
@@ -206,7 +176,7 @@ function AluguelCard({
             <div className="min-w-0">
               <Link href={`/espacos/${r.spaceSlug}`} className="font-medium line-clamp-2 break-words hover:underline">
                 {problema && (
-                  // O "!" fica SÓ no aluguel com problema de pagamento.
+                  // O "!" fica SÓ na locação com problema de pagamento.
                   <CircleAlert className="inline size-4 mr-1 -mt-0.5 text-[var(--color-critical)]" aria-label="Pagamento pendente" />
                 )}
                 {r.spaceTitle}
@@ -219,104 +189,73 @@ function AluguelCard({
             <Badge tone={s.tone} className="shrink-0">{s.label}</Badge>
           </div>
 
-          {unidade && <p className="text-[0.8125rem] font-medium">{unidade}</p>}
-
-          {temporario && r.startsAt && r.endsAt ? (
-            <>
-              <p className="text-[0.875rem]">
-                {formatRentalPeriod(r.startsAt, r.endsAt, agora)}
-                <span className="text-[var(--content-muted)]"> · {formatRentalDuration(r.durationUnits, r.durationUnit)}</span>
-              </p>
-              <p className="text-[0.9375rem] font-medium tabular-nums">
-                {formatBRL(r.totalChargedCents)}
-                <span className="font-normal text-[var(--content-muted)]">{r.status === 'active' || r.status === 'ended' ? ' pagos' : ' no total'}</span>
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-[0.8125rem] text-[var(--content-muted)]">
-                Código {r.reference} · a partir de {formatBookingDate(r.startDate)}
-              </p>
-              <p className="text-[0.9375rem] font-medium tabular-nums">
-                {formatBRL(r.totalChargedCents)}
-                <span className="font-normal text-[var(--content-muted)]">{r.status === 'requested' ? ' /mês, se aceito' : ' /mês'}</span>
-              </p>
-            </>
-          )}
+          <p className="text-[0.8125rem] text-[var(--content-muted)]">
+            Código {r.reference} · {r.status === 'requested' ? 'quer começar em' : 'início em'} {formatDateShort(r.startDate)}
+          </p>
+          <p className="text-[0.9375rem] font-medium tabular-nums">
+            {formatBRL(r.totalChargedCents)}
+            <span className="font-normal text-[var(--content-muted)]">{r.status === 'requested' ? ' /mês, se aceito' : ' /mês'}</span>
+          </p>
         </div>
       </div>
 
-      {/* Contagem regressiva do temporário: só aqui, pelo relógio do servidor. */}
-      {temporario && r.status === 'active' && r.startsAt && r.endsAt && r.occupiedUntil && (
-        <div className="text-[0.875rem] pt-1 border-t space-y-2" data-testid="contagem-aluguel">
-          {fase === 'upcoming' && (
-            <p>Começa em <Countdown target={r.startsAt.toISOString()} serverNow={serverNow} className="font-medium" /> ({brTime(r.startsAt)})</p>
-          )}
-          {fase === 'in_use' && (
-            <p>Tempo restante: <Countdown target={r.endsAt.toISOString()} serverNow={serverNow} className="font-medium" /> — termina às {brTime(r.endsAt)}</p>
-          )}
-          {fase === 'renewal_window' && (
-            <p className="text-[var(--color-caution)]">
-              O horário terminou. A unidade fica guardada para você por mais{' '}
-              <Countdown target={r.occupiedUntil.toISOString()} serverNow={serverNow} className="font-medium" endedText="instantes" />.
-            </p>
-          )}
-          {r.renewalId ? (
-            <p className="text-[var(--content-muted)]">
-              Renovação feita.{' '}
-              <Link href={`/reservas/${r.renewalId}`} className="text-[var(--accent)] underline underline-offset-4">Ver renovação</Link>
-            </p>
-          ) : r.renewalAllowed && duracoesRenovar.length > 0 && (fase === 'in_use' || fase === 'renewal_window' || fase === 'upcoming') ? (
-            <RenewForm bookingId={r.id} durations={duracoesRenovar} idempotencyKey={crypto.randomUUID()} />
-          ) : null}
-        </div>
-      )}
-
-      {/* Aguardando pagamento do temporário: o prazo para pagar corre no servidor. */}
-      {temporario && r.status === 'awaiting_payment' && r.holdExpiresAt && (
+      {/* Pedido aguardando resposta do proprietário: prazo de 24 h. */}
+      {r.status === 'requested' && r.responseDeadlineAt && (
         <p className="text-[0.875rem] pt-1 border-t">
-          Pague até {brTime(r.holdExpiresAt)} para garantir —{' '}
-          <Countdown target={r.holdExpiresAt.toISOString()} serverNow={serverNow} className="font-medium" endedText="prazo encerrado" />
+          O proprietário responde até {formatDeadline(r.responseDeadlineAt, agora)} —{' '}
+          <Countdown target={r.responseDeadlineAt.toISOString()} serverNow={serverNow} className="font-medium" endedText="prazo encerrado" />
         </p>
       )}
 
-      {/* Aluguel mensal ativo: mensalidade, renovação automática, próxima cobrança. Sem contagem regressiva. */}
-      {!temporario && r.status === 'active' && (
+      {/* Aceita: falta pagar. O prazo de 24 h corre no banco. */}
+      {(r.status === 'approved' || r.status === 'awaiting_payment') && r.firstPaymentDeadlineAt && (
+        <p className="text-[0.875rem] pt-1 border-t" data-testid="prazo-pagamento">
+          Pague até {formatDeadline(r.firstPaymentDeadlineAt, agora)} para garantir a vaga —{' '}
+          <Countdown target={r.firstPaymentDeadlineAt.toISOString()} serverNow={serverNow} className="font-medium" endedText="prazo encerrado" />
+        </p>
+      )}
+
+      {/* Locação ativa: mensalidade, renovação automática, próximo vencimento. Sem contagem regressiva. */}
+      {r.status === 'active' && (
         <div className="text-[0.875rem] pt-1 border-t space-y-1" data-testid="mensal-ativo">
           <p>
-            <span className="tabular-nums">{formatBRL(r.totalChargedCents)}/mês</span>
-            {r.subscriptionStatus === 'active' || r.subscriptionStatus === 'pending_authorization'
-              ? ' · Renovação automática ativa'
-              : ''}
-            {r.subscriptionMethod === 'credit_card' ? ' (cartão)' : r.subscriptionMethod === 'pix' ? ' (Pix todo mês)' : ''}
+            {r.nextDueDate ? <>Próximo vencimento: <span className="font-medium">{formatDueDate(r.nextDueDate)}</span></> : 'Locação ativa'}
           </p>
-          {r.nextDueDate && <p className="text-[var(--content-muted)]">Próxima cobrança: {formatBookingDate(r.nextDueDate)}</p>}
+          <p className="text-[var(--content-muted)]">
+            {r.subscriptionStatus === 'active' || r.subscriptionStatus === 'pending_authorization' ? 'Renovação automática ativa' : 'Mensalidade'}
+            {r.subscriptionMethod === 'credit_card' ? ' no cartão' : r.subscriptionMethod === 'pix' ? ' (Pix todo mês)' : ''}
+            {r.paidCount > 0 ? ` · ${r.paidCount} ${r.paidCount === 1 ? 'mensalidade paga' : 'mensalidades pagas'}` : ''}
+          </p>
         </div>
       )}
 
-      {/* Pagamento pendente: prazo e caminho para resolver. Claro, sem alarde. */}
-      {problema && r.paymentIssueStartedAt && r.paymentIssueDeadlineAt && (() => {
-        const janela = paymentWindowState(r.paymentIssueStartedAt, r.paymentIssueDeadlineAt, agora);
-        return (
+      {/* Pedido de encerramento feito pelo proprietário: o locatário precisa saber. */}
+      {r.pendingEndDate && (r.status === 'active' || r.status === 'past_due') && (
+        <p className="flex items-start gap-2 text-[0.875rem] pt-1 border-t" data-testid="pedido-encerramento">
+          <CalendarX2 className="size-4 mt-0.5 shrink-0 text-[var(--color-caution)]" aria-hidden />
+          <span>O proprietário pediu o encerramento desta locação para <strong>{formatDateShort(r.pendingEndDate)}</strong>.</span>
+        </p>
+      )}
+
+      {/* Pagamento pendente: janela total de 2 h e caminho para resolver. Claro, sem alarde. */}
+      {problema && r.paymentIssueDeadlineAt && (
         <div className="text-[0.875rem] pt-1 border-t space-y-2">
           <p>
-            Não conseguimos concluir a cobrança deste mês.{' '}
-            {janela.phase === 'first' ? 'Tempo restante: ' : 'Último prazo: '}
-            <Countdown target={janela.phaseEndsAt.toISOString()} serverNow={serverNow} className="font-medium" endedText="prazo encerrado" />
-            <span className="text-[var(--content-muted)]"> — até {brTime(janela.phaseEndsAt)}</span>
+            Não conseguimos concluir a cobrança deste mês. Tempo restante:{' '}
+            <Countdown target={r.paymentIssueDeadlineAt.toISOString()} serverNow={serverNow} className="font-medium" endedText="prazo encerrado" />
+            <span className="text-[var(--content-muted)]"> — até {formatDeadline(r.paymentIssueDeadlineAt, agora)}</span>
           </p>
           <Link href={`/reservas/${r.id}/pendente`} className={buttonVariants({ size: 'sm', className: 'w-fit' })}>
             Resolver pagamento
           </Link>
         </div>
-        );
-      })()}
+      )}
 
-      {['awaiting_payment', 'active', 'past_due', 'ended'].includes(r.status) && !temporario && r.lastPaymentStatus && (
+      {['awaiting_payment', 'active', 'past_due', 'ended'].includes(r.status) && r.lastPaymentStatus && (
         <p className="flex flex-wrap items-center gap-1.5 text-[0.8125rem] text-[var(--content-muted)]">
           Último pagamento
           {r.lastPaymentAmountCents !== null && ` ${formatBRL(r.lastPaymentAmountCents)}`}
-          {r.lastPaymentDueDate && ` · venc. ${formatBookingDate(r.lastPaymentDueDate)}`}
+          {r.lastPaymentDueDate && ` · venc. ${formatDateShort(r.lastPaymentDueDate)}`}
           <Badge tone={PAYMENT_STATUS_INFO[r.lastPaymentStatus]?.tone ?? 'neutral'}>
             {paymentStatusLabel(r.lastPaymentStatus)}
           </Badge>
@@ -326,7 +265,7 @@ function AluguelCard({
       {r.depositCents != null && r.depositCents > 0 && (
         <div className="text-[0.8125rem] text-[var(--content-muted)] space-y-1 pt-1 border-t">
           {!r.depositChargeStatus && r.status === 'approved' && (
-            <p>Este aluguel inclui caução de {formatBRL(r.depositCents)}, cobrada junto do primeiro pagamento.</p>
+            <p>Esta locação inclui caução de {formatBRL(r.depositCents)}, cobrada junto do primeiro pagamento.</p>
           )}
           {r.depositChargeStatus && !['confirmed', 'received'].includes(r.depositChargeStatus) && (
             <p className="flex flex-wrap items-center gap-1.5">
@@ -361,8 +300,8 @@ function AluguelCard({
       {r.ownerResponse && r.status === 'rejected' && (
         <p className="text-[0.8125rem] text-[var(--content-subtle)]">Motivo do proprietário: {r.ownerResponse}</p>
       )}
-      {endReasonLabel(r.endReason) && (r.status === 'ended' || r.status === 'expired' || r.status === 'cancelled') && (
-        <p className="text-[0.8125rem] text-[var(--content-subtle)]">{endReasonLabel(r.endReason)}.</p>
+      {motivoFim && ['ended', 'expired', 'cancelled'].includes(r.status) && (
+        <p className="text-[0.8125rem] text-[var(--content-subtle)]">{motivoFim}.</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -379,9 +318,9 @@ function AluguelCard({
       <CancelBookingButton
         bookingId={r.id}
         status={r.status}
-        label={r.status === 'awaiting_payment' ? 'Desistir' : 'Cancelar solicitação'}
+        label={r.status === 'requested' ? 'Cancelar solicitação' : 'Desistir da locação'}
       />
-      <EndBookingButton bookingId={r.id} status={r.status} kind={r.kind} />
+      <EndBookingButton bookingId={r.id} status={r.status} />
       <ReviewPrompt
         bookingId={r.id}
         kind="renter_to_space"

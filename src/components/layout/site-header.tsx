@@ -4,10 +4,10 @@ import { getCurrentUser } from '@/lib/auth/dal';
 import { signOutAction } from '@/lib/auth/actions';
 import { countUnreadConversations } from '@/lib/messaging/queries';
 import { countUnreadNotifications } from '@/lib/notifications/queries';
-import { listRenterPaymentIssues } from '@/lib/rentals/queries';
+import { listRenterPaymentIssues } from '@/lib/payments/queries';
 import { Logo } from '@/components/ui/logo';
 import { Button } from '@/components/ui/button';
-import { PendingPaymentOverlay } from '@/components/rentals/pending-payment-overlay';
+import { PendingPaymentOverlay } from '@/components/payments/pending-payment-overlay';
 import { MobileBottomNav } from './mobile-bottom-nav';
 
 export async function SiteHeader({
@@ -21,7 +21,7 @@ export async function SiteHeader({
     ? await Promise.all([
         countUnreadConversations(user.id),
         countUnreadNotifications(user.id),
-        // Parte 12: aluguel com pagamento pendente — ponto em "Meus aluguéis" e aviso ao abrir o app.
+        // Locação com pagamento pendente (janela de 2 h) — ponto em "Meus aluguéis" e aviso ao abrir o app.
         listRenterPaymentIssues(user.id),
       ])
     : [0, 0, []];
@@ -139,7 +139,6 @@ export async function SiteHeader({
           issues={pendencias.map((p) => ({
             bookingId: p.bookingId,
             spaceTitle: p.spaceTitle,
-            unitLabel: p.unitLabel,
             startedAt: p.startedAt.toISOString(),
             deadlineAt: p.deadlineAt.toISOString(),
           }))}

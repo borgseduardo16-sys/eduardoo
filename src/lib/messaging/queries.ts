@@ -65,7 +65,8 @@ export async function listConversations(userId: string) {
           CASE WHEN ${conversations.renterId} = ${userId} THEN ${conversations.ownerId} ELSE ${conversations.renterId} END)
       `,
       ultimaMensagem: sql<string | null>`
-        (SELECT body FROM messages WHERE conversation_id = ${conversations.id}
+        (SELECT CASE WHEN kind::text = 'audio' THEN 'Mensagem de áudio' ELSE body END
+           FROM messages WHERE conversation_id = ${conversations.id}
          AND hidden_at IS NULL ORDER BY created_at DESC LIMIT 1)
       `,
       naoLidas: sql<number>`
@@ -110,7 +111,9 @@ export async function listMessages(conversationId: string) {
       senderId: messages.senderId,
       // Nome PUBLICO (Fase 21) — o nome completo nao aparece na conversa.
       senderName: profiles.publicName,
+      kind: sql<'text' | 'audio'>`${messages.kind}::text`,
       body: messages.body,
+      audioDurationMs: messages.audioDurationMs,
       isSystem: messages.isSystem,
       hiddenAt: messages.hiddenAt,
       flaggedAt: messages.flaggedAt,
@@ -137,4 +140,30 @@ export async function countUnreadConversations(userId: string): Promise<number> 
       ),
     );
   return row?.n ?? 0;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Caminho (no bucket privado) do áudio de uma mensagem, só se `userId`
+ * participa da conversa e a mensagem não foi escondida pela moderação. A
+ * condição de participação está dentro da consulta: quem não participa recebe
+ * `null`, igual a mensagem que não existe.
+ */
+export async function audioPathOfMessageForUser(messageId: string, userId: string): Promise<string | null> {
+  if (!UUID_RE.test(messageId)) return null;
+  const [linha] = await db
+    .select({ path: messages.audioPath, hiddenAt: messages.hiddenAt })
+    .from(messages)
+    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
+    .where(
+      and(
+        eq(messages.id, messageId),
+        eq(messages.kind, 'audio'),
+        or(eq(conversations.renterId, userId), eq(conversations.ownerId, userId)),
+      ),
+    )
+    .limit(1);
+  if (!linha || linha.hiddenAt) return null;
+  return linha.path;
 }

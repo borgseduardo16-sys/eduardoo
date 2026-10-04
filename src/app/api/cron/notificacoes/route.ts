@@ -7,7 +7,7 @@ import { runPriceDropCatchUp } from '@/lib/notifications/space-alerts';
 import { runWaitlistSweep } from '@/lib/waitlist/notify';
 import { runSavedSearchDigest } from '@/lib/alerts/matching';
 import { runMonthlyReports } from '@/lib/analytics/monthly-report';
-import { runRentalMaintenance } from '@/lib/rentals/maintenance';
+import { runBookingMaintenance } from '@/lib/bookings/maintenance';
 
 /**
  * GET /api/cron/notificacoes
@@ -50,9 +50,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'token invalido' }, { status: 401 });
   }
 
-  // Parte 12: a manutenção do aluguel também roda aqui, como rede de
-  // segurança do agendador por minuto (/api/cron/minuto).
-  const aluguel = await runRentalMaintenance();
+  // A manutenção das locações também roda aqui, como rede de segurança do
+  // agendador por minuto (/api/cron/minuto).
+  const aluguel = await runBookingMaintenance();
 
   const [vencimentos, resumos, caucoes, promocoes, quedasDePreco, listaDeEspera, alertas, relatorios] = await Promise.all([
     runRentDueReminders(),

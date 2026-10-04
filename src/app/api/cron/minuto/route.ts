@@ -1,14 +1,16 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireIntegration, IntegrationNotConfiguredError } from '@/lib/env';
 import { timingSafeEqualStrings } from '@/lib/security/tokens';
-import { runRentalMaintenance } from '@/lib/rentals/maintenance';
+import { runBookingMaintenance } from '@/lib/bookings/maintenance';
 
 /**
- * GET /api/cron/minuto — manutenção do aluguel pelo relógio (Parte 12).
+ * GET /api/cron/minuto — manutenção das locações pelo relógio.
  *
- * A cada minuto: encerra o que venceu (prazo para pagar, janela de 7 minutos
- * para renovar, prazo final do pagamento pendente), manda os avisos ("Seu
- * aluguel termina em 10 minutos.", "último prazo", "encerrado") e executa no
+ * A cada minuto: encerra o que venceu (pedido sem resposta em 24 h, aceite sem
+ * pagamento em 24 h, janela de 2 horas do pagamento pendente, encerramento
+ * pedido pelo proprietário cuja data chegou), manda os avisos ("perto de
+ * expirar", "expirou", "último aviso", "locação iniciada", "encerrada"),
+ * avisa a lista de espera dos anúncios que voltaram a ter vaga e executa no
  * gateway o que o banco marcou (cancelar recorrência, excluir cobrança,
  * estornar). Tudo idempotente: chamar duas vezes no mesmo minuto não
  * duplica aviso nem estorno.
@@ -44,6 +46,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, reason: 'token invalido' }, { status: 401 });
   }
 
-  const resumo = await runRentalMaintenance();
+  const resumo = await runBookingMaintenance();
   return NextResponse.json({ ok: true, ...resumo });
 }

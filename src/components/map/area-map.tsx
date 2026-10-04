@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Map as MapLibreMap, NavigationControl } from 'maplibre-gl';
+import { Map as MapLibreMap, Marker, NavigationControl } from 'maplibre-gl';
 import { MapPin } from 'lucide-react';
 import { getTileSource } from '@/lib/maps/config';
 import { cn } from '@/lib/utils';
@@ -41,11 +41,17 @@ export function AreaMap({
   lat,
   lng,
   radiusMeters = 500,
+  exact = false,
   className,
 }: {
   lat: number;
   lng: number;
   radiusMeters?: number;
+  /**
+   * Tipo comercial, de endereço já público: o ponto vem exato do banco e é
+   * desenhado como PIN (não como área). Para residência continua o círculo.
+   */
+  exact?: boolean;
   className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -61,7 +67,7 @@ export function AreaMap({
       container: containerRef.current,
       style: source.style as never,
       center: [lng, lat],
-      zoom: 14,
+      zoom: exact ? 16 : 14,
       attributionControl: { compact: true },
       // Sem rotação: não acrescenta nada aqui e atrapalha no toque.
       pitchWithRotate: false,
@@ -71,6 +77,11 @@ export function AreaMap({
     map.addControl(new NavigationControl({ showCompass: false }), 'top-right');
 
     map.on('load', () => {
+      if (exact) {
+        new Marker({ color: '#2f6f6a' }).setLngLat([lng, lat]).addTo(map);
+        setReady(true);
+        return;
+      }
       map.addSource('area', {
         type: 'geojson',
         data: {
@@ -103,7 +114,7 @@ export function AreaMap({
       map.remove();
       mapRef.current = null;
     };
-  }, [lat, lng, radiusMeters]);
+  }, [lat, lng, radiusMeters, exact]);
 
   return (
     <div className={cn('space-y-2', className)}>
@@ -127,8 +138,9 @@ export function AreaMap({
 
       <p className="flex gap-2 items-start text-[0.75rem] text-[var(--content-subtle)] leading-relaxed">
         <MapPin className="size-3.5 shrink-0 mt-px" aria-hidden />
-        Área aproximada. O endereço exato aparece para o locatário quando a reserva é
-        confirmada, com o primeiro pagamento aprovado.
+        {exact
+          ? 'Ponto do local. O endereço por extenso e as instruções de acesso aparecem para o locatário quando a locação é confirmada, com o pagamento aprovado.'
+          : 'Área aproximada. O endereço exato aparece para o locatário quando a locação é confirmada, com o pagamento aprovado.'}
       </p>
     </div>
   );

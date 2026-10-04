@@ -30,7 +30,7 @@ export function RulesForm({
 }: {
   spaceId: string;
   initial: Initial;
-  /** Preço mensal de referência; NULL quando o anúncio só aluga por hora/dia/semana. */
+  /** Preço mensal de referência; NULL enquanto a etapa "Como alugar" não foi preenchida. */
   priceMonthlyCents: number | null;
 }) {
   const [state, action] = useActionState<SpaceActionState | undefined, FormData>(
@@ -91,15 +91,14 @@ export function RulesForm({
               disabled={priceMonthlyCents == null}
               className="mt-0.5 size-4 shrink-0 rounded accent-[var(--accent)]"
             />
-            <span className="text-[0.9375rem] font-medium">Exigir caução no aluguel mensal (proteção contra dano)</span>
+            <span className="text-[0.9375rem] font-medium">Exigir caução na locação (proteção contra dano)</span>
           </label>
           <p className="text-[0.8125rem] text-[var(--content-muted)] leading-relaxed pl-7">
             {priceMonthlyCents == null
-              ? 'A caução vale só para aluguel mensal, e este anúncio aluga apenas por hora, dia ou semana.'
-              : <>Sempre 1 mês de aluguel da unidade alugada — a partir de {formatBRL(priceMonthlyCents)}. Cobrada junto do
-                primeiro pagamento, devolvida ao locatário quando o aluguel encerrar sem dano
-                registrado, ou parcialmente retida se uma denúncia de dano for confirmada. Não vale
-                para aluguel por hora, dia ou semana.</>}
+              ? 'Defina o valor mensal na etapa "Como alugar" para poder exigir caução.'
+              : <>Sempre 1 mês de aluguel — {formatBRL(priceMonthlyCents)}. Cobrada junto do primeiro pagamento,
+                devolvida ao locatário quando a locação encerrar sem dano registrado, ou parcialmente retida
+                se uma denúncia de dano for confirmada.</>}
           </p>
         </div>
 

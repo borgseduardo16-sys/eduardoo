@@ -43,19 +43,33 @@ export function bookingBadge(
   return info ?? { label: b.status, tone: 'neutral' };
 }
 
-/** Por que a locação terminou (ou nem chegou a valer), em português simples. */
-export function endReasonLabel(reason: string | null): string | null {
+/**
+ * Por que a locação terminou (ou nem chegou a valer), em português simples.
+ *
+ * Depende de QUEM lê e do ponto em que parou: "pagamento não recebido" num
+ * aceite que expirou é "não pagou em 24 horas"; numa locação que já valia é
+ * "não regularizou em 2 horas". Sem o contexto, devolve a frase neutra.
+ */
+export function endReasonLabel(
+  reason: string | null,
+  ctx?: { status?: string; viewer?: 'owner' | 'renter' },
+): string | null {
+  const nuncaComecou = ctx?.status === 'expired' || ctx?.status === 'cancelled';
+  const dono = ctx?.viewer === 'owner';
+  const locatario = ctx?.viewer === 'renter';
   switch (reason) {
     case 'cancelled_by_renter':
-      return 'Encerrada por quem alugava';
+      if (locatario) return nuncaComecou ? 'Você cancelou' : 'Você encerrou a locação';
+      return nuncaComecou ? 'Cancelada pelo locatário' : 'Encerrada pelo locatário';
     case 'cancelled_by_owner':
-      return 'Cancelada pelo proprietário';
+      return dono ? 'Cancelada por você' : 'Cancelada pelo proprietário';
     case 'payment_not_received':
-      return 'Encerrada por falta de pagamento';
+      if (nuncaComecou) return 'Expirou: o pagamento não foi feito em 24 horas depois do aceite';
+      return 'Encerrada: o pagamento não foi regularizado dentro de 2 horas';
     case 'request_not_answered':
-      return 'O proprietário não respondeu a tempo';
+      return dono ? 'Expirou: a solicitação ficou sem resposta por mais de 24 horas' : 'Expirou: o proprietário não respondeu em 24 horas';
     case 'owner_end_request':
-      return 'Encerrada a pedido do proprietário';
+      return dono ? 'Encerrada a seu pedido' : 'Encerrada a pedido do proprietário';
     default:
       return null;
   }
