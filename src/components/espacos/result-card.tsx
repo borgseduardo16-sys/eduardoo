@@ -4,6 +4,7 @@ import { ImageOff, MapPin, Star } from 'lucide-react';
 import { PriceTag } from '@/components/espacos/price-tag';
 import { formatDistance } from '@/lib/spaces/format';
 import { spaceTypeLabel, type SpaceTypeKey } from '@/lib/spaces/types';
+import { availabilityBadge } from '@/lib/spaces/quantity';
 import { FavoriteButton } from '@/components/favorites/favorite-button';
 import { PromotionBadge } from '@/components/promotions/promotion-badge';
 import type { PublicSpace } from '@/lib/spaces/queries';
@@ -41,6 +42,8 @@ export function ResultCard({
   /** Nível do título do card: h3 quando a lista já está dentro de uma seção com h2. */
   titleAs?: 'h2' | 'h3';
 }) {
+  // "3 vagas livres" / "Última vaga": só para anúncio com mais de uma unidade (ou esgotado).
+  const vagas = availabilityBadge(space.type, space.quantityAvailable, space.quantityOffered);
   return (
     <li data-testid="resultado-card" data-space-id={space.id}>
       <Link href={`/espacos/${space.slug}`} className="group block space-y-3">
@@ -116,8 +119,13 @@ export function ResultCard({
             </p>
           )}
 
-          <p className="pt-0.5">
+          <p className="pt-0.5 flex flex-wrap items-baseline gap-x-2">
             <PriceTag summary={space} />
+            {vagas && (
+              <span data-testid="resultado-vagas" className="text-[0.8125rem] text-[var(--content-muted)]">
+                {vagas}
+              </span>
+            )}
           </p>
           {note && <p className="text-[0.75rem] text-[var(--content-subtle)]">{note}</p>}
         </div>

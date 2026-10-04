@@ -10,8 +10,9 @@ import type { CalendarRange } from './month';
  *
  * `getOwnerCalendarData` só devolve algo para o DONO do espaço (a posse está
  * no WHERE — espaço de outra pessoa é igual a espaço inexistente). É a única
- * leitura que traz motivo e anotação dos bloqueios e quem está alugando.
- * A versão pública (`getPublicCalendarRanges`) traz só períodos, sem motivo.
+ * leitura que traz motivo e anotação dos bloqueios e quem está alugando. A
+ * página pública do anúncio mostra só os bloqueios futuros, sem motivo
+ * (`getSpaceAvailability`, em src/lib/spaces/availability.ts).
  */
 
 export type OwnerBlock = {
@@ -35,8 +36,11 @@ export async function getOwnerCalendarData(spaceId: string, ownerId: string) {
       id: spaces.id,
       slug: spaces.slug,
       title: spaces.title,
+      type: sql<string>`${spaces.type}::text`,
       status: sql<string>`${spaces.status}::text`,
       availableFrom: spaces.availableFrom,
+      quantityOffered: spaces.quantityOffered,
+      quantityAvailable: spaces.quantityAvailable,
     })
     .from(spaces)
     .where(and(eq(spaces.id, spaceId), eq(spaces.ownerId, ownerId), isNull(spaces.deletedAt)))
@@ -55,7 +59,8 @@ export async function getOwnerCalendarData(spaceId: string, ownerId: string) {
       })
       .from(bookings)
       .innerJoin(profiles, eq(profiles.id, bookings.renterId))
-      .where(and(eq(bookings.spaceId, spaceId), inArray(bookings.status, [...OCCUPYING_STATUSES]))),
+      .where(and(eq(bookings.spaceId, spaceId), inArray(bookings.status, [...OCCUPYING_STATUSES])))
+      .orderBy(asc(bookings.startDate), asc(bookings.requestedAt)),
     db
       .select({
         id: spaceAvailabilityBlocks.id,
@@ -98,28 +103,4 @@ function dayBefore(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - 1);
   return d.toISOString().slice(0, 10);
-}
-
-/**
- * Calendário público: só "ocupado"/"bloqueado", sem motivo, sem quem aluga.
- * Quem é dono ou está alugando vê detalhes em outros lugares.
- */
-export async function getPublicCalendarRanges(spaceId: string): Promise<{ occupied: CalendarRange[]; blocked: CalendarRange[] }> {
-  const [ocupacoes, bloqueios] = await Promise.all([
-    db
-      .select({ startDate: bookings.startDate, endDate: bookings.endDate })
-      .from(bookings)
-      .where(and(eq(bookings.spaceId, spaceId), inArray(bookings.status, [...OCCUPYING_STATUSES]))),
-    db
-      .select({ startsOn: spaceAvailabilityBlocks.startsOn, endsOn: spaceAvailabilityBlocks.endsOn })
-      .from(spaceAvailabilityBlocks)
-      .where(
-        and(
-          eq(spaceAvailabilityBlocks.spaceId, spaceId),
-          isNull(spaceAvailabilityBlocks.cancelledAt),
-          gte(spaceAvailabilityBlocks.endsOn, sql`CURRENT_DATE`),
-        ),
-      ),
-  ]);
-  return { occupied: occupationRanges(ocupacoes), blocked: bloqueios };
 }

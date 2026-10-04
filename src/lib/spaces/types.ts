@@ -267,18 +267,6 @@ export function unitNounFor(type: string): UnitNoun {
   return UNIT_NOUNS[type as SpaceTypeKey] ?? UNIT_NOUNS.outro;
 }
 
-/** "1 vaga", "10 vagas". */
-export function countUnits(type: string, n: number): string {
-  const noun = unitNounFor(type);
-  return `${n} ${n === 1 ? noun.singular : noun.plural}`;
-}
-
-/** Rótulo sugerido para a unidade nº `n`: "Vaga 3", "Box 2". */
-export function defaultUnitLabel(type: string, n: number): string {
-  const s = unitNounFor(type).singular;
-  return `${s.charAt(0).toUpperCase()}${s.slice(1)} ${n}`;
-}
-
 /**
  * Busca de categoria (a lupa da primeira etapa): pelo nome, pela descrição
  * e por palavras que as pessoas usam ("salão", "piscina", "mecânica"). Sem

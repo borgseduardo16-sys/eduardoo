@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 import {
-  DAY_STATE_LABEL,
+  dayStateLabel,
   DIAS_DA_SEMANA,
   longDate,
   type CalendarMonth,
@@ -54,7 +54,7 @@ export function MonthCalendar({
             {semana.map((dia) => {
               if (!dia.inMonth) return <td key={dia.date} aria-hidden className="h-10" />;
               const rotulo = [
-                `${longDate(dia.date)}: ${DAY_STATE_LABEL[dia.state].toLowerCase()}`,
+                `${longDate(dia.date)}: ${dayStateLabel(dia.state, month.capacity).toLowerCase()}`,
                 showBlockLabels && dia.blockLabel ? `(${dia.blockLabel})` : null,
                 showRequestMarkers && dia.hasRequestStart ? '— solicitação pedindo para começar aqui' : null,
               ]
@@ -88,13 +88,21 @@ export function MonthCalendar({
   );
 }
 
-export function CalendarLegend({ states, withRequests = false }: { states: DayState[]; withRequests?: boolean }) {
+export function CalendarLegend({
+  states,
+  capacity = 1,
+  withRequests = false,
+}: {
+  states: DayState[];
+  capacity?: number;
+  withRequests?: boolean;
+}) {
   return (
     <ul className="flex flex-wrap gap-x-4 gap-y-1.5 text-[0.75rem] text-[var(--content-muted)]">
       {states.map((s) => (
         <li key={s} className="flex items-center gap-1.5">
           <span aria-hidden className={cn('inline-block size-3.5 rounded-[0.25rem] border', ESTILO[s])} />
-          {DAY_STATE_LABEL[s]}
+          {dayStateLabel(s, capacity)}
         </li>
       ))}
       {withRequests && (

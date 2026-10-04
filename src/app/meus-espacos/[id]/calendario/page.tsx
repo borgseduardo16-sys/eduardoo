@@ -5,12 +5,15 @@ import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { getOwnerCalendarData, occupationRanges, BLOCK_REASON_LABEL } from '@/lib/calendar/queries';
 import { buildMonth, parseMonthParam, shiftMonth, monthParam } from '@/lib/calendar/month';
-import { formatBookingDate } from '@/lib/bookings/format';
+import { bookingBadge, formatBookingDate } from '@/lib/bookings/format';
+import { availabilityText } from '@/lib/spaces/quantity';
+import { brDate } from '@/lib/time';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
 import { MonthCalendar, CalendarLegend } from '@/components/calendar/month-calendar';
 import { BlockDatesForm, CancelBlockButton } from '@/components/calendar/block-dates-form';
 import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 
 export const metadata: Metadata = { title: 'Calendário · Meus espaços' };
 export const dynamic = 'force-dynamic';
@@ -21,10 +24,11 @@ const MESES_A_FRENTE = 12;
 /**
  * Calendário de disponibilidade do proprietário (Fase 23).
  *
- * Mostra o que existe de verdade: a reserva vigente (que ocupa do início em
- * diante — o aluguel é mensal e sem data para terminar), os bloqueios
- * manuais com motivo, "disponível a partir de" e onde começam as
- * solicitações pendentes. Nada aqui é previsão.
+ * Mostra o que existe de verdade: as locações vigentes (cada uma ocupa UMA
+ * vaga do início em diante — o aluguel é mensal e sem data para terminar), os
+ * bloqueios manuais com motivo, "disponível a partir de" e onde começam as
+ * solicitações pendentes. O dia só aparece como ocupado quando não sobrou
+ * nenhuma vaga. Nada aqui é previsão.
  */
 export default async function CalendarioPage({
   params,
@@ -39,7 +43,7 @@ export default async function CalendarioPage({
   const dados = await getOwnerCalendarData(id, user.id);
   if (!dados) notFound();
 
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = brDate(new Date());
   const atual = parseMonthParam(undefined, hoje);
   let alvo = parseMonthParam(sp.mes, hoje);
   const limite = shiftMonth(atual.year, atual.month, MESES_A_FRENTE);
@@ -51,12 +55,13 @@ export default async function CalendarioPage({
     today: hoje,
     availableFrom: dados.space.availableFrom,
     occupied: occupationRanges(dados.occupations),
+    capacity: dados.space.quantityOffered,
     blocked: dados.blocks.map((b) => ({ startsOn: b.startsOn, endsOn: b.endsOn, label: BLOCK_REASON_LABEL[b.reason] })),
     requestStarts: dados.pendingRequests.map((p) => p.startDate),
   });
   const anterior = indice(alvo) > indice(atual) ? shiftMonth(alvo.year, alvo.month, -1) : null;
   const proximo = indice(alvo) < indice(limite) ? shiftMonth(alvo.year, alvo.month, 1) : null;
-  const ocupacao = dados.occupations[0] ?? null;
+  const vagas = dados.space.quantityOffered;
 
   return (
     <>
@@ -76,14 +81,35 @@ export default async function CalendarioPage({
           <p className="text-[var(--content-muted)] break-words">{dados.space.title}</p>
         </header>
 
-        {ocupacao && (
-          <Alert tone="info" title="Alugado">
-            Desde {formatBookingDate(ocupacao.startDate)}
-            {ocupacao.renterPublicName ? `, por ${ocupacao.renterPublicName}` : ''} (código {ocupacao.reference}).
-            {ocupacao.endDate
-              ? ` Termina em ${formatBookingDate(ocupacao.endDate)}.`
-              : ' O aluguel é mensal e sem data para terminar: o espaço fica ocupado até alguém encerrar.'}
-          </Alert>
+        {dados.occupations.length > 0 && (
+          <section aria-labelledby="locacoes-titulo" className="rounded-[var(--radius-card)] border" data-testid="calendario-locacoes">
+            <div className="px-4 py-3 border-b">
+              <h2 id="locacoes-titulo" className="font-semibold">
+                {availabilityText(dados.space.type, dados.space.quantityAvailable, vagas)}
+              </h2>
+              <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                {dados.occupations.length === 1 ? '1 vaga em uso' : `${dados.occupations.length} vagas em uso`}. O aluguel
+                é mensal e sem data para terminar: a vaga fica ocupada até alguém encerrar.
+              </p>
+            </div>
+            <ul className="divide-y">
+              {dados.occupations.map((o) => {
+                const selo = bookingBadge({ status: o.status, startDate: o.startDate }, hoje);
+                return (
+                  <li key={o.id} className="px-4 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <div className="min-w-0">
+                      <p className="font-medium text-[0.9375rem] break-words">{o.renterPublicName ?? 'Locatário'}</p>
+                      <p className="text-[0.8125rem] text-[var(--content-muted)]">
+                        Desde {formatBookingDate(o.startDate)}
+                        {o.endDate ? ` · termina em ${formatBookingDate(o.endDate)}` : ''} · código {o.reference}
+                      </p>
+                    </div>
+                    <Badge tone={selo.tone}>{selo.label}</Badge>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         )}
         {dados.space.status === 'paused' && (
           <Alert tone="warning" title="Anúncio pausado">
@@ -120,7 +146,7 @@ export default async function CalendarioPage({
             )}
           </div>
           <MonthCalendar month={mes} showBlockLabels showRequestMarkers />
-          <CalendarLegend states={['disponivel', 'ocupado', 'bloqueado', 'antes_disponivel']} withRequests />
+          <CalendarLegend states={['disponivel', 'ocupado', 'bloqueado', 'antes_disponivel']} capacity={vagas} withRequests />
         </section>
 
         {dados.pendingRequests.length > 0 && (

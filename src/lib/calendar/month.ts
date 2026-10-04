@@ -1,10 +1,14 @@
 /**
  * Calendário de disponibilidade (Fase 23) — parte pura, sem banco.
  *
- * Recebe os períodos reais (reserva vigente, bloqueios, "disponível a partir
- * de") e devolve o mês pronto para desenhar. O modelo de aluguel é mensal e
- * sem data para terminar: uma reserva vigente ocupa do início em diante, e
- * isso aparece assim no calendário — nunca como uma data de saída inventada.
+ * Recebe os períodos reais (locações vigentes, bloqueios, "disponível a
+ * partir de") e devolve o mês pronto para desenhar. O aluguel é mensal e sem
+ * data para terminar: uma locação vigente ocupa uma vaga do início em diante,
+ * e isso aparece assim no calendário — nunca como uma data de saída inventada.
+ *
+ * O anúncio oferece `capacity` vagas (1 para uma garagem, 80 para um
+ * estacionamento): o dia só aparece como "ocupado" quando TODAS estão
+ * ocupadas. Uma vaga alugada de dez não fecha o dia.
  */
 
 export type DayState =
@@ -23,7 +27,10 @@ export type CalendarRange = {
 export type CalendarInput = {
   today: string;
   availableFrom: string | null;
+  /** Uma faixa por locação que ocupa uma vaga. */
   occupied: CalendarRange[];
+  /** Quantas vagas o anúncio oferece. Omitido = 1. */
+  capacity?: number;
   blocked: (CalendarRange & { label?: string })[];
   /** Datas de início pedidas em solicitações pendentes (só o dono vê). */
   requestStarts?: string[];
@@ -42,6 +49,8 @@ export type CalendarDay = {
 export type CalendarMonth = {
   year: number;
   month: number; // 1..12
+  /** Vagas do anúncio — muda só o texto do estado "ocupado" (uma vaga: "Alugado"; várias: "Sem vagas"). */
+  capacity: number;
   label: string;
   weeks: CalendarDay[][];
 };
@@ -64,7 +73,8 @@ function inRange(date: string, r: CalendarRange): boolean {
 /** Estado de UM dia. Ordem de precedência explícita: passado, ocupado, bloqueado, antes de disponível, disponível. */
 export function dayState(date: string, input: CalendarInput): { state: DayState; blockLabel?: string } {
   if (date < input.today) return { state: 'passado' };
-  if (input.occupied.some((r) => inRange(date, r))) return { state: 'ocupado' };
+  const capacidade = Math.max(1, input.capacity ?? 1);
+  if (input.occupied.filter((r) => inRange(date, r)).length >= capacidade) return { state: 'ocupado' };
   const bloqueio = input.blocked.find((r) => inRange(date, r));
   if (bloqueio) return { state: 'bloqueado', blockLabel: bloqueio.label };
   if (input.availableFrom && date < input.availableFrom) return { state: 'antes_disponivel' };
@@ -113,7 +123,7 @@ export function buildMonth(year: number, month: number, input: CalendarInput): C
 
   const weeks: CalendarDay[][] = [];
   for (let i = 0; i < dias.length; i += 7) weeks.push(dias.slice(i, i + 7));
-  return { year, month, label: `${MESES[month - 1]} de ${year}`, weeks };
+  return { year, month, capacity: Math.max(1, input.capacity ?? 1), label: `${MESES[month - 1]} de ${year}`, weeks };
 }
 
 export const DAY_STATE_LABEL: Record<DayState, string> = {
@@ -123,6 +133,11 @@ export const DAY_STATE_LABEL: Record<DayState, string> = {
   bloqueado: 'Bloqueado',
   disponivel: 'Disponível',
 };
+
+/** Texto do estado, ajustado ao anúncio: com várias vagas, "ocupado" quer dizer que não sobrou nenhuma. */
+export function dayStateLabel(state: DayState, capacity = 1): string {
+  return state === 'ocupado' && capacity > 1 ? 'Sem vagas' : DAY_STATE_LABEL[state];
+}
 
 /** "9 de novembro" — para leitor de tela e listas. */
 export function longDate(isoDate: string): string {
