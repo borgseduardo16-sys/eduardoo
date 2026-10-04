@@ -158,8 +158,6 @@ async function criarPublicado(ownerId: string, sufixo: string, precoCents = 3000
 async function criarReserva(spaceId: string, ownerId: string, renterId: string, status: string): Promise<string> {
   seq++;
   const a = computeBookingAmounts(30000, fees);
-  // Status que ocupa vaga precisa de vaga livre: o anúncio passa a oferecer mais uma.
-  if (['approved', 'awaiting_payment', 'active', 'past_due'].includes(status)) await prepararAnuncio(sql, spaceId, 50);
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
       monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
@@ -379,7 +377,10 @@ async function main() {
 
   // 11-12. Ana aceita; Bruno e notificado com link para a reserva.
   entrarComo(anaId, 'owner', 'Ana Proprietaria Lima');
-  const rAceite = await respondToBookingRequestAction(undefined, fd({ bookingId: reservaId, decision: 'accept' }));
+  const rAceite = await respondToBookingRequestAction(undefined, fd({
+    bookingId: reservaId, decision: 'accept',
+    accessInstructions: 'Portão azul ao lado da padaria; a vaga fica atrás da pilastra da esquerda.',
+  }));
   assert('11. Ana aceita a solicitação', rAceite.ok, JSON.stringify(rAceite));
   const [notifAceite] = await sql<{ link_path: string }[]>`
     SELECT link_path FROM notifications WHERE user_id=${brunoId} AND type='booking_approved' ORDER BY created_at DESC LIMIT 1`;
@@ -398,14 +399,18 @@ async function main() {
   expect('14. o proprietário não passa pela regra do locatário (consulta é só do locatário)',
     await getBookingAddressForRenter(reservaId, anaId), null);
 
-  // 15-16. Ana encerra; Bruno recebe o aviso com a avaliacao disponivel.
+  // 15-16. Quem aluga (Bruno) encerra; Ana recebe o aviso com a avaliação disponível.
+  // O proprietário não encerra na hora: pede o encerramento com uma data.
+  const rFimDono = await endBookingAction(undefined, fd({ bookingId: reservaId }));
+  assert('15. a proprietária não encerra na hora (só pede o encerramento com data)', !rFimDono.ok, JSON.stringify(rFimDono));
+  entrarComo(brunoId, 'user', 'Bruno Locatario Costa');
   const rFim = await endBookingAction(undefined, fd({ bookingId: reservaId }));
-  assert('15. reserva concluída (encerrada)', rFim.ok, JSON.stringify(rFim));
-  const [avisoBruno] = await sql<{ body: string; link_path: string }[]>`
-    SELECT body, link_path FROM notifications WHERE user_id=${brunoId} AND dedupe_key=${`booking_ended:${reservaId}`}`;
-  assert('16. Bruno é avisado do fim e de que já pode avaliar', avisoBruno?.body.includes('avaliação já está disponível') ?? false, avisoBruno?.body);
-  expect('16. quem encerrou (Ana) recebe "Avaliação disponível"',
-    await contar(sql`SELECT count(*)::int AS n FROM notifications WHERE user_id=${anaId} AND type='review_available'`), 1);
+  assert('15. reserva concluída (encerrada por quem aluga)', rFim.ok, JSON.stringify(rFim));
+  const [avisoAna] = await sql<{ body: string; link_path: string }[]>`
+    SELECT body, link_path FROM notifications WHERE user_id=${anaId} AND dedupe_key=${`booking_ended:${reservaId}`}`;
+  assert('16. Ana é avisada do fim e de que já pode avaliar', avisoAna?.body.includes('avaliação já está disponível') ?? false, avisoAna?.body);
+  expect('16. quem encerrou (Bruno) recebe "Avaliação disponível"',
+    await contar(sql`SELECT count(*)::int AS n FROM notifications WHERE user_id=${brunoId} AND type='review_available'`), 1);
 
   // 17-18. Bruno avalia; Ana e notificada.
   entrarComo(brunoId, 'user', 'Bruno Locatario Costa');
@@ -915,7 +920,6 @@ async function main() {
   async function pedidoResp(renterId: string, status: string, pedidoHaHoras: number, respostaEmMin: number | null, canceladoPor?: string) {
     seq++;
     const a = computeBookingAmounts(30000, fees);
-    if (['approved', 'awaiting_payment', 'active', 'past_due'].includes(status)) await prepararAnuncio(sql, espacoResp.id, 50);
     const [row] = await sql<{ id: string }[]>`
       INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
         monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,

@@ -214,6 +214,12 @@ async function main() {
 
     for (const idProximo of [ids.s1, ids.s4, ids.s5]) {
       const r = perto.find((x) => x.id === idProximo)!;
+      if (idProximo === ids.s4) {
+        // Galpão é tipo comercial: o ponto público é o exato (regra por tipo, no banco) — distância 0.
+        assert(`${r.title.slice(0, 24)}…: tipo comercial mostra o ponto exato (0 m)`, r.distanceMeters === 0,
+          `${Math.round(r.distanceMeters ?? -1)} m`);
+        continue;
+      }
       assert(`${r.title.slice(0, 24)}…: distancia cabe no deslocamento de privacidade (<= 300 m)`,
         r.distanceMeters !== null && r.distanceMeters > 0 && r.distanceMeters <= 305,
         `${Math.round(r.distanceMeters ?? -1)} m`);

@@ -34,7 +34,7 @@ async function main() {
     for (const n of noBanco.keys()) if (!noTs.has(n)) { console.log(`✗ ${tabela}.${n}: existe no banco, falta no schema`); problemas++; }
     const idx = await sql<{ indexname: string }[]>`SELECT indexname FROM pg_indexes WHERE schemaname='public' AND tablename=${tabela}`;
     const idxBanco = new Set(idx.map((i) => i.indexname));
-    for (const i of cfg.indexes) { const n = i.config.name; if (!idxBanco.has(n)) { console.log(`✗ índice ${n} (${tabela}) falta no banco`); problemas++; } }
+    for (const i of cfg.indexes) { const n = i.config.name; if (n && !idxBanco.has(n)) { console.log(`✗ índice ${n} (${tabela}) falta no banco`); problemas++; } }
     const chk = await sql<{ conname: string }[]>`SELECT conname FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname='public' AND t.relname=${tabela} AND c.contype='c'`;
     const chkBanco = new Set(chk.map((c) => c.conname));
     for (const c of cfg.checks) { if (!chkBanco.has(c.name)) { console.log(`✗ CHECK ${c.name} (${tabela}) falta no banco`); problemas++; } }

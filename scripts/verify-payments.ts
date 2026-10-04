@@ -413,7 +413,8 @@ async function main() {
 
   const [{ n: notifsAposConfirmado }] = await sql<{ n: string }[]>`
     SELECT count(*)::text AS n FROM notifications WHERE data->>'bookingId' = ${bookingId}`;
-  expect('locatario e proprietario foram notificados', notifsAposConfirmado, '2');
+  // Pagamento confirmado + locação iniciada (a data de início é hoje), para cada uma das duas partes.
+  expect('locatario e proprietario foram notificados (pagamento confirmado + locacao iniciada)', notifsAposConfirmado, '4');
 
   // --- reentrega do MESMO evento: idempotencia ---
   const r1dup = await processAsaasWebhook({ event: 'PAYMENT_CONFIRMED', payment: { id: providerPaymentId, value: amounts.totalChargedCents / 100 } });
@@ -421,7 +422,7 @@ async function main() {
 
   const [{ n: notifsDepoisDup }] = await sql<{ n: string }[]>`
     SELECT count(*)::text AS n FROM notifications WHERE data->>'bookingId' = ${bookingId}`;
-  expect('reentrega NAO duplicou notificacao', notifsDepoisDup, '2');
+  expect('reentrega NAO duplicou notificacao', notifsDepoisDup, '4');
 
   // =========================================================================
   secao('3. Webhook — PAYMENT_RECEIVED gera repasse e lancamentos no razao');
@@ -687,16 +688,24 @@ async function main() {
   assert('quem nao participa da reserva nao consegue encerra-la',
     !rEncerraAlheio.ok && (rEncerraAlheio.message?.includes('não encontrada') ?? false), rEncerraAlheio.message);
 
-  // --- so aluguel EM ANDAMENTO pode ser encerrado (ainda 'approved', nao 'active') ---
-  // `bookingDeOutraPessoa` pertence a donoId (nenhum ownerId foi passado ao seed-la, cai no padrao) — ja estamos como donoId acima.
+  // --- so locacao EM ANDAMENTO pode ser encerrada (ainda 'approved', nao 'active') — por quem aluga ---
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
   const rEncerraAprovada = await endBookingAction(undefined, formData({ bookingId: bookingDeOutraPessoa }));
   assert('reserva so "approved" (nunca ativou) nao pode ser encerrada por aqui',
     !rEncerraAprovada.ok && (rEncerraAprovada.message?.includes('em andamento') ?? false), rEncerraAprovada.message);
 
-  // --- dono encerra a reserva ativa de verdade ---
+  // --- o PROPRIETARIO nao encerra na hora: ele pede o encerramento com uma data ---
   entrarComo(donoSemContaId, 'owner', 'Proprietario Sem Conta', `${tag}-dono-sem-conta@exemplo.invalid`);
+  const rDonoEncerra = await endBookingAction(undefined, formData({ bookingId: bookingSemConta }));
+  assert('proprietario nao encerra na hora (so pede o encerramento com data)',
+    !rDonoEncerra.ok && (rDonoEncerra.message?.includes('Quem encerra na hora') ?? false), rDonoEncerra.message);
+  const [aindaAtiva] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingSemConta}`;
+  expect('e a locacao segue ativa depois da tentativa do proprietario', aindaAtiva!.status, 'active');
+
+  // --- o locatario encerra a locacao ativa de verdade ---
+  entrarComo(renterId, 'user', 'Locatario de Teste', `${tag}-renter@exemplo.invalid`);
   const rEncerra = await endBookingAction(undefined, formData({ bookingId: bookingSemConta }));
-  assert('dono encerra o aluguel ativo', rEncerra.ok, rEncerra.message);
+  assert('locatario encerra a locacao ativa', rEncerra.ok, rEncerra.message);
 
   const [bookingEncerrada] = await sql<{ status: string; ended_at: Date | null }[]>`
     SELECT status, ended_at FROM bookings WHERE id=${bookingSemConta}`;
@@ -709,8 +718,8 @@ async function main() {
   assert('assinatura tem cancelled_at preenchido', assinaturaCancelada?.cancelled_at !== null);
 
   const [notifEncerramento] = await sql<{ user_id: string }[]>`
-    SELECT user_id FROM notifications WHERE data->>'bookingId' = ${bookingSemConta} AND title = 'Aluguel encerrado'`;
-  expect('locatario foi notificado do encerramento', notifEncerramento?.user_id, renterId);
+    SELECT user_id FROM notifications WHERE data->>'bookingId' = ${bookingSemConta} AND title = 'Locação encerrada'`;
+  expect('proprietario foi notificado do encerramento', notifEncerramento?.user_id, donoSemContaId);
 
   const [logEncerramento] = await sql<{ action: string }[]>`
     SELECT action FROM audit_logs WHERE entity_id=${bookingSemConta} AND action='booking.ended'`;

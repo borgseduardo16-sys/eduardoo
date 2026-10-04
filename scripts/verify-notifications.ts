@@ -24,7 +24,7 @@ req.cache[req.resolve('server-only')] = {
 
 import { createECDH, randomBytes } from 'node:crypto';
 import postgres from 'postgres';
-import { mudarPreco, prepararAnuncio } from './lib/fixtures';
+import { formPreco, mudarPreco, prepararAnuncio } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
 import { startPushTestbed } from './testbed/push-server';
@@ -412,11 +412,8 @@ async function main() {
   await favoritar(fav6Id, espaco6Id);
 
   entrarComo(dono6PrecoId, 'owner', 'Dono Preço');
-  const fdPreco = new FormData();
-  fdPreco.set('spaceId', espaco6Id);
-  fdPreco.set('step', 'preco');
-  // R$500,00 -> R$400,00 = -20%, bem acima do limiar (Parte 12: pela configuração dos grupos).
-  fdPreco.set('rentalConfig', await configPrecoMensal(sql, espaco6Id, '400,00'));
+  // R$500,00 -> R$400,00 = -20%, bem acima do limiar (pela etapa "Como alugar", como o formulário real).
+  const fdPreco = await formPreco(sql, espaco6Id, '400,00');
   const rPreco = await saveStepAction(undefined, fdPreco);
   assert('saveStepAction(preco) foi aceito', rPreco.ok, JSON.stringify(rPreco));
 

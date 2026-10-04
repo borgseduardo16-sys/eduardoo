@@ -506,6 +506,8 @@ async function main() {
   const fdAceitarSistema = new FormData();
   fdAceitarSistema.set('bookingId', bookingSistemaId);
   fdAceitarSistema.set('decision', 'accept');
+  // O aceite exige dizer como o locatário encontra e usa o espaço.
+  fdAceitarSistema.set('accessInstructions', 'Portão azul ao lado da padaria; a vaga fica atrás da pilastra da esquerda.');
   const rAceitarSistema = await respondToBookingRequestAction(undefined, fdAceitarSistema);
   assert('dono aceita a reserva de teste', rAceitarSistema.ok, JSON.stringify(rAceitarSistema));
 

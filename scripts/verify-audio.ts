@@ -173,7 +173,7 @@ async function main() {
     const fd = new FormData();
     fd.set('conversationId', conversationId);
     fd.set('durationMs', String(ms));
-    fd.set('audio', new File([bytes], 'audio', { type: mime }));
+    fd.set('audio', new File([new Uint8Array(bytes)], 'audio', { type: mime }));
     return fd;
   }
 
@@ -267,7 +267,7 @@ async function main() {
   function formAcesso(bytes: Uint8Array, ms: number, anterior?: string) {
     const fd = new FormData();
     fd.set('bookingId', bookingId); fd.set('durationMs', String(ms));
-    fd.set('audio', new File([bytes], 'audio', { type: 'audio/webm' }));
+    fd.set('audio', new File([new Uint8Array(bytes)], 'audio', { type: 'audio/webm' }));
     if (anterior) fd.set('previousPath', anterior);
     return fd;
   }

@@ -413,7 +413,9 @@ export default async function DesempenhoPage({
                     )}
                     <p className="text-[0.8125rem] text-[var(--content-muted)]">
                       {s.occupancy
-                        ? `Esteve alugado em aproximadamente ${s.occupancy.percent}% do período analisado (${s.occupancy.occupiedDays} de ${s.occupancy.analyzedDays} dias).`
+                        ? s.occupancy.units > 1
+                          ? `Em média, ${s.occupancy.percent}% das ${s.occupancy.units} unidades estiveram alugadas no período analisado (${s.occupancy.occupiedDays} de ${s.occupancy.analyzedDays * s.occupancy.units} unidades-dia).`
+                          : `Esteve alugado em aproximadamente ${s.occupancy.percent}% do período analisado (${s.occupancy.occupiedDays} de ${s.occupancy.analyzedDays} dias).`
                         : s.removed
                           ? 'Anúncio arquivado — os números acima são do período em que ele esteve no ar.'
                           : `Ocupação: aparece quando o anúncio tem pelo menos ${MIN_OCCUPANCY_DAYS} dias publicados no período.`}

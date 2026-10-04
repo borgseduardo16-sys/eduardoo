@@ -20,7 +20,7 @@ export type NovoAnuncio = {
   tipo?: string;
   cidade?: string;
   bairro?: string;
-  /** Ponto exato; o aproximado é deslocado um pouco, como faz o banco em produção. */
+  /** Ponto exato; o aproximado é deslocado um pouco (ou igual, em tipo comercial), como faz o banco. */
   lat?: number;
   lng?: number;
   /** `published` (padrão) ou `draft`. */
@@ -30,8 +30,10 @@ export type NovoAnuncio = {
 
 /** Anúncio completo, com fotos e (por padrão) já no ar. Devolve o id. */
 export async function criarAnuncio(sql: Sql, a: NovoAnuncio): Promise<string> {
-  const lat = a.lat ?? -19.5386;
-  const lng = a.lng ?? -40.6295;
+  // Padrão: um ponto isolado (Manaus), para os anúncios de teste não aparecerem nas buscas por
+  // proximidade de Colatina que outros testes fazem. Quem testa distância passa a própria coordenada.
+  const lat = a.lat ?? -3.119;
+  const lng = a.lng ?? -60.0217;
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO spaces
       (owner_id, slug, type, title, description, street, number, district, city, state,
@@ -85,4 +87,22 @@ export async function prepararAnuncio(sql: Sql, spaceId: string, quantidade = 1)
 /** Muda o preço mensal como o proprietário faria: no próprio anúncio. */
 export async function mudarPreco(sql: Sql, spaceId: string, novoPrecoCents: number): Promise<void> {
   await sql`UPDATE spaces SET price_monthly_cents = ${novoPrecoCents} WHERE id = ${spaceId}`;
+}
+
+/**
+ * O formulário da etapa "Como alugar" mudando só o preço mensal: o resto (quantidade, total,
+ * disponível a partir de) vai como já está gravado, como o navegador mandaria.
+ */
+export async function formPreco(sql: Sql, spaceId: string, precoReais: string): Promise<FormData> {
+  const [e] = await sql<{ qtd: number; total: number | null; desde: string | null }[]>`
+    SELECT quantity_offered AS qtd, quantity_total AS total, available_from::text AS desde
+      FROM spaces WHERE id = ${spaceId}`;
+  const fd = new FormData();
+  fd.set('spaceId', spaceId);
+  fd.set('step', 'preco');
+  fd.set('priceMonthly', precoReais);
+  fd.set('quantityOffered', String(e!.qtd));
+  if (e!.total != null) fd.set('quantityTotal', String(e!.total));
+  fd.set('availableFrom', e!.desde ?? new Date().toISOString().slice(0, 10));
+  return fd;
 }

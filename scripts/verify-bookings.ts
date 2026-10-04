@@ -52,6 +52,7 @@ function secao(titulo: string) {
 
 // ---------------------------------------------------------------------------
 
+const INSTRUCOES = 'Portão azul ao lado da padaria; a vaga fica atrás da pilastra da esquerda.';
 const tag = `bk-${Date.now()}`;
 const donoId = crypto.randomUUID();
 const outroId = crypto.randomUUID(); // primeiro interessado
@@ -262,6 +263,7 @@ async function main() {
   const fdAccept = new FormData();
   fdAccept.set('bookingId', r1.bookingId!);
   fdAccept.set('decision', 'accept');
+  fdAccept.set('accessInstructions', INSTRUCOES);
   const rAccept = await respondToBookingRequestAction(undefined, fdAccept);
   assert('dono aceita a primeira solicitacao', rAccept.ok, JSON.stringify(rAccept));
 
@@ -273,7 +275,7 @@ async function main() {
   const [outraRecusada] = await sql<{ status: string; owner_response: string | null }[]>`
     SELECT status, owner_response FROM bookings WHERE id=${r2.bookingId!}`;
   expect('a segunda solicitacao do MESMO espaco foi recusada automaticamente', outraRecusada!.status, 'rejected');
-  assert('o motivo da recusa automatica fica registrado', (outraRecusada!.owner_response ?? '').includes('Outro interessado'),
+  assert('o motivo da recusa automatica fica registrado', (outraRecusada!.owner_response ?? '').includes('vagas deste anúncio foram preenchidas'),
     outraRecusada!.owner_response ?? '');
 
   const [notifAceite] = await sql<{ n: number }[]>`
@@ -290,6 +292,7 @@ async function main() {
   const fdAcceptOutra = new FormData();
   fdAcceptOutra.set('bookingId', r2.bookingId!);
   fdAcceptOutra.set('decision', 'accept');
+  fdAcceptOutra.set('accessInstructions', INSTRUCOES);
   const rAcceptOutra = await respondToBookingRequestAction(undefined, fdAcceptOutra);
   assert('nao da pra aceitar uma solicitacao que ja foi auto-recusada', !rAcceptOutra.ok, rAcceptOutra.message ?? '');
 
@@ -334,8 +337,8 @@ async function main() {
   assert('as duas solicitacoes concorrentes foram criadas', rR1.ok && rR2.ok);
 
   entrarComo(donoId, 'owner', 'Dono');
-  const fdAcc1 = new FormData(); fdAcc1.set('bookingId', rR1.bookingId!); fdAcc1.set('decision', 'accept');
-  const fdAcc2 = new FormData(); fdAcc2.set('bookingId', rR2.bookingId!); fdAcc2.set('decision', 'accept');
+  const fdAcc1 = new FormData(); fdAcc1.set('bookingId', rR1.bookingId!); fdAcc1.set('decision', 'accept'); fdAcc1.set('accessInstructions', INSTRUCOES);
+  const fdAcc2 = new FormData(); fdAcc2.set('bookingId', rR2.bookingId!); fdAcc2.set('decision', 'accept'); fdAcc2.set('accessInstructions', INSTRUCOES);
 
   // As DUAS chamadas disparam praticamente juntas — e a unica forma de testar
   // a trava de concorrencia de verdade, em vez de confiar que "funciona
@@ -410,11 +413,12 @@ async function main() {
   const rExpira = await chamarRequestBooking(terceiroId, expirarTesteId, fdExpira);
   assert('solicitacao criada para o teste de expiracao', rExpira.ok);
 
-  // Empurra a data da solicitacao pra 8 dias atras — alem do prazo de 7 dias.
-  await sql`UPDATE bookings SET requested_at = now() - interval '8 days' WHERE id=${rExpira.bookingId!}`;
+  // O proprietário tem 24 horas: empurra o pedido para 25 horas atrás (o prazo fica gravado no banco).
+  await sql`UPDATE bookings SET requested_at = now() - interval '25 hours',
+                                response_deadline_at = now() - interval '1 hour' WHERE id=${rExpira.bookingId!}`;
 
-  const { expireStaleBookingRequests } = await import('../src/lib/bookings/queries');
-  const quantasExpiraram = await expireStaleBookingRequests();
+  const { sweepExpiredBookings } = await import('../src/lib/bookings/maintenance');
+  const quantasExpiraram = await sweepExpiredBookings();
   assert('a varredura encontrou a solicitacao vencida', quantasExpiraram >= 1, `${quantasExpiraram} expirada(s)`);
 
   const [statusExpirado] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${rExpira.bookingId!}`;
@@ -423,6 +427,7 @@ async function main() {
   const fdAceitarExpirada = new FormData();
   fdAceitarExpirada.set('bookingId', rExpira.bookingId!);
   fdAceitarExpirada.set('decision', 'accept');
+  fdAceitarExpirada.set('accessInstructions', INSTRUCOES);
   entrarComo(donoId, 'owner', 'Dono');
   const rAceitarExpirada = await respondToBookingRequestAction(undefined, fdAceitarExpirada);
   assert('uma solicitacao expirada nao pode mais ser aceita', !rAceitarExpirada.ok, rAceitarExpirada.message ?? '');

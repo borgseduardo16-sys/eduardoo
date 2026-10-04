@@ -18,7 +18,7 @@ req.cache[req.resolve('server-only')] = {
 } as never;
 
 import postgres from 'postgres';
-import { mudarPreco, prepararAnuncio } from './lib/fixtures';
+import { formPreco, mudarPreco as mudarPrecoDireto, prepararAnuncio } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
 const url = process.env.DATABASE_URL;
@@ -209,7 +209,7 @@ async function main() {
   const { createAvailabilityBlockAction, cancelAvailabilityBlockAction } = await import('../src/lib/calendar/actions');
   const { getPublicCalendarRanges, getOwnerCalendarData } = await import('../src/lib/calendar/queries');
   const { buildMonth, dayState } = await import('../src/lib/calendar/month');
-  const { earliestOpenEndedStart } = await import('../src/lib/spaces/availability');
+  const { earliestStartDate } = await import('../src/lib/spaces/availability');
 
   async function comRedirect<T>(fn: () => Promise<T>): Promise<{ redirecionou: boolean; resultado?: T }> {
     try {
@@ -238,17 +238,15 @@ async function main() {
     const fd = new FormData();
     fd.set('bookingId', bookingId);
     fd.set('decision', decision);
+    // O aceite exige dizer como o locatário encontra e usa o espaço.
+    if (decision === 'accept') fd.set('accessInstructions', 'Portão azul ao lado da padaria; a vaga fica atrás da pilastra da esquerda.');
     return respondToBookingRequestAction(undefined, fd);
   }
 
   async function mudarPreco(spaceId: string, reais: string) {
     entrarComo(donoId, 'owner', 'Dona Descoberta');
-    // Parte 12: a etapa "Como alugar" manda a configuração dos grupos, como o formulário real.
-    const fd = new FormData();
-    fd.set('spaceId', spaceId);
-    fd.set('step', 'preco');
-    fd.set('rentalConfig', await configPrecoMensal(sql, spaceId, reais));
-    return saveStepAction(undefined, fd);
+    // A etapa "Como alugar", como o formulário real a manda.
+    return saveStepAction(undefined, await formPreco(sql, spaceId, reais));
   }
 
   // =========================================================================
@@ -307,7 +305,7 @@ async function main() {
   entrarComo(donoId, 'owner', 'Dona Descoberta');
   const retomar = await toggleSpaceStatusAction(undefined, fdPausa);
   expect('retomar com reserva vigente volta como "rented", nunca "published"', await statusDo(e2.id), 'rented');
-  assert('e a mensagem diz o que aconteceu', /alugado/.test(retomar.message ?? ''), retomar.message);
+  assert('e a mensagem diz o que aconteceu', /lotado/.test(retomar.message ?? ''), retomar.message);
 
   // Foto: alugado também não fica abaixo do mínimo.
   let fotoRecusada = false;
@@ -667,24 +665,26 @@ async function main() {
   assert('o dono vê motivo e anotação', doDono?.blocks[0]?.reason === 'uso_proprio' && doDono.blocks[0].note === 'reforma do portão');
   expect('o calendário do dono não abre para outra pessoa', await getOwnerCalendarData(e9.id, outroId), null);
 
-  // Solicitação: aluguel sem data para terminar não pode começar antes de um bloqueio.
+  // O bloqueio fecha dias para INICIAR locações novas, como um calendário de entrada: quem começa
+  // antes dele não é afetado, e quem tenta começar dentro dele é recusado.
   const sAntes = await solicitar(outroId, e9.id, diasAFrente(2));
-  assert('pedir para começar ANTES do bloqueio é recusado (o aluguel atravessaria o bloqueio)',
-    !sAntes.redirecionou && /indisponível/i.test((sAntes.resultado as { message?: string })?.message ?? ''),
+  assert('pedir para começar ANTES do bloqueio passa (o bloqueio só fecha inícios)', sAntes.redirecionou && Boolean(sAntes.bookingId),
     JSON.stringify(sAntes.resultado));
-  const sDentro = await solicitar(outroId, e9.id, diasAFrente(12));
-  assert('pedir para começar DENTRO do bloqueio é recusado', !sDentro.redirecionou);
-  const sDepois = await solicitar(outroId, e9.id, diasAFrente(15));
+  const sDentro = await solicitar(locatarioId, e9.id, diasAFrente(12));
+  assert('pedir para começar DENTRO do bloqueio é recusado',
+    !sDentro.redirecionou && /não inicia|bloque|indispon/i.test((sDentro.resultado as { message?: string })?.message ?? ''),
+    JSON.stringify(sDentro.resultado));
+  const sDepois = await solicitar(locatarioId, e9.id, diasAFrente(15));
   assert('pedir para começar no dia seguinte ao fim do bloqueio passa', sDepois.redirecionou && Boolean(sDepois.bookingId));
 
-  // Pedido feito antes do bloqueio existir: o aceite é que esbarra.
+  // Pedido feito antes do bloqueio existir: o aceite é que esbarra, se o INÍCIO cair dentro do bloqueio.
   const e10 = await criarPublicado();
-  const sCedo = await solicitar(outroId, e10.id, diasAFrente(2));
+  const sCedo = await solicitar(outroId, e10.id, diasAFrente(20));
   entrarComo(donoId, 'owner', 'Dona Descoberta');
   const bDepois = await bloquear(e10.id, diasAFrente(20), diasAFrente(22));
   assert('bloquear com só uma solicitação pendente é permitido (pedido não ocupa)', bDepois.ok, bDepois.message);
   const aceiteBloqueado = await responder(sCedo.bookingId!, 'accept');
-  assert('aceitar uma reserva que atravessaria o bloqueio é recusado (trigger)', !aceiteBloqueado.ok && /bloque/i.test(aceiteBloqueado.message ?? ''), aceiteBloqueado.message);
+  assert('aceitar uma locação que começaria dentro do bloqueio é recusado (trigger)', !aceiteBloqueado.ok && /bloque/i.test(aceiteBloqueado.message ?? ''), aceiteBloqueado.message);
   expect('e o espaço continua disponível', await statusDo(e10.id), 'published');
   const [{ id: bloqueioE10 }] = await sql<{ id: string }[]>`SELECT id FROM space_availability_blocks WHERE space_id=${e10.id} AND cancelled_at IS NULL`;
   entrarComo(outroId);
@@ -701,14 +701,16 @@ async function main() {
   const aceiteLiberado = await responder(sCedo.bookingId!, 'accept');
   assert('sem o bloqueio, o aceite passa', aceiteLiberado.ok, aceiteLiberado.message);
   const bSobreReserva = await bloquear(e10.id, diasAFrente(30), diasAFrente(31));
-  assert('bloquear por cima de reserva vigente é recusado', !bSobreReserva.ok && /reserva vigente/i.test(bSobreReserva.message ?? ''), bSobreReserva.message);
+  assert('bloquear por cima de locação vigente é permitido (só fecha inícios novos; a locação segue)', bSobreReserva.ok, bSobreReserva.message);
 
-  // Concorrência: bloqueio e aceite do MESMO espaço ao mesmo tempo — só um vence.
-  let exatamenteUm = 0;
+  // Concorrência: bloqueio do dia de início e aceite do MESMO pedido ao mesmo tempo. Qualquer ordem é
+  // legítima (aceitou antes = a locação segue; bloqueou antes = o aceite é recusado), mas nunca pode
+  // acontecer erro inesperado nem inconsistência: a locação ou ocupa a vaga ou não ocupa, e o bloqueio existe.
+  let coerentes = 0;
   const rodadas = 6;
   for (let i = 0; i < rodadas; i++) {
     const eC = await criarPublicado();
-    const sC = await solicitar(locatarioId, eC.id, diasAFrente(1));
+    const sC = await solicitar(locatarioId, eC.id, diasAFrente(5));
     entrarComo(donoId, 'owner', 'Dona Descoberta');
     const [rAceite, rBloqueio] = await Promise.all([
       responder(sC.bookingId!, 'accept'),
@@ -718,9 +720,10 @@ async function main() {
       SELECT count(*)::int AS n FROM bookings WHERE space_id=${eC.id} AND status IN ('approved','awaiting_payment','active','past_due')`;
     const [{ n: bloqueando }] = await sql<{ n: number }[]>`
       SELECT count(*)::int AS n FROM space_availability_blocks WHERE space_id=${eC.id} AND cancelled_at IS NULL`;
-    if ((rAceite.ok ? 1 : 0) + (rBloqueio.ok ? 1 : 0) === 1 && ocupando + bloqueando === 1) exatamenteUm++;
+    const aceiteBemDito = rAceite.ok ? ocupando === 1 : /bloque/i.test(rAceite.message ?? '') && ocupando === 0;
+    if (aceiteBemDito && rBloqueio.ok && bloqueando === 1) coerentes++;
   }
-  expect(`aceite × bloqueio simultâneos: exatamente um vence em todas as ${rodadas} rodadas`, exatamenteUm, rodadas);
+  expect(`aceite × bloqueio simultâneos: resultado coerente em todas as ${rodadas} rodadas`, coerentes, rodadas);
 
   // Regras puras do calendário.
   const hojeISO = new Date().toISOString().slice(0, 10);
@@ -734,13 +737,19 @@ async function main() {
   expect('dia bloqueado = bloqueado', dayState(diasAFrente(11), entradaCal).state, 'bloqueado');
   expect('dia livre = disponivel', dayState(diasAFrente(20), entradaCal).state, 'disponivel');
   expect('ontem = passado', dayState(diasAFrente(-1), entradaCal).state, 'passado');
-  expect('reserva sem fim ocupa para sempre',
+  expect('locação sem fim ocupa para sempre',
     dayState(diasAFrente(400), { ...entradaCal, occupied: [{ startsOn: diasAFrente(5), endsOn: null }] }).state, 'ocupado');
   const mesTeste = buildMonth(2026, 11, { ...entradaCal, today: '2026-11-01', availableFrom: null, blocked: [] });
   expect('novembro/2026 começa num domingo e tem 30 dias', [mesTeste.weeks[0][0].date, mesTeste.weeks.flat().filter((d) => d.inMonth).length], ['2026-11-01', 30]);
   expect('primeiro início possível pula o último bloqueio',
-    earliestOpenEndedStart({ today: '2026-10-01', availableFrom: '2026-10-05', blocks: [{ startsOn: '2026-10-10', endsOn: '2026-10-12' }] }),
+    earliestStartDate({ today: '2026-10-01', availableFrom: '2026-10-05', blocks: [{ startsOn: '2026-10-05', endsOn: '2026-10-12' }] }),
     '2026-10-13');
+  expect('bloqueios encadeados (10–12 e 13–15) resolvem em passadas seguidas',
+    earliestStartDate({ today: '2026-10-01', availableFrom: '2026-10-10', blocks: [{ startsOn: '2026-10-13', endsOn: '2026-10-15' }, { startsOn: '2026-10-10', endsOn: '2026-10-12' }] }),
+    '2026-10-16');
+  expect('um bloqueio depois da data de início não atrapalha quem começa antes dele',
+    earliestStartDate({ today: '2026-10-01', availableFrom: '2026-10-05', blocks: [{ startsOn: '2026-10-10', endsOn: '2026-10-12' }] }),
+    '2026-10-05');
 
   // =========================================================================
   secao('6. Busca por necessidade: regras, IA opcional, fallback e filtros reais');
@@ -838,8 +847,11 @@ async function main() {
   expect('área mínima: anúncio sem área ou menor não entra',
     idsDe(await listPublishedSpaces({ cityFilter: cidade6, sizeMinM2: 25, limit: 60 })),
     [garagemCoberta.id, garagemBloqueada.id].sort());
-  expect('"disponível agora" agora respeita o bloqueio do calendário (o aluguel atravessaria o bloqueio)',
-    idsDe(await listPublishedSpaces({ ...noCentro, type: 'garagem', availableNow: true, limit: 60 })), [garagemCoberta.id]);
+  expect('"disponível agora": um bloqueio só adiante (dias 20–22) não tira o espaço — hoje não está bloqueado',
+    idsDe(await listPublishedSpaces({ ...noCentro, type: 'garagem', availableNow: true, limit: 60 })),
+    [garagemCoberta.id, garagemBloqueada.id].sort());
+  expect('começar DENTRO do bloqueio: a garagem bloqueada não aparece',
+    idsDe(await listPublishedSpaces({ ...noCentro, type: 'garagem', startBy: diasAFrente(21), limit: 60 })), [garagemCoberta.id]);
   expect('começar depois do fim do bloqueio: a garagem bloqueada volta a aparecer',
     idsDe(await listPublishedSpaces({ ...noCentro, type: 'garagem', startBy: diasAFrente(23), limit: 60 })),
     [garagemCoberta.id, garagemBloqueada.id].sort());
@@ -1045,8 +1057,8 @@ async function main() {
   expect('100% só com TUDO atendido: um resíduo de distância nunca vira 100%', quase.percent, 99);
   assert('a explicação não expõe pesos nem fórmula',
     [tudo, meia, matchMoto, longe].every((m) => m.items.every((i) => !/ponto|peso|%/.test(i.text))));
-  expect('início possível: depois do último bloqueio', earliestStartFrom('2026-10-01', '2026-10-20', '2026-09-30'), '2026-10-21');
-  expect('início possível: "disponível a partir de" no futuro', earliestStartFrom('2026-11-01', null, '2026-09-30'), '2026-11-01');
+  expect('início possível: depois do bloqueio que cobre o primeiro dia', earliestStartFrom('2026-10-01', [{ startsOn: '2026-10-01', endsOn: '2026-10-20' }], '2026-09-30'), '2026-10-21');
+  expect('início possível: "disponível a partir de" no futuro', earliestStartFrom('2026-11-01', [], '2026-09-30'), '2026-11-01');
 
   // Dados reais do banco → mesma conta.
   const cidade7 = `Cidade7 ${tag}`;
@@ -1060,7 +1072,7 @@ async function main() {
     location: { kind: 'district' as const, district: 'Centro', city: cidade7 }, featureKeys: ['coberto'],
   };
   const porId = new Map(reais.map((r) => [r.id, computeMatch(
-    { ...r, earliestStart: earliestStartFrom(r.availableFrom, r.blockedUntil, todayInSaoPaulo()) }, criteriosReais, rotulos)?.percent]));
+    { ...r, earliestStart: earliestStartFrom(r.availableFrom, r.upcomingBlocks, todayInSaoPaulo()) }, criteriosReais, rotulos)?.percent]));
   expect('do banco: a garagem que marcou "acesso para moto" 100%, a que não marcou 87% (70 de 80 = 87,5, para baixo) — as duas continuam na lista',
     [porId.get(comMoto.id), porId.get(semMoto.id), reais.length], [100, 87, 2]);
 
@@ -1603,6 +1615,8 @@ async function main() {
     const valores = computeBookingAmounts(30000, { renterFeeBps: Number(fees10.r ?? 300), ownerFeeBps: Number(fees10.o ?? 300) });
     const reserva = async (spaceId: string, renterId: string, status: string, extra: { pedido: string; ativada?: string; inicio: string; encerrada?: string }) => {
       seq++;
+      // O banco confere que o valor da locação é o preço do anúncio.
+      await mudarPrecoDireto(sql, spaceId, valores.monthlyRentCents);
       const [row] = await sql<{ id: string }[]>`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
@@ -1648,7 +1662,7 @@ async function main() {
     expect('receita: só pagamento confirmado no período, parte do dono (pendente e estornado fora)',
       m1?.revenueCents, valores.ownerPayoutCents);
     expect('ocupação real: 10 dias alugado de 30 analisados → 33%',
-      m1?.occupancy, { percent: 33, occupiedDays: 10, analyzedDays: 30 });
+      m1?.occupancy, { percent: 33, occupiedDays: 10, analyzedDays: 30, units: 1 });
     expect('anúncio com menos de 14 dias no ar: ocupação não é mostrada', m2?.occupancy ?? null, null);
     expect('anúncio 2 — visualizações e compartilhamentos contados de verdade', [m2?.views, m2?.shares], [4, 2]);
     const antesDoS2 = await getOwnerPerformance(donoStatsId, { from: d(20), to: d(10) }, hoje10);
@@ -1675,7 +1689,7 @@ async function main() {
     expect('3 meses: pedido de 40 dias atrás e pagamento de 45 dias atrás entram',
       [m1b?.requests, m1b?.favoritesNew, m1b?.revenueCents], [3, 3, valores.ownerPayoutCents * 2]);
     expect('3 meses: ocupação sobre os dias em que o anúncio estava no ar (41)',
-      m1b?.occupancy, { percent: 24, occupiedDays: 10, analyzedDays: 41 });
+      m1b?.occupancy, { percent: 24, occupiedDays: 10, analyzedDays: 41, units: 1 });
     expect('3 meses por semana no gráfico (13 barras)', toViewBuckets(perf3m.viewsByDay).length, 13);
     assert('semana toda antes da contagem continua "sem dado"', toViewBuckets(perf3m.viewsByDay)[0]!.value === null);
 
@@ -1843,7 +1857,7 @@ async function main() {
   await sql`UPDATE spaces SET available_from = CURRENT_DATE + 10 WHERE id=${futuro11.id}`;
   const bloqueado11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
   await sql`INSERT INTO space_availability_blocks (space_id, starts_on, ends_on, reason, created_by)
-    VALUES (${bloqueado11.id}, CURRENT_DATE + 2, CURRENT_DATE + 5, 'manutencao', ${donoId})`;
+    VALUES (${bloqueado11.id}, CURRENT_DATE, CURRENT_DATE + 5, 'manutencao', ${donoId})`;
   await sql`INSERT INTO space_features (space_id, feature_key) VALUES
     (${base11.id}, 'coberto'), (${base11.id}, 'portao'), (${igual.id}, 'coberto'), (${igual.id}, 'portao'), (${vagaSim.id}, 'coberto')`;
 
@@ -1863,7 +1877,7 @@ async function main() {
   assert('longe demais (mais de 25 km) não aparece', !idsSim.includes(longe11.id));
   assert('pausado não aparece', !idsSim.includes(pausado11.id));
   assert('disponível só daqui a 10 dias não aparece como alternativa "disponível agora"', !idsSim.includes(futuro11.id));
-  assert('com bloqueio pela frente não aparece (o aluguel mensal atravessaria o bloqueio)', !idsSim.includes(bloqueado11.id));
+  assert('com bloqueio cobrindo hoje não aparece como alternativa "disponível agora"', !idsSim.includes(bloqueado11.id));
   expect('cada um diz por que apareceu', semelhantes[0]?.reasons, ['Mesmo tipo', 'Preço parecido', '2 características em comum']);
   assert('e a distância vem calculada entre pontos aproximados', semelhantes[0]?.distanceMeters != null && semelhantes[0].distanceMeters < 1000);
   const chavesSim = Object.keys(semelhantes[0] ?? {});
@@ -1922,7 +1936,7 @@ async function main() {
     SELECT (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.renter_fee_bps') AS r,
            (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.owner_fee_bps') AS o`)[0]!;
   const v12 = computeBookingAmounts(30000, { renterFeeBps: Number(fees12.r ?? 300), ownerFeeBps: Number(fees12.o ?? 300) });
-  await mudarPreco(sql, espacoRenov.id, 30000);
+  await mudarPrecoDireto(sql, espacoRenov.id, 30000);
   await prepararAnuncio(sql, espacoRenov.id, 5);
   const [reserva12] = await sql<{ id: string }[]>`
     INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
@@ -1976,7 +1990,7 @@ async function main() {
   expect('locatário recebe "Renovação confirmada"', avisoRenov?.title, 'Renovação confirmada');
   const [avisoDonoRenov] = await sql<{ title: string }[]>`
     SELECT title FROM notifications WHERE user_id=${donoRenovId} AND type='payment_confirmed' ORDER BY created_at DESC LIMIT 1`;
-  expect('proprietário recebe "Renovação paga"', avisoDonoRenov?.title, 'Renovação paga');
+  expect('proprietário recebe "Mensalidade paga"', avisoDonoRenov?.title, 'Mensalidade paga');
   expect('próxima cobrança = um mês depois da paga', await proximaDe(), addMonthsIso(venc2, 1));
   const emDia = await getRenewalInfo(reserva12!.id, locatarioRenovId);
   expect('em dia, pago até a véspera do próximo vencimento', [emDia?.state, emDia?.paidThrough, emDia?.next?.generated],

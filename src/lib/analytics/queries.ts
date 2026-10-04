@@ -50,8 +50,12 @@ export type SpaceMetrics = {
   reservationsStarted: number;
   rentalsEnded: number;
   revenueCents: number;
-  /** Null quando não há dias suficientes para dizer algo honesto. */
-  occupancy: { percent: number; occupiedDays: number; analyzedDays: number } | null;
+  /**
+   * Ocupação em UNIDADES-DIA: cada locação ativa ocupa uma unidade por dia, e a capacidade é
+   * (dias analisados × unidades oferecidas). Com 1 unidade é o mesmo que "dias alugados de dias analisados".
+   * Null quando não há dias suficientes para dizer algo honesto.
+   */
+  occupancy: { percent: number; occupiedDays: number; analyzedDays: number; units: number } | null;
 };
 
 export type PerformanceTotals = Omit<SpaceMetrics, 'spaceId' | 'title' | 'slug' | 'status' | 'removed' | 'occupancy'>;
@@ -80,7 +84,8 @@ type LinhaMetricas = {
   rentals_ended: number;
   revenue_cents: string | number;
   analyzed_days: number;
-  occupied_days: number;
+  quantity_offered: number;
+  occupied_unit_days: number;
 };
 
 /** Desde quando as visualizações são contadas (setting gravado na migração; senão, o primeiro dia com dado). */
@@ -109,7 +114,7 @@ export async function getOwnerPerformance(
 
   const linhas = (await db.execute(sql`
     WITH s AS (
-      SELECT id, title, slug, status::text AS status, deleted_at IS NOT NULL AS removed,
+      SELECT id, title, slug, status::text AS status, deleted_at IS NOT NULL AS removed, quantity_offered,
         (published_at AT TIME ZONE 'America/Sao_Paulo')::date AS publicado_em
       FROM spaces
       WHERE owner_id = ${ownerId} AND published_at IS NOT NULL
@@ -136,15 +141,14 @@ export async function getOwnerPerformance(
           AND pay.status IN ('confirmed', 'received') AND pay.paid_at IS NOT NULL
           AND (pay.paid_at AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN ${from}::date AND ${to}::date), 0)::bigint AS revenue_cents,
       GREATEST(0, (${fim}::date - GREATEST(${from}::date, s.publicado_em)) + 1)::int AS analyzed_days,
-      (SELECT count(DISTINCT dia) FROM bookings b,
-        generate_series(
-          GREATEST(${from}::date, b.start_date, s.publicado_em),
-          -- Parte 12: aluguel por tempo ocupa só os dias que tocou (end_date é exclusivo);
-          -- o mensal vai até o dia anterior ao fim (ou até hoje, se segue ativo).
-          LEAST(${fim}::date, CASE WHEN b.kind = 'temporary' THEN b.end_date - 1
-            ELSE COALESCE((COALESCE(b.ended_at, b.cancelled_at) AT TIME ZONE 'America/Sao_Paulo')::date - 1, ${fim}::date) END),
-          interval '1 day') AS dia
-        WHERE b.space_id = s.id AND b.owner_id = ${ownerId} AND b.activated_at IS NOT NULL)::int AS occupied_days
+      s.quantity_offered,
+      -- Unidades-dia ocupadas: cada locação ocupa uma unidade desde o início (ou desde a publicação)
+      -- até o dia anterior ao fim — ou até hoje, se segue ativa.
+      COALESCE((SELECT sum(GREATEST(0,
+          LEAST(${fim}::date, COALESCE((COALESCE(b.ended_at, b.cancelled_at) AT TIME ZONE 'America/Sao_Paulo')::date - 1, ${fim}::date))
+            - GREATEST(${from}::date, b.start_date, s.publicado_em) + 1))
+        FROM bookings b
+        WHERE b.space_id = s.id AND b.owner_id = ${ownerId} AND b.activated_at IS NOT NULL), 0)::int AS occupied_unit_days
     FROM s
     ORDER BY s.title
   `)) as unknown as LinhaMetricas[];
@@ -165,11 +169,16 @@ export async function getOwnerPerformance(
     revenueCents: Number(l.revenue_cents),
     // Arquivado: os dias depois da exclusão contariam como "no ar" — melhor não mostrar.
     occupancy: !l.removed && l.analyzed_days >= MIN_OCCUPANCY_DAYS
-      ? {
-          percent: Math.floor((Math.min(l.occupied_days, l.analyzed_days) * 100) / l.analyzed_days),
-          occupiedDays: Math.min(l.occupied_days, l.analyzed_days),
-          analyzedDays: l.analyzed_days,
-        }
+      ? (() => {
+          const capacidade = l.analyzed_days * l.quantity_offered;
+          const ocupadas = Math.min(l.occupied_unit_days, capacidade);
+          return {
+            percent: Math.floor((ocupadas * 100) / capacidade),
+            occupiedDays: ocupadas,
+            analyzedDays: l.analyzed_days,
+            units: l.quantity_offered,
+          };
+        })()
       : null,
   }));
 
