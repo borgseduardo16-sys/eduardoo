@@ -332,15 +332,15 @@ export async function sendBookingNotices(): Promise<number> {
     );
   }
 
-  // 8. Locação que começou hoje (paga e com a data de início chegada). O
-  // aviso imediato, quando já está tudo pronto no pagamento, sai do webhook;
-  // aqui sai o das locações pagas antes da data de início. Janela de 3 dias
-  // para trás: cobre uma parada do agendador sem varrer o histórico inteiro.
+  // 8. Locação que começou hoje, paga ANTES do dia de início. Paga no próprio dia (ou depois), o aviso de "pagamento
+  // confirmado" já disse que a locação começou — não se repete. Janela de 3 dias para trás: cobre uma parada do
+  // agendador sem varrer o histórico inteiro.
   const iniciadas = (await db.execute(sql`
     SELECT ${base}, NULL::timestamptz AS deadline, NULL::timestamptz AS started
       FROM bookings b JOIN spaces s ON s.id = b.space_id
      WHERE b.status IN ('active', 'past_due')
        AND b.activated_at IS NOT NULL
+       AND (b.activated_at AT TIME ZONE 'America/Sao_Paulo')::date < b.start_date
        AND b.start_date <= (now() AT TIME ZONE 'America/Sao_Paulo')::date
        AND b.start_date >= (now() AT TIME ZONE 'America/Sao_Paulo')::date - 3
   `)) as unknown as LinhaAviso[];

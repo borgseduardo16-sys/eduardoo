@@ -414,7 +414,7 @@ async function main() {
   const [{ n: notifsAposConfirmado }] = await sql<{ n: string }[]>`
     SELECT count(*)::text AS n FROM notifications WHERE data->>'bookingId' = ${bookingId}`;
   // Pagamento confirmado + locação iniciada (a data de início é hoje), para cada uma das duas partes.
-  expect('locatario e proprietario foram notificados (pagamento confirmado + locacao iniciada)', notifsAposConfirmado, '4');
+  expect('locatario e proprietario foram notificados, um aviso por pessoa (pagamento confirmado ja diz que a locacao comecou)', notifsAposConfirmado, '2');
 
   // --- reentrega do MESMO evento: idempotencia ---
   const r1dup = await processAsaasWebhook({ event: 'PAYMENT_CONFIRMED', payment: { id: providerPaymentId, value: amounts.totalChargedCents / 100 } });
@@ -422,7 +422,7 @@ async function main() {
 
   const [{ n: notifsDepoisDup }] = await sql<{ n: string }[]>`
     SELECT count(*)::text AS n FROM notifications WHERE data->>'bookingId' = ${bookingId}`;
-  expect('reentrega NAO duplicou notificacao', notifsDepoisDup, '4');
+  expect('reentrega NAO duplicou notificacao', notifsDepoisDup, '2');
 
   // =========================================================================
   secao('3. Webhook — PAYMENT_RECEIVED gera repasse e lancamentos no razao');

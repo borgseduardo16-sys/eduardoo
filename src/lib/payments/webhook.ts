@@ -469,7 +469,7 @@ async function handleConfirmed(
           ? `O pagamento da mensalidade de "${titulo}" foi confirmado. A locação segue ativa por mais um mês.`
           : comecaDepois
             ? `Sua locação de "${titulo}" está confirmada e começa em ${formatDateShort(booking.startDate)}. As instruções de acesso e a rota estão em Meus aluguéis.`
-            : `Sua locação de "${titulo}" está confirmada. As instruções de acesso e a rota estão em Meus aluguéis.`,
+            : `Sua locação de "${titulo}" está confirmada e já começou. As instruções de acesso e a rota estão em Meus aluguéis.`,
       linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
@@ -480,31 +480,15 @@ async function handleConfirmed(
         ? `O locatário regularizou o pagamento de "${titulo}".`
         : renovacao
           ? `O locatário pagou a mensalidade de "${titulo}".`
-          : `O pagamento foi confirmado e a locação de "${titulo}" está garantida${comecaDepois ? `, com início em ${formatDateShort(booking.startDate)}` : ''}.`,
+          : `O pagamento foi confirmado e a locação de "${titulo}" está garantida${comecaDepois ? `, com início em ${formatDateShort(booking.startDate)}` : ' e já começou'}.`,
       linkPath: renovacao || regularizou ? '/meus-espacos/financeiro' : `/reservas/${booking.id}`,
       data: { bookingId: booking.id, paymentId: pagamento.id },
       dedupeKey: `payment_confirmed:${pagamento.id}`,
     },
   ]);
 
-  // Primeira ativação com a data de início já chegada: "locação iniciada" na hora.
-  // (Com início no futuro, quem avisa no dia é a manutenção — mesma dedupeKey.)
-  if (ativouAgora && primeiraAtivacao && !comecaDepois) {
-    jobs.push(
-      ...(await insertNotifications(tx, [
-        {
-          userId: booking.renterId, type: 'rental_started', title: 'Sua locação começou',
-          body: `A locação de "${titulo}" já pode ser usada. As instruções de acesso e a rota estão em Meus aluguéis.`,
-          linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id }, dedupeKey: `rental_started:${booking.id}`,
-        },
-        {
-          userId: booking.ownerId, type: 'rental_started', title: 'Locação iniciada',
-          body: `A locação de "${titulo}" começou hoje.`,
-          linkPath: `/reservas/${booking.id}`, data: { bookingId: booking.id }, dedupeKey: `rental_started:${booking.id}`,
-        },
-      ])),
-    );
-  }
+  // Um aviso por pessoa: com a data de início já chegada, o próprio "pagamento confirmado" diz que a locação
+  // começou. Só quando o pagamento vem ANTES do início a manutenção avisa de novo, no dia (maintenance.ts).
 
   // As instruções de acesso (texto e/ou áudio) vão para o chat só agora que o pagamento
   // está confirmado — antes disso a localização exata é privada.
