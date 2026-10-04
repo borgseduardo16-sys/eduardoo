@@ -47,7 +47,7 @@ import { chromium, type Browser, type Page, type Locator } from 'playwright';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { formatBRL } from '../src/lib/money';
 import { startTestbed, sessionCookie, fakeJwt, type Testbed } from './testbed/server';
-import { prepararAnuncio } from './lib/fixtures';
+import { criarAnuncio, prepararAnuncio, vagas } from './lib/fixtures';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
@@ -127,6 +127,9 @@ const LONGE = { lat: -20.3297, lng: -40.2925 };
  * TESTE B/E/F esperam — ja aconteceu uma vez, corrigido isolando aqui.
  */
 const ISOLADO = { lat: -18.0001, lng: -40.0001 };
+/** Pontos isolados, so pros TESTES R (locacao mensal) e S (mapa de exploracao) — longe de tudo que os outros contam. */
+const ISOLADO_LOCACAO = { lat: -17.3, lng: -41.3 };
+const ISOLADO_MAPA = { lat: -16.3, lng: -39.7 };
 /** Isolada tambem, so pro TESTE O — mesmo motivo de ISOLADO, sem dividir o ponto com o TESTE L. */
 const ISOLADO_PROMO = { lat: -18.777, lng: -40.222 };
 const GPS_EXIF = { lat: '19/1 32/1 1896/100', lng: '40/1 37/1 4620/100' };
@@ -263,10 +266,15 @@ async function main() {
   };
 
   await subirNext();
-  browser = await chromium.launch({ headless: true, executablePath: chromePath() });
+  browser = await chromium.launch({
+    headless: true,
+    executablePath: chromePath(),
+    // Microfone de mentira (um tom), sem janela de permissão: o gravador de áudio é o do app, de verdade.
+    args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+  });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNOPQ').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNOPQRS').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -284,6 +292,19 @@ async function main() {
   if (quais.includes('O')) await testeOPromocoes();
   if (quais.includes('P')) await testePFase14();
   if (quais.includes('Q')) await testeQFase23();
+  if (quais.includes('R')) await testeRLocacaoMensal();
+  if (quais.includes('S')) await testeSMapaExploracao();
+}
+
+/**
+ * Aceita a primeira solicitação da lista, como o proprietário faz na tela: o aceite exige dizer como o
+ * locatário encontra e usa o espaço (texto e/ou áudio), então não basta clicar em "Aceitar".
+ */
+async function aceitarPelaTela(page: Page) {
+  await page.getByRole('button', { name: 'Aceitar', exact: true }).first().click();
+  await page.getByLabel('Instruções escritas').fill('Portão azul ao lado da padaria. Sua vaga é a segunda, atrás da pilastra.');
+  await page.getByRole('button', { name: 'Aceitar solicitação' }).click();
+  await page.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
 }
 
 /** Espera uma condicao (tipicamente do banco) ficar verdadeira — evita corrida com a Server Action assincrona. */
@@ -698,6 +719,12 @@ async function subirNext() {
     NEXT_DIST_DIR: '.next-teste',
     NODE_ENV: 'production' as const,
   };
+
+  // O worker do mapa vai para public/maplibre/ (o `pnpm build` já faz isso; aqui o build é chamado direto).
+  await new Promise<void>((resolve, reject) => {
+    const copia = spawn('node', ['scripts/copy-maplibre-worker.mjs'], { cwd: raiz, stdio: 'ignore' });
+    copia.on('exit', (c) => (c === 0 ? resolve() : reject(new Error('copy-maplibre-worker falhou'))));
+  });
 
   const build = spawn('pnpm', ['exec', 'next', 'build'], {
     cwd: raiz, env: envApp, stdio: ['ignore', 'pipe', 'pipe'],
@@ -1636,13 +1663,16 @@ async function testeKSolicitarEAceitar() {
   await pageOutro.getByLabel('Mensagem para o proprietário').fill('Preciso para guardar uma moto.');
 
   const totalEsperado = Math.round(espaco!.price * 1.03);
-  const resumo = await pageOutro.getByTestId('resumo-solicitacao').textContent();
-  assert('o resumo mostra o total com a taxa embutida', (resumo ?? '').includes('Total mensal'), resumo ?? '');
+  const resumo = (await pageOutro.getByTestId('resumo-solicitacao').textContent()) ?? '';
+  assert('o resumo mostra o total por mês com a taxa de serviço',
+    resumo.includes('Total por mês') && resumo.includes('Taxa de serviço') && resumo.includes(formatBRL(totalEsperado)), resumo);
+  assert('e deixa claro que nada é cobrado ao enviar', resumo.includes('Nada é cobrado'), resumo);
 
   await pageOutro.getByRole('button', { name: 'Enviar solicitação' }).click();
-  await pageOutro.waitForURL(/\/reservas/, { timeout: 20_000 });
-  await pageOutro.getByText('Aguardando resposta').waitFor({ timeout: 20_000 });
-  ok('locatario enviou a solicitacao e ve o status "Aguardando resposta" em /reservas');
+  await pageOutro.waitForURL(/\/reservas\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  await pageOutro.getByText('Solicitação enviada').first().waitFor({ timeout: 20_000 });
+  await pageOutro.getByText('Solicitação pendente').first().waitFor({ timeout: 10_000 });
+  ok('locatario enviou a solicitacao e ve "Solicitação enviada" e o status "Solicitação pendente"');
 
   const [naBanco] = await sql<{ id: string; status: string; total: number }[]>`
     SELECT id, status, total_charged_cents AS total FROM bookings
@@ -1664,17 +1694,25 @@ async function testeKSolicitarEAceitar() {
   await pageDono.getByText('Preciso para guardar uma moto.').waitFor({ timeout: 20_000 });
   ok('a mensagem do locatario aparece pro proprietario');
 
-  await pageDono.getByRole('button', { name: 'Aceitar' }).first().click();
+  // O aceite exige dizer como o locatário usa o espaço: sem instruções o botão fica desligado.
+  await pageDono.getByRole('button', { name: 'Aceitar', exact: true }).first().click();
+  const botaoAceitar = pageDono.getByRole('button', { name: 'Aceitar solicitação' });
+  assert('sem instruções de acesso o aceite fica desligado', await botaoAceitar.isDisabled());
+  await pageDono.getByLabel('Instruções escritas').fill('Portão azul ao lado da padaria. Sua vaga é a segunda, atrás da pilastra.');
+  assert('com as instruções escritas o aceite liga', await botaoAceitar.isEnabled());
+  await botaoAceitar.click();
   await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
-  ok('proprietario aceita a solicitacao pela interface');
+  ok('proprietario aceita a solicitacao pela interface, com instruções de acesso');
 
   const [aprovadaNoBanco] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingId}`;
   expect('o banco reflete o aceite feito pela tela', aprovadaNoBanco!.status, 'approved');
 
   // --- locatario recarrega e ve "Aceita" ---
   await pageOutro.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
-  await pageOutro.getByText('Aceita').waitFor({ timeout: 20_000 });
-  ok('locatario ve a reserva como "Aceita" depois do proprietario aceitar');
+  await pageOutro.getByText('Aceita — falta pagar').first().waitFor({ timeout: 20_000 });
+  ok('locatario ve a locacao como "Aceita — falta pagar" depois do proprietario aceitar');
+  assert('e as instruções de acesso NÃO aparecem para ele antes de pagar',
+    (await pageOutro.getByText('pilastra').count()) === 0);
 
   /*
    * O aceite tambem publica uma mensagem de sistema na conversa (Fase 6,
@@ -1683,10 +1721,10 @@ async function testeKSolicitarEAceitar() {
    * Confere que isso realmente chegou na tela, nao so no banco.
    */
   await pageOutro.goto(`${baseUrl}/mensagens`, { waitUntil: 'domcontentloaded' });
-  await pageOutro.getByText('Reserva aceita.').waitFor({ timeout: 20_000 });
+  await pageOutro.getByText('Solicitação aceita.').first().waitFor({ timeout: 20_000 });
   ok('o aceite cria a conversa sozinho e a mensagem de sistema aparece na inbox do locatario');
   assert('o e-mail de aviso da mensagem de sistema foi "enviado" (capturado pelo testbed)',
-    testbed!.emailsSent.some((e) => e.to.includes(`${tag}-outro@exemplo.invalid`) && e.html.includes('Reserva aceita')));
+    testbed!.emailsSent.some((e) => e.to.includes(`${tag}-outro@exemplo.invalid`) && e.html.includes('Solicitação aceita')));
 
   // --- financeiro do proprietario reflete o aluguel aceito ---
   await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
@@ -1696,7 +1734,7 @@ async function testeKSolicitarEAceitar() {
   // --- locatario cancela a reserva ja aceita: mesma armadilha de desmontar
   // antes de mostrar sucesso que o "Aceitar" tinha, agora no CancelBookingButton ---
   await pageOutro.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
-  await pageOutro.getByRole('button', { name: 'Cancelar solicitação' }).click();
+  await pageOutro.getByRole('button', { name: 'Desistir da locação' }).click();
   await pageOutro.getByRole('button', { name: 'Sim, cancelar' }).click();
   await pageOutro.getByText('Cancelado.').waitFor({ timeout: 20_000 });
   ok('locatario cancela a reserva aceita pela interface e ve a confirmacao sem a tela sumir');
@@ -1782,8 +1820,7 @@ async function testeLPagamento() {
   const bookingId = novaSolicitacao!.id;
 
   await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes`, { waitUntil: 'domcontentloaded' });
-  await pageDono.getByRole('button', { name: 'Aceitar' }).first().click();
-  await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
+  await aceitarPelaTela(pageDono);
 
   // --- locatario ve "Pagar agora" e vai para o checkout ---
   await pageOutro.goto(`${baseUrl}/reservas`, { waitUntil: 'domcontentloaded' });
@@ -1858,7 +1895,7 @@ async function testeLPagamento() {
   const textoReservasLocatario = await pageOutro.locator('main').textContent();
   assert('mostra "Recebido" (status real do pagamento, vindo do webhook)',
     (textoReservasLocatario ?? '').includes('Recebido'), textoReservasLocatario ?? '');
-  assert('mostra a proxima cobranca', (textoReservasLocatario ?? '').includes('Próxima cobrança'), textoReservasLocatario ?? '');
+  assert('mostra o proximo vencimento', (textoReservasLocatario ?? '').includes('Próximo vencimento'), textoReservasLocatario ?? '');
 
   // --- proprietario ve o repasse em /meus-espacos/financeiro ---
   await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
@@ -1888,6 +1925,297 @@ async function testeLPagamento() {
   await pageDono.screenshot({ path: join(tmp, 'teste-l-financeiro.png'), fullPage: true });
   await pageOutro.context().close();
   await pageDono.context().close();
+}
+
+/** O proprietário cria a conta de recebimento (subconta no dublê do Asaas) pela tela, se ainda não tiver. */
+async function configurarRecebimentoSeFaltar(pageDono: Page) {
+  const [conta] = await sql<{ can_receive: boolean }[]>`SELECT can_receive FROM owner_payout_accounts WHERE owner_id=${donoId}`;
+  if (conta?.can_receive) return;
+  await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByText('Configurar conta de recebimento').click();
+  await pageDono.getByLabel('Nome completo').waitFor({ timeout: 10_000 });
+  await pageDono.getByLabel('Nome completo').fill('Proprietario Teste R');
+  await pageDono.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
+  await pageDono.getByLabel('E-mail').fill(`${tag}-dono@exemplo.invalid`);
+  await pageDono.getByLabel('Celular').fill('27999998888');
+  await pageDono.getByLabel('Renda ou faturamento mensal').fill('5000');
+  await pageDono.getByLabel('CEP').fill('29700000');
+  await pageDono.getByLabel('Número').fill('100');
+  await pageDono.getByLabel('Endereço').fill('Rua Teste');
+  await pageDono.getByLabel('Bairro').fill('Centro');
+  await pageDono.getByRole('button', { name: 'Criar conta de recebimento' }).click();
+  await pageDono.getByText('Conta configurada').waitFor({ timeout: 20_000 });
+}
+
+/** Faz o gateway (dublê) avisar o servidor Next de verdade, pela rota HTTP real do webhook. */
+async function webhookAsaas(event: string, providerPaymentId: string, valorCents: number, extra: Record<string, unknown> = {}) {
+  return fetch(`${baseUrl}/api/webhooks/asaas`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'asaas-access-token': process.env.ASAAS_WEBHOOK_TOKEN! },
+    body: JSON.stringify({ event, payment: { id: providerPaymentId, value: valorCents / 100, ...extra } }),
+  });
+}
+
+async function testeRLocacaoMensal() {
+  secao('TESTE R (navegador, celular 390x844) - locacao mensal por quantidade: pedido, aceite com audio, pagamento, acesso e encerramento');
+
+  // Estacionamento de 2 vagas a R$ 300,00: sobra R$ 291,00 por mes para o dono (taxa de 3%).
+  const slug = `${tag}-locacao`;
+  const espacoId = await criarAnuncio(sql, {
+    ownerId: donoId, slug, precoCents: 30_000, quantidade: 2, tipo: 'estacionamento',
+    cidade: 'Colatina', lat: ISOLADO_LOCACAO.lat, lng: ISOLADO_LOCACAO.lng,
+  });
+  await sql`UPDATE spaces SET title='Estacionamento coberto com 2 vagas' WHERE id=${espacoId}`;
+  const celular = { width: 390, height: 844 };
+
+  // --- o locatario ve o anuncio: vagas livres e nada de endereco exato ---
+  const pageOutro = await novaAba(testbed!.users.get(outroId)!, { viewport: celular });
+  await pageOutro.goto(`${baseUrl}/espacos/${slug}`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByTestId('resumo-unidades').waitFor({ timeout: 20_000 });
+  expect('o anuncio diz quantas vagas estao livres', (await pageOutro.getByTestId('resumo-unidades').textContent())?.trim(), '2 de 2 vagas disponíveis');
+  const textoPublico = (await pageOutro.locator('main').textContent()) ?? '';
+  assert('a pagina publica nao mostra rua nem numero (so a regiao)', !textoPublico.includes('Rua Exata'), textoPublico.slice(0, 160));
+  assert('mostra o valor mensal', textoPublico.includes(formatBRL(30_000)), '');
+  await pageOutro.screenshot({ path: join(tmp, 'teste-r-1-anuncio.png'), fullPage: true });
+
+  // --- pedido: nada cobrado, nao ocupa vaga ---
+  await pageOutro.goto(`${baseUrl}/espacos/${slug}/solicitar`, { waitUntil: 'domcontentloaded' });
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  await pageOutro.getByLabel('A partir de quando?').fill(amanha.toISOString().slice(0, 10));
+  await pageOutro.getByLabel('Mensagem para o proprietário').fill('Tenho um carro e preciso de uma vaga fixa.');
+  await pageOutro.screenshot({ path: join(tmp, 'teste-r-2-solicitar.png'), fullPage: true });
+  await pageOutro.getByRole('button', { name: 'Enviar solicitação' }).click();
+  await pageOutro.waitForURL(/\/reservas\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  const bookingId = pageOutro.url().match(/\/reservas\/([0-9a-f-]{36})/)![1]!;
+  expect('pedido pendente nao ocupa vaga (continuam 2 livres)', (await vagas(sql, espacoId)).livres, 2);
+
+  // --- o proprietario aceita com instrucoes por texto E por audio gravado de verdade (microfone falso) ---
+  const pageDono = await novaAba(testbed!.users.get(donoId)!, { viewport: celular });
+  const violacoesCsp: string[] = [];
+  for (const aba of [pageOutro, pageDono]) {
+    aba.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy/i.test(m.text())) violacoesCsp.push(m.text().slice(0, 200)); });
+  }
+  await configurarRecebimentoSeFaltar(pageDono);
+  await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByText('Tenho um carro e preciso de uma vaga fixa.').waitFor({ timeout: 20_000 });
+  await pageDono.screenshot({ path: join(tmp, 'teste-r-3-solicitacoes.png'), fullPage: true });
+  await pageDono.getByRole('button', { name: 'Aceitar', exact: true }).first().click();
+  await pageDono.getByLabel('Instruções escritas').fill('Entrada pelo portão da lateral. Sua vaga é a número 2, com placa azul.');
+  await pageDono.getByRole('button', { name: 'Gravar áudio' }).click();
+  await pageDono.getByText('Gravando').waitFor({ timeout: 10_000 });
+  await new Promise((r) => setTimeout(r, 1800));
+  await pageDono.getByRole('button', { name: 'Parar' }).click();
+  await pageDono.getByText('Áudio pronto para ser enviado com o aceite.').waitFor({ timeout: 25_000 });
+  ok('o gravador de audio do app grava e envia o audio das instrucoes (microfone falso do Chromium)');
+  await pageDono.screenshot({ path: join(tmp, 'teste-r-4-aceite-audio.png'), fullPage: true });
+  await pageDono.getByRole('button', { name: 'Aceitar solicitação' }).click();
+  await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
+
+  const [aceita] = await sql<{ status: string; audio: string | null; ms: number | null; instr: string | null; prazo: Date | null }[]>`
+    SELECT status::text, access_audio_path AS audio, access_audio_duration_ms AS ms, access_instructions AS instr,
+           first_payment_deadline_at AS prazo FROM bookings WHERE id=${bookingId}`;
+  expect('o aceite gravou a locacao como aceita, com texto e audio', [aceita?.status, Boolean(aceita?.instr), Boolean(aceita?.audio)], ['approved', true, true]);
+  assert('a duracao do audio gravado vem registrada', (aceita?.ms ?? 0) >= 1000, String(aceita?.ms));
+  assert('o prazo de pagamento (24 h) foi gravado pelo banco', aceita?.prazo != null, String(aceita?.prazo));
+  expect('aceitar ocupa UMA vaga: sobra 1 de 2', (await vagas(sql, espacoId)).livres, 1);
+  // Quem já tem uma locação aqui vê a própria locação no lugar do botão de solicitar; o resumo de vagas é do dono e do público.
+  await pageDono.goto(`${baseUrl}/espacos/${slug}`, { waitUntil: 'domcontentloaded' });
+  expect('o anuncio passa a dizer 1 de 2', (await pageDono.getByTestId('resumo-unidades').textContent())?.trim(), '1 de 2 vagas disponível');
+
+  // --- antes de pagar: o locatario NAO ve instrucoes nem endereco ---
+  await pageOutro.goto(`${baseUrl}/reservas/${bookingId}`, { waitUntil: 'domcontentloaded' });
+  const antes = (await pageOutro.locator('main').textContent()) ?? '';
+  assert('antes de pagar nao aparecem as instrucoes escritas', !antes.includes('portão da lateral'), '');
+  assert('antes de pagar nao aparece o endereco exato', !antes.includes('Rua Exata'), '');
+  assert('diz que as instrucoes aparecem depois do pagamento', antes.includes('assim que o pagamento for confirmado'), antes.slice(0, 200));
+  expect('e nao oferece rota antes de confirmar', await pageOutro.getByTestId('tracar-rota').count(), 0);
+  const audioAntes = await pageOutro.evaluate(`fetch('/api/reservas/${bookingId}/audio').then(function (r) { return r.status; })`);
+  assert('o audio das instrucoes e negado antes do pagamento', audioAntes === 403 || audioAntes === 404, String(audioAntes));
+  await pageOutro.screenshot({ path: join(tmp, 'teste-r-5-antes-de-pagar.png'), fullPage: true });
+
+  // --- pagamento (cartao automatico: o cartao e informado na pagina do gateway, nunca no site) ---
+  await pageOutro.route('http://127.0.0.1/fake-invoice/**', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/plain', body: 'Fatura simulada do Asaas (duble de teste).' }));
+  await pageOutro.goto(`${baseUrl}/reservas/${bookingId}/pagar`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByTestId('prazo-pagamento').waitFor({ timeout: 20_000 });
+  await pageOutro.screenshot({ path: join(tmp, 'teste-r-6-pagar.png'), fullPage: true });
+  await pageOutro.getByLabel('CPF ou CNPJ').fill(gerarCpfValido());
+  await pageOutro.getByRole('button', { name: 'Confirmar e cadastrar o cartão' }).click();
+  await pageOutro.waitForURL(/fake-invoice/, { timeout: 20_000 });
+  const [cobranca] = await sql<{ provider_payment_id: string; amount_cents: number }[]>`
+    SELECT provider_payment_id, amount_cents FROM payments WHERE booking_id=${bookingId}`;
+  expect('a cobranca e o aluguel + 3% de taxa, calculados pelo servidor', cobranca?.amount_cents, 30_900);
+  expect('webhook de confirmacao responde 200', (await webhookAsaas('PAYMENT_CONFIRMED', cobranca!.provider_payment_id, cobranca!.amount_cents)).status, 200);
+  expect('webhook de recebimento responde 200',
+    (await webhookAsaas('PAYMENT_RECEIVED', cobranca!.provider_payment_id, cobranca!.amount_cents, { netValue: (cobranca!.amount_cents - 199) / 100 })).status, 200);
+  const [ativa] = await sql<{ status: string; payout: number }[]>`SELECT status::text, owner_payout_cents AS payout FROM bookings WHERE id=${bookingId}`;
+  expect('so o webhook confirma: a locacao fica ativa', ativa?.status, 'active');
+  expect('o proprietario recebe R$ 291,00 por mes (aluguel menos 3%)', ativa?.payout, 29_100);
+
+  // --- depois de pagar: instrucoes, audio, endereco e rota ---
+  await pageOutro.goto(`${baseUrl}/reservas/${bookingId}`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByTestId('instrucoes-de-acesso').waitFor({ timeout: 20_000 });
+  const depois = (await pageOutro.locator('main').textContent()) ?? '';
+  assert('as instrucoes escritas aparecem depois do pagamento', depois.includes('portão da lateral'), depois.slice(0, 200));
+  assert('o endereco exato aparece depois do pagamento', depois.includes('Rua Exata'), '');
+  assert('mostra o proximo vencimento', depois.includes('Próximo vencimento'), '');
+  const rota = await pageOutro.getByTestId('tracar-rota').getAttribute('href');
+  assert('"Traçar rota" aponta para o ponto exato do anuncio', Boolean(rota?.includes(`destination=${ISOLADO_LOCACAO.lat},${ISOLADO_LOCACAO.lng}`)), String(rota));
+  const audioDepois = await pageOutro.evaluate(
+    `fetch('/api/reservas/${bookingId}/audio').then(function (r) { return r.blob().then(function (b) { return [r.status, r.headers.get('content-type'), b.size]; }); })`,
+  ) as [number, string | null, number];
+  assert('o locatario ouve o audio das instrucoes depois de pagar', audioDepois[0] === 200 && (audioDepois[1] ?? '').startsWith('audio/') && audioDepois[2] > 500, JSON.stringify(audioDepois));
+  await pageOutro.screenshot({ path: join(tmp, 'teste-r-7-depois-de-pagar.png'), fullPage: true });
+
+  // --- painel do proprietario: valor liquido e vagas ---
+  await pageDono.goto(`${baseUrl}/meus-espacos`, { waitUntil: 'domcontentloaded' });
+  const painel = (await pageDono.locator('main').textContent()) ?? '';
+  assert('o painel mostra 1 de 2 vagas disponivel no anuncio', painel.includes('1 de 2 vagas disponível'), painel.slice(0, 600));
+  await pageDono.screenshot({ path: join(tmp, 'teste-r-8-painel.png'), fullPage: true });
+  await pageDono.goto(`${baseUrl}/meus-espacos/financeiro`, { waitUntil: 'domcontentloaded' });
+  const financeiro = (await pageDono.locator('main').textContent()) ?? '';
+  assert('o extrato mostra o valor liquido mensal R$ 291,00', financeiro.includes(formatBRL(29_100)), financeiro.slice(0, 400));
+  await pageDono.screenshot({ path: join(tmp, 'teste-r-9-financeiro.png'), fullPage: true });
+
+  // --- o proprietario pede o encerramento (data + motivo); o locatario e avisado e a locacao continua ---
+  await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes?filtro=andamento`, { waitUntil: 'domcontentloaded' });
+  await pageDono.getByRole('button', { name: 'Solicitar encerramento da locação' }).click();
+  await pageDono.getByLabel('Motivo', { exact: true }).fill('Vou precisar do espaço para outra finalidade.');
+  await pageDono.getByRole('button', { name: 'Registrar pedido' }).click();
+  await pageDono.getByText('Pedido de encerramento registrado').waitFor({ timeout: 20_000 });
+  const [pedidoFim] = await sql<{ status: string; n: number }[]>`
+    SELECT status::text, count(*) OVER ()::int AS n FROM booking_end_requests WHERE booking_id=${bookingId}`;
+  expect('o pedido de encerramento fica registrado como pendente', [pedidoFim?.status, pedidoFim?.n], ['pending', 1]);
+  expect('a locacao continua ativa ate a data', (await sql<{ status: string }[]>`SELECT status::text FROM bookings WHERE id=${bookingId}`)[0]?.status, 'active');
+  await pageOutro.goto(`${baseUrl}/reservas/${bookingId}`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByText('O proprietário pediu o encerramento para').waitFor({ timeout: 20_000 });
+  assert('o locatario ve o motivo do pedido', ((await pageOutro.locator('main').textContent()) ?? '').includes('outra finalidade'), '');
+  await pageOutro.screenshot({ path: join(tmp, 'teste-r-10-pedido-encerramento.png'), fullPage: true });
+
+  // --- pagamento pendente: janela de 2 h (o banco confere o prazo exato) ---
+  await sql`UPDATE bookings SET status='past_due', payment_issue_started_at=now(),
+              payment_issue_deadline_at=now() + interval '120 minutes' WHERE id=${bookingId}`;
+  await pageOutro.goto(`${baseUrl}/reservas/${bookingId}/pendente`, { waitUntil: 'domcontentloaded' });
+  await pageOutro.getByRole('heading', { name: 'Pagamento pendente' }).waitFor({ timeout: 20_000 });
+  const pendente = (await pageOutro.locator('main').textContent()) ?? '';
+  assert('a tela de pendencia mostra a contagem de 2 horas', /1 h 5\d min|2 h|1 h 59/.test(pendente), pendente.slice(0, 300));
+  await pageOutro.screenshot({ path: join(tmp, 'teste-r-11-pendente.png'), fullPage: true });
+  const janelaErrada = await sql`UPDATE bookings SET payment_issue_deadline_at=now() + interval '3 hours' WHERE id=${bookingId}`
+    .then(() => 'passou', (e) => (e as { constraint_name?: string }).constraint_name);
+  expect('o banco recusa uma janela de pagamento que nao seja de 2 horas', janelaErrada, 'bookings_payment_window');
+
+  // Quem abre o app com pagamento pendente (aba nova: nada foi dispensado ainda) ve o aviso na frente, com X.
+  const pageOutro2 = await novaAba(testbed!.users.get(outroId)!, { viewport: celular });
+  await pageOutro2.goto(`${baseUrl}/espacos`, { waitUntil: 'domcontentloaded' });
+  const aviso = pageOutro2.getByTestId('aviso-pagamento-pendente');
+  await aviso.getByRole('heading', { name: 'Pagamento pendente' }).waitFor({ timeout: 20_000 });
+  assert('o aviso de pagamento pendente mostra a contagem e o caminho para regularizar',
+    /\d h \d+ min|\d+ min/.test((await aviso.textContent()) ?? '') && (await aviso.getByRole('link').count()) > 0, (await aviso.textContent()) ?? '');
+  await pageOutro2.screenshot({ path: join(tmp, 'teste-r-12-aviso-pendente.png') });
+  await aviso.getByRole('button', { name: 'Fechar' }).click();
+  await aviso.waitFor({ state: 'hidden', timeout: 10_000 });
+  ok('o aviso fecha no X e a pagina volta a funcionar');
+  await pageOutro2.context().close();
+
+  // A pendencia foi so para a tela: volta ao normal para os testes seguintes.
+  await sql`UPDATE bookings SET status='active', payment_issue_started_at=NULL, payment_issue_deadline_at=NULL WHERE id=${bookingId}`;
+
+  assert('nenhuma violacao da politica de seguranca (CSP) no navegador de quem aluga nem de quem anuncia', violacoesCsp.length === 0, violacoesCsp.join(' | '));
+
+  // O anuncio tem pagamento no razao: sai da vitrine (arquivado) mas o historico financeiro fica.
+  await sql`UPDATE spaces SET status='archived' WHERE id=${espacoId}`;
+  await pageOutro.context().close();
+  await pageDono.context().close();
+}
+
+async function testeSMapaExploracao() {
+  secao('TESTE S (navegador, celular 390x844) - /mapa: raio de 2 km, marcadores por categoria, previa, filtros e contagem');
+
+  const base = ISOLADO_MAPA;
+  const aoNorte = (metros: number) => base.lat + metros / 111_320;
+  const criar = async (sufixo: string, titulo: string, tipo: string, precoCents: number, metros: number, quantidade = 1) => {
+    const id = await criarAnuncio(sql, {
+      ownerId: donoId, slug: `${tag}-mapa-${sufixo}`, precoCents, quantidade, tipo, cidade: 'Colatina',
+      lat: aoNorte(metros), lng: base.lng,
+    });
+    await sql`UPDATE spaces SET title=${titulo} WHERE id=${id}`;
+    return id;
+  };
+  const a = await criar('a', 'Garagem coberta pertinho', 'garagem', 15_000, 300);
+  const b = await criar('b', 'Estacionamento de bairro', 'estacionamento', 28_000, 800, 5);
+  const c = await criar('c', 'Depósito seco', 'deposito', 9_000, 1_500);
+  const d = await criar('d', 'Loja na avenida', 'loja', 60_000, 3_200);
+  const ids = [a, b, c, d];
+
+  try {
+    const page = await novaAba(testbed!.users.get(outroId)!, {
+      viewport: { width: 390, height: 844 },
+      geolocation: { latitude: base.lat, longitude: base.lng },
+    });
+    const violacoesCsp: string[] = [];
+    page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy|Refused to evaluate/i.test(m.text())) violacoesCsp.push(m.text().slice(0, 200)); });
+    const workers: string[] = [];
+    page.on('worker', (w) => workers.push(w.url()));
+    await page.goto(`${baseUrl}/mapa`, { waitUntil: 'domcontentloaded' });
+
+    // O mapa abre em volta da localizacao da pessoa, com o raio de 2 km: 3 espacos dentro, a loja (3,2 km) fora.
+    await page.getByTestId('contagem-barra').getByText(/3 espaços a até 2 km/).waitFor({ timeout: 40_000 });
+    ok('o mapa abre na localizacao da pessoa e conta 3 espacos a ate 2 km');
+    await page.getByTestId('pino-espaco').first().waitFor({ timeout: 20_000 });
+    const pinos = await page.getByTestId('pino-espaco').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label') ?? ''));
+    expect('um marcador individual por espaco proximo (sem aglomerar 3 anuncios)', pinos.length, 3);
+    assert('o marcador diz a categoria, o titulo e o valor mensal',
+      pinos.some((t) => t.startsWith('Garagem e vaga: Garagem coberta pertinho') && t.includes('por mês')), pinos.join(' | '));
+    assert('o deposito aparece como Armazenamento', pinos.some((t) => t.startsWith('Armazenamento: Depósito seco')), pinos.join(' | '));
+    assert('a loja a 3,2 km nao aparece (fora do raio e sem destaque)', !pinos.some((t) => t.includes('Loja na avenida')), pinos.join(' | '));
+    // O círculo do raio é uma camada GeoJSON, que só existe com o worker do mapa funcionando.
+    await page.locator('[data-testid="mapa-exploracao"][data-raio-pronto="true"]').waitFor({ timeout: 30_000 });
+    ok('o circulo de 2 km e desenhado (o worker do mapa processou a camada)');
+    assert('o worker do mapa vem do proprio site, e nao do endereco da pagina',
+      workers.length > 0 && workers.every((u) => u.includes('/maplibre/maplibre-gl-worker.mjs')), workers.join(' | '));
+    await page.screenshot({ path: join(tmp, 'teste-s-1-mapa.png') });
+
+    // Previa ao tocar: titulo, valor mensal, distancia e "Ver espaco".
+    await page.getByTestId('pino-espaco').filter({ hasText: /150/ }).first().click();
+    const previa = page.getByTestId('previa-espaco');
+    await previa.waitFor({ timeout: 15_000 });
+    const textoPrevia = (await previa.textContent()) ?? '';
+    assert('a previa mostra o titulo', textoPrevia.includes('Garagem coberta pertinho'), textoPrevia);
+    assert('a previa mostra o valor por mes', textoPrevia.includes('R$') && textoPrevia.includes('mês'), textoPrevia);
+    assert('a previa mostra a distancia aproximada', /\b\d+(,\d)? ?(m|km)\b/.test(textoPrevia), textoPrevia);
+    const href = await previa.getByTestId('ver-espaco').getAttribute('href');
+    expect('"Ver espaço" leva ao anuncio', href, `/espacos/${tag}-mapa-a`);
+    await page.screenshot({ path: join(tmp, 'teste-s-2-previa.png') });
+    await page.getByTestId('fechar-previa').click();
+    await previa.waitFor({ state: 'detached', timeout: 10_000 });
+
+    // Filtros com contagem ao vivo.
+    await page.getByTestId('abrir-filtros').click();
+    // Há dois painéis no DOM (lateral no computador, folha no celular): vale o que está visível.
+    const painel = page.locator('[data-testid="filtros-mapa"]:visible');
+    await painel.waitFor({ timeout: 10_000 });
+    await painel.getByRole('button', { name: 'Até R$ 200' }).click();
+    await painel.getByTestId('contagem-mapa').getByText(/2 espaços a até 2 km/).waitFor({ timeout: 20_000 });
+    ok('preco ate R$ 200: sobram a garagem (R$ 150) e o deposito (R$ 90)');
+    await painel.getByRole('button', { name: '1 km' }).click();
+    await painel.getByTestId('contagem-mapa').getByText(/1 espaço a até 1 km/).waitFor({ timeout: 20_000 });
+    ok('distancia de 1 km: so a garagem a 300 m');
+    await painel.getByRole('button', { name: 'Armazenamento' }).click();
+    await painel.getByTestId('contagem-mapa').getByText(/Nenhum espaço com esses filtros/).waitFor({ timeout: 20_000 });
+    ok('categoria Armazenamento + 1 km + R$ 200: nenhum resultado (e o painel diz isso)');
+    await page.screenshot({ path: join(tmp, 'teste-s-3-filtros.png') });
+    await painel.getByRole('button', { name: '5 km' }).click();
+    await painel.getByTestId('contagem-mapa').getByText(/1 espaço a até 5 km/).waitFor({ timeout: 20_000 });
+    ok('abrindo para 5 km volta o deposito, o unico de Armazenamento ate R$ 200');
+
+    assert('o mapa de exploracao roda sem nenhuma violacao da politica de seguranca (sem unsafe-eval)', violacoesCsp.length === 0, violacoesCsp.join(' | '));
+    const estaPagina = new URL(page.url());
+    assert('a localizacao da pessoa nao vai para a URL', !estaPagina.search.includes(String(base.lat).slice(0, 5)), estaPagina.search);
+    await page.context().close();
+  } finally {
+    await sql`DELETE FROM spaces WHERE id IN ${sql(ids)}`;
+  }
 }
 
 async function testeMChat() {
@@ -2597,7 +2925,7 @@ async function testeQFase23() {
     ok('2. proprietária cria o espaço pelo assistente (tipo, local pelo CEP, características, 3 fotos, descrição)');
 
     // ---- 3. Define preço ----
-    await pageDono.locator('#g0-monthlyPrice').fill('320,00');
+    await pageDono.getByLabel('Valor mensal').fill('320,00');
     await pageDono.locator('form button[type="submit"]').last().click();
     await pageDono.waitForURL(/\/regras$/, { timeout: 30_000 });
     const [precoQ] = await sql<{ p: number }[]>`SELECT price_monthly_cents AS p FROM spaces WHERE id=${espacoQ}`;
@@ -2700,7 +3028,7 @@ async function testeQFase23() {
 
     // ---- 14. Proprietário altera preço ----
     await pageDono.goto(`${baseUrl}/anunciar/${espacoQ}/preco`, { waitUntil: 'domcontentloaded' });
-    await pageDono.locator('#g0-monthlyPrice').fill('290,00');
+    await pageDono.getByLabel('Valor mensal').fill('290,00');
     await pageDono.locator('form button[type="submit"]').last().click();
     await pageDono.waitForURL(/\/regras$|\/revisao$/, { timeout: 30_000 });
     const [novoPreco] = await sql<{ p: number }[]>`SELECT price_monthly_cents AS p FROM spaces WHERE id=${espacoQ}`;
@@ -2786,8 +3114,7 @@ async function testeQFase23() {
     await pageLoc.waitForURL(/\/reservas/, { timeout: 20_000 });
 
     await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes`, { waitUntil: 'domcontentloaded' });
-    await pageDono.getByRole('button', { name: 'Aceitar' }).first().click();
-    await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
+    await aceitarPelaTela(pageDono);
 
     await pageLoc.route('http://127.0.0.1/fake-invoice/**', (route) =>
       route.fulfill({ status: 200, contentType: 'text/plain', body: 'Fatura simulada do Asaas (dublê de teste).' }));

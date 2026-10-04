@@ -207,9 +207,9 @@ async function main() {
   const { listUserWaitlist, countWaitingBySpace } = await import('../src/lib/waitlist/queries');
   const { runWaitlistSweep } = await import('../src/lib/waitlist/notify');
   const { createAvailabilityBlockAction, cancelAvailabilityBlockAction } = await import('../src/lib/calendar/actions');
-  const { getPublicCalendarRanges, getOwnerCalendarData } = await import('../src/lib/calendar/queries');
+  const { getOwnerCalendarData } = await import('../src/lib/calendar/queries');
   const { buildMonth, dayState } = await import('../src/lib/calendar/month');
-  const { earliestStartDate } = await import('../src/lib/spaces/availability');
+  const { earliestStartDate, getSpaceAvailability } = await import('../src/lib/spaces/availability');
 
   async function comRedirect<T>(fn: () => Promise<T>): Promise<{ redirecionou: boolean; resultado?: T }> {
     try {
@@ -657,9 +657,10 @@ async function main() {
   const bAlheio = await bloquear(e9.id, diasAFrente(40), diasAFrente(41));
   assert('outra pessoa não bloqueia datas de espaço alheio', !bAlheio.ok && /não encontrado/i.test(bAlheio.message ?? ''), bAlheio.message);
 
-  const publico = await getPublicCalendarRanges(e9.id);
+  // O que a página pública do anúncio lê: períodos bloqueados, sem motivo e sem anotação.
+  const publico = await getSpaceAvailability(e9.id);
   expect('público vê o período bloqueado, e só o período (sem motivo nem anotação)',
-    publico.blocked.map((b) => Object.keys(b).sort()), [['endsOn', 'startsOn']]);
+    publico?.upcomingBlocks.map((b) => Object.keys(b).sort()), [['endsOn', 'startsOn']]);
   assert('a anotação privada não aparece na leitura pública', !JSON.stringify(publico).includes('portão'));
   const doDono = await getOwnerCalendarData(e9.id, donoId);
   assert('o dono vê motivo e anotação', doDono?.blocks[0]?.reason === 'uso_proprio' && doDono.blocks[0].note === 'reforma do portão');
@@ -739,6 +740,15 @@ async function main() {
   expect('ontem = passado', dayState(diasAFrente(-1), entradaCal).state, 'passado');
   expect('locação sem fim ocupa para sempre',
     dayState(diasAFrente(400), { ...entradaCal, occupied: [{ startsOn: diasAFrente(5), endsOn: null }] }).state, 'ocupado');
+  // Várias vagas: uma locação não fecha o dia; só fecha quando não sobra nenhuma.
+  const umaDeDuas = [{ startsOn: diasAFrente(5), endsOn: null }];
+  const duasDeDuas = [...umaDeDuas, { startsOn: diasAFrente(8), endsOn: diasAFrente(40) }];
+  expect('1 locação em 2 vagas: o dia continua disponível',
+    dayState(diasAFrente(20), { ...entradaCal, capacity: 2, occupied: umaDeDuas }).state, 'disponivel');
+  expect('2 locações em 2 vagas: o dia fica ocupado',
+    dayState(diasAFrente(20), { ...entradaCal, capacity: 2, occupied: duasDeDuas }).state, 'ocupado');
+  expect('depois do fim da segunda locação, volta a ter vaga',
+    dayState(diasAFrente(41), { ...entradaCal, capacity: 2, occupied: duasDeDuas }).state, 'disponivel');
   const mesTeste = buildMonth(2026, 11, { ...entradaCal, today: '2026-11-01', availableFrom: null, blocked: [] });
   expect('novembro/2026 começa num domingo e tem 30 dias', [mesTeste.weeks[0][0].date, mesTeste.weeks.flat().filter((d) => d.inMonth).length], ['2026-11-01', 30]);
   expect('primeiro início possível pula o último bloqueio',

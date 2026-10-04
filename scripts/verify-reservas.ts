@@ -504,12 +504,41 @@ async function main() {
   }
 }
 
+/** Apaga TUDO o que o teste criou — anúncio publicado que sobra aparece nas buscas dos outros testes. */
+async function limpar() {
+  const pessoas = [donoId, ...renters];
+  try {
+    await sql`DELETE FROM messages WHERE conversation_id IN (
+      SELECT id FROM conversations WHERE owner_id = ${donoId} OR renter_id IN ${sql(renters)})`;
+    await sql`DELETE FROM conversations WHERE owner_id = ${donoId} OR renter_id IN ${sql(renters)}`;
+    // As solicitações de encerramento, as locações e os anúncios são ON DELETE RESTRICT: saem nesta ordem.
+    await sql`DELETE FROM booking_end_requests WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id = ${donoId})`;
+    await sql`DELETE FROM payouts WHERE payment_id IN (SELECT id FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id = ${donoId}))`;
+    await sql`DELETE FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id = ${donoId})`;
+    await sql`DELETE FROM subscriptions WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id = ${donoId})`;
+    await sql`DELETE FROM booking_deposits WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id = ${donoId})`;
+    await sql`DELETE FROM reviews WHERE booking_id IN (SELECT id FROM bookings WHERE owner_id = ${donoId})`;
+    await sql`DELETE FROM bookings WHERE owner_id = ${donoId} OR renter_id IN ${sql(renters)}`;
+    await sql`DELETE FROM spaces WHERE owner_id = ${donoId}`;
+    await sql.begin(async (tx) => {
+      await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
+      await tx`DELETE FROM public.audit_logs WHERE actor_id IN ${sql(pessoas)}`;
+      await tx`DELETE FROM public.notifications WHERE user_id IN ${sql(pessoas)}`;
+      await tx`DELETE FROM auth.users WHERE id IN ${sql(pessoas)}`;
+      await tx`ALTER TABLE public.audit_logs ENABLE TRIGGER audit_logs_append_only`;
+    });
+  } catch (err) {
+    console.log(`  \x1b[2mlimpeza: ${String(err).slice(0, 300)}\x1b[0m`);
+  }
+}
+
 main()
   .catch((err) => {
     console.error('\nErro inesperado:', err);
     failed++;
   })
   .finally(async () => {
+    await limpar();
     await sql.end({ timeout: 2 }).catch(() => {});
     process.exit(failed > 0 ? 1 : 0);
   });
