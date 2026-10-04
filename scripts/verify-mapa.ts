@@ -325,6 +325,8 @@ main()
   })
   .finally(async () => {
     await sql`DELETE FROM spaces WHERE owner_id = ${donoId}`.catch(() => {});
+    // Este teste não grava nada em audit_logs, então o usuário sai sem precisar mexer no trigger de só-acrescentar.
+    await sql`DELETE FROM auth.users WHERE id = ${donoId}`.catch(() => {});
     await sql.end({ timeout: 2 }).catch(() => {});
     process.exit(failed > 0 ? 1 : 0);
   });

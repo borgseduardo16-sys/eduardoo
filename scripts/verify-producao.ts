@@ -13,6 +13,7 @@
 import { config as loadEnv } from 'dotenv';
 loadEnv({ path: ['.env.local', '.env'], quiet: true });
 
+import { existsSync } from 'node:fs';
 import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
@@ -132,6 +133,34 @@ async function main() {
   } else {
     lembrete('Supabase apontando para o ambiente local', 'a checagem de "Confirm email" so vale contra o projeto real');
   }
+
+  secao('1b. Mapa e agendador por minuto');
+
+  // O worker do MapLibre é servido pelo próprio site (scripts/copy-maplibre-worker.mjs, em postinstall/dev/build).
+  // Sem ele, o círculo do raio não aparece e estilos vetoriais (MapTiler) saem em branco.
+  const worker = new URL('../public/maplibre/maplibre-gl-worker.mjs', import.meta.url);
+  if (existsSync(worker) && existsSync(new URL('../public/maplibre/maplibre-gl-shared.mjs', import.meta.url))) {
+    pronto('Worker do mapa presente em public/maplibre/');
+  } else {
+    faltando('Worker do mapa ausente (public/maplibre/)', 'rode `pnpm install` (ou `node scripts/copy-maplibre-worker.mjs`) antes do build — sem ele o mapa perde o círculo do raio e o MapTiler sai em branco');
+  }
+
+  if (configurado('NEXT_PUBLIC_MAPTILER_KEY') || configurado('NEXT_PUBLIC_TILE_URL')) {
+    pronto('Fonte de tiles própria ou MapTiler configurada');
+  } else {
+    lembrete('Mapa usando os tiles públicos do OpenStreetMap', 'a política deles é para tráfego leve; para o lançamento defina NEXT_PUBLIC_MAPTILER_KEY (e restrinja o domínio no painel) — ver docs/SETUP.md');
+  }
+
+  if (configurado('NEXT_PUBLIC_SATELLITE_TILE_URL') || configurado('NEXT_PUBLIC_MAPTILER_KEY')) {
+    pronto('Imagem aérea (satélite) disponível no mapa de exploração');
+  } else {
+    lembrete('Imagem aérea do mapa desligada', 'sem NEXT_PUBLIC_MAPTILER_KEY ou NEXT_PUBLIC_SATELLITE_TILE_URL o botão fica desativado e diz isso — o mapa de ruas continua funcionando');
+  }
+
+  lembrete(
+    'Agendador por minuto (/api/cron/minuto) — confirme que está rodando',
+    'quem encerra os prazos de 24 h e de 2 h é o relógio do banco (a cada leitura), mas os avisos e a lista de espera dependem deste job — ver docs/SETUP.md §15',
+  );
 
   secao('2. Ambiente e infraestrutura');
 

@@ -1998,19 +1998,21 @@ async function testeRLocacaoMensal() {
   }
   await configurarRecebimentoSeFaltar(pageDono);
   await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes`, { waitUntil: 'domcontentloaded' });
-  await pageDono.getByText('Tenho um carro e preciso de uma vaga fixa.').waitFor({ timeout: 20_000 });
+  // O proprietário pode ter outras solicitações e locações na lista: tudo é escopado ao cartão desta locação.
+  const cartaoR = pageDono.locator(`#reserva-${bookingId}`);
+  await cartaoR.getByText('Tenho um carro e preciso de uma vaga fixa.').waitFor({ timeout: 20_000 });
   await pageDono.screenshot({ path: join(tmp, 'teste-r-3-solicitacoes.png'), fullPage: true });
-  await pageDono.getByRole('button', { name: 'Aceitar', exact: true }).first().click();
-  await pageDono.getByLabel('Instruções escritas').fill('Entrada pelo portão da lateral. Sua vaga é a número 2, com placa azul.');
-  await pageDono.getByRole('button', { name: 'Gravar áudio' }).click();
-  await pageDono.getByText('Gravando').waitFor({ timeout: 10_000 });
+  await cartaoR.getByRole('button', { name: 'Aceitar', exact: true }).click();
+  await cartaoR.getByLabel('Instruções escritas').fill('Entrada pelo portão da lateral. Sua vaga é a número 2, com placa azul.');
+  await cartaoR.getByRole('button', { name: 'Gravar áudio' }).click();
+  await cartaoR.getByText('Gravando').waitFor({ timeout: 10_000 });
   await new Promise((r) => setTimeout(r, 1800));
-  await pageDono.getByRole('button', { name: 'Parar' }).click();
-  await pageDono.getByText('Áudio pronto para ser enviado com o aceite.').waitFor({ timeout: 25_000 });
+  await cartaoR.getByRole('button', { name: 'Parar' }).click();
+  await cartaoR.getByText('Áudio pronto para ser enviado com o aceite.').waitFor({ timeout: 25_000 });
   ok('o gravador de audio do app grava e envia o audio das instrucoes (microfone falso do Chromium)');
   await pageDono.screenshot({ path: join(tmp, 'teste-r-4-aceite-audio.png'), fullPage: true });
-  await pageDono.getByRole('button', { name: 'Aceitar solicitação' }).click();
-  await pageDono.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
+  await cartaoR.getByRole('button', { name: 'Aceitar solicitação' }).click();
+  await cartaoR.getByText('Solicitação aceita.').waitFor({ timeout: 20_000 });
 
   const [aceita] = await sql<{ status: string; audio: string | null; ms: number | null; instr: string | null; prazo: Date | null }[]>`
     SELECT status::text, access_audio_path AS audio, access_audio_duration_ms AS ms, access_instructions AS instr,
@@ -2080,10 +2082,11 @@ async function testeRLocacaoMensal() {
 
   // --- o proprietario pede o encerramento (data + motivo); o locatario e avisado e a locacao continua ---
   await pageDono.goto(`${baseUrl}/meus-espacos/solicitacoes?filtro=andamento`, { waitUntil: 'domcontentloaded' });
-  await pageDono.getByRole('button', { name: 'Solicitar encerramento da locação' }).click();
-  await pageDono.getByLabel('Motivo', { exact: true }).fill('Vou precisar do espaço para outra finalidade.');
-  await pageDono.getByRole('button', { name: 'Registrar pedido' }).click();
-  await pageDono.getByText('Pedido de encerramento registrado').waitFor({ timeout: 20_000 });
+  const cartaoAtiva = pageDono.locator(`#reserva-${bookingId}`);
+  await cartaoAtiva.getByRole('button', { name: 'Solicitar encerramento da locação' }).click();
+  await cartaoAtiva.getByLabel('Motivo', { exact: true }).fill('Vou precisar do espaço para outra finalidade.');
+  await cartaoAtiva.getByRole('button', { name: 'Registrar pedido' }).click();
+  await cartaoAtiva.getByText('Pedido de encerramento registrado').waitFor({ timeout: 20_000 });
   const [pedidoFim] = await sql<{ status: string; n: number }[]>`
     SELECT status::text, count(*) OVER ()::int AS n FROM booking_end_requests WHERE booking_id=${bookingId}`;
   expect('o pedido de encerramento fica registrado como pendente', [pedidoFim?.status, pedidoFim?.n], ['pending', 1]);
@@ -3006,7 +3009,7 @@ async function testeQFase23() {
     );
     await pageLoc.goto(`${baseUrl}/espacos/${slugQ}`, { waitUntil: 'domcontentloaded' });
     await pageLoc.getByText('Indisponível no momento', { exact: true }).waitFor({ timeout: 20_000 });
-    await pageLoc.getByRole('button', { name: 'Entrar na lista de espera' }).click();
+    await pageLoc.getByRole('button', { name: 'Avise-me quando estiver disponível' }).click();
     const naFila = await esperarNoBanco(
       async () => (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM waitlist_entries WHERE user_id=${locQ} AND space_id=${espacoQ} AND status='waiting'`)[0]!.n,
       (n) => n === 1,
@@ -3250,6 +3253,10 @@ async function limpar() {
         console.log(`  ${FRACO}espaco ${id} ainda tem reserva com lancamento no razao — fica como residuo inerte (esperado): ${String(err).slice(0, 100)}${FIM}`);
       }
     }
+    // O que não deu para apagar (preso a um lançamento no razão) sai da vitrine: anúncio publicado que sobra
+    // aparece nas buscas dos outros testes e das próximas execuções.
+    await sql`UPDATE spaces SET status='archived'
+               WHERE owner_id IN (${donoId}, ${outroId}, ${donoPromoId}) AND status IN ('published', 'rented')`;
   } catch (err) {
     console.log(`  ${FRACO}limpeza de espacos: ${String(err).slice(0, 140)}${FIM}`);
   }

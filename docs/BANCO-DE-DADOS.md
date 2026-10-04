@@ -78,16 +78,30 @@ emitir cobrança.
 ### `spaces`
 O anúncio. Tipo, título, descrição, preço mensal, regras, tamanho, status.
 
+**Quantidade (migração `0033`):** `quantity_offered` (quantas unidades o
+proprietário oferece na plataforma), `quantity_total` (opcional, informativo:
+"o local tem 100, 80 são oferecidas aqui") e `quantity_available` (livres
+agora — **mantida pelo banco**, ver `bookings` e [ALUGUEL.md](./ALUGUEL.md)).
+Não há unidade individual (A1, B17…): a organização física é do proprietário.
+
 **A parte importante são duas colunas de localização:**
 - `location` — o ponto **exato**. Nunca sai em resposta pública.
-- `approx_location` — ponto deslocado ~300 m, que é o que vai para o mapa.
+- `approx_location` — o que vai para o mapa, mantido pelo gatilho
+  `sync_approx_location`: para espaços residenciais/pessoais é um ponto
+  **deslocado de 100 a 400 m** (estável); para os tipos comerciais de
+  `platform_settings['privacy.exact_location_types']` (loja, escritório,
+  galpão, estacionamento, espaço para eventos, oficina) é o ponto exato, já
+  que o endereço deles é público por natureza.
 
 Idem para o endereço: `street`, `number` e `complement` só aparecem depois da
-reserva aceita. Bairro e cidade são públicos.
+locação confirmada, para qualquer tipo. Bairro e cidade são públicos.
 
 **Protege:** preço tem que ser positivo; anúncio publicado tem que ter
-coordenada (senão não apareceria em busca por distância e ficaria invisível
-sem ninguém entender por quê).
+coordenada (senão não apareceria em busca por distância) **e preço mensal**
+(`spaces_published_requires_price`); `quantity_offered` entre 1 e 10 000, o
+total nunca abaixo do oferecido e o disponível entre 0 e o oferecido
+(`spaces_quantity_*`); o proprietário não baixa a quantidade oferecida abaixo
+do que já está ocupado (`spaces_guard_quantity`).
 
 ### `space_images`
 As fotos. Guardamos o **caminho no bucket**, nunca uma URL pública fixa — a URL
@@ -134,23 +148,38 @@ impede favoritar duas vezes.
 ## Locação
 
 ### `bookings`
-A reserva. **A tabela mais importante do sistema.**
+A solicitação e, depois do aceite e do pagamento, a locação mensal.
+**A tabela mais importante do sistema.**
 
 Guarda os valores **congelados** no momento do aceite: aluguel, taxa do
 locatário, taxa do proprietário, total cobrado, valor do repasse, e as taxas
 vigentes em basis points. Se a plataforma mudar a taxa amanhã, contratos em
-andamento continuam com o que foi combinado.
+andamento continuam com o que foi combinado. Também guarda os **prazos**
+(`response_deadline_at`, `first_payment_deadline_at`, a janela de pagamento
+pendente) e as **instruções de acesso** do aceite (`access_instructions`,
+`access_audio_path`/`_duration_ms`/`_mime`).
 
 **Protege — e isto é o coração da segurança financeira:**
 - `total_charged = aluguel + taxa_locatário` é `CHECK` no banco
 - `owner_payout = aluguel − taxa_proprietário` é `CHECK` no banco
+- o aluguel gravado é o **preço do anúncio**, no pedido e no aceite
+  (`bookings_rent_matches_space`, gatilho `bookings_guard_price`): o navegador
+  nunca manda preço
+- **a última vaga não é vendida duas vezes**: `bookings_guard_capacity` trava
+  o anúncio e conta quantas locações ocupam vaga (`approved`,
+  `awaiting_payment`, `active`, `past_due`); passou do oferecido, recusa
+  (`bookings_capacity`). Pedido pendente não ocupa vaga
+- um pedido/locação viva por locatário e anúncio
+  (`bookings_one_live_per_renter_space`)
+- aceitar exige instruções de acesso — texto com 10+ caracteres **ou** áudio da
+  pasta da conversa (`guard_booking_approval`)
+- janela de pagamento pendente de **exatamente 120 minutos**
+  (`bookings_payment_window`)
 - locatário não pode ser o proprietário
-- **uma unidade (vaga, box, sala) não pode ter duas reservas que se
-  sobreponham no tempo** — desde a Parte 12; antes a regra era "uma locação
-  vigente por espaço" (ver a seção da Parte 12, abaixo)
 
 Um bug de aplicação que tentasse gravar total adulterado é recusado pelo
-Postgres. Isso está testado em `scripts/verify-schema.ts`.
+Postgres. Isso está testado em `scripts/verify-schema.ts` e
+`scripts/verify-reservas.ts`.
 
 ### `subscriptions`
 A recorrência mensal no gateway. Uma reserva ativa tem uma assinatura viva.
@@ -195,8 +224,12 @@ A conversa entre interessado e proprietário, sempre no contexto de um anúncio.
 Única por (espaço, interessado) — reabrir o chat cai na mesma thread.
 
 ### `messages`
-As mensagens. Mensagem vazia é recusada pelo banco, e há limite de 4.000
-caracteres. Moderação esconde sem apagar (o conteúdo fica para auditoria).
+As mensagens, de **texto** ou **áudio** (`kind`; imagens não existem no chat).
+Texto vazio é recusado pelo banco, e há limite de 4.000 caracteres. Áudio tem
+caminho no bucket privado `chat-audio`, **dentro da pasta da própria conversa**
+(`messages_audio_path_in_conversation`), duração e formato conferidos
+(`messages_audio_shape`). Moderação esconde sem apagar (o conteúdo fica para
+auditoria).
 
 `flagged_at` e `flag_reason` são preenchidos pelo detector de dados de contato
 quando a mensagem contém telefone, e-mail, chave Pix ou pedido de pagamento por
@@ -392,79 +425,62 @@ antiga em aberto, ou um mês depois da última paga).
 
 ---
 
-## Unidades, aluguel por tempo e prazos de pagamento (Parte 12)
+## Modelo mensal por quantidade (migração `0033`)
 
-Migrações `0031` (tabelas e colunas, geradas pelo Drizzle) e `0032` (regras,
-gatilhos, funções e o preenchimento do que já existia). Detalhes do produto
-em [ALUGUEL.md](./ALUGUEL.md). As duas tabelas novas têm RLS ligada **sem
-política nenhuma** e `REVOKE` para `anon`/`authenticated`, como as da Fase 23.
+A `0033` troca o desenho da Parte 12 (unidades individuais, grupos, aluguel por
+hora/dia/semana — `0031` e `0032`) pelo modelo atual. Detalhes do produto em
+[ALUGUEL.md](./ALUGUEL.md). A migração é **uma transação só**, cuida dos dados
+que já existiam e **nunca apaga locação** (pagamentos e livro-razão apontam
+para elas): as de hora/dia/semana ainda vivas foram encerradas ou canceladas, e
+anúncio sem preço mensal ficou **pausado** até o proprietário informar o valor.
 
-| Tabela | Para quê | O que o banco garante |
-|---|---|---|
-| `space_unit_groups` | um grupo de unidades com as mesmas regras: modos (mensal, por tempo ou os dois), preço mensal, regra de tempo (preço por hora/dia/semana com máximo, ou pacotes), horário de funcionamento, renovação | ao menos um modo (`space_unit_groups_some_mode`); mensal tem preço (`_continuous_price`); regra de tempo completa e coerente (`_temporary_rule`, `_fraction_rule`); horário coerente (`_hours`, `_hours_temporary`); pacotes em ordem, sem duração repetida e sem pacote mais longo mais barato (`_packages_valid`, `_packages_ordered`); nome único no anúncio |
-| `space_units` | cada vaga/box/sala, dentro de um grupo do mesmo anúncio | grupo do mesmo anúncio (chave estrangeira composta `space_units_group_same_space_fk`); rótulo único no anúncio; unidade com aluguel em andamento não é desativada nem apagada (`space_units_keep_live_rental`); unidade com histórico só é desativada |
+**Saiu:** tabelas `space_units` e `space_unit_groups`; colunas `kind`,
+`group_id`, `unit_id`, `starts_at`, `ends_at`, `occupied_until`,
+`duration_*`, `renewal_allowed`, `renewed_from_id`, `hold_expires_at` em
+`bookings` e `temp_from_*` em `spaces`; os gatilhos e funções de unidade,
+preço por tempo e ocupação por unidade; os tipos `rental_kind`,
+`rental_time_unit`, `temporary_pricing_mode`, `operating_hours_mode`; as
+configurações `rental.hold_minutes`, `rental.max_advance_days` e
+`booking.request_expiry_days`.
 
-**`bookings` ganhou** `kind` (`continuous`/`temporary`), `group_id`,
-`unit_id`, `starts_at`/`ends_at`, `occupied_until` (fim + 7 min de janela de
-renovação), a duração comprada, `hold_expires_at` (prazo para pagar),
-`payment_issue_started_at`/`payment_issue_deadline_at` (pagamento
-pendente), `end_reason`, `renewed_from_id` e `idempotency_key`.
+**Entrou:**
 
-**Regras novas em `bookings`:**
+| O quê | Para quê |
+|---|---|
+| `spaces.quantity_offered` / `quantity_total` / `quantity_available` | quantas unidades o anúncio oferece, e quantas estão livres |
+| `bookings.response_deadline_at` / `first_payment_deadline_at` | prazos de 24 h (resposta do proprietário, pagamento do locatário), gravados pelo gatilho `bookings_set_deadlines` |
+| `bookings.access_*` | instruções de acesso do aceite: texto e/ou áudio, obrigatórias |
+| `booking_end_requests` | pedido do **proprietário** para encerrar a locação, com data e motivo; um pendente por locação (`booking_end_requests_one_pending`); só dono, só locação `active`/`past_due`, até 1 ano à frente (`guard_booking_end_request`). RLS ligada, sem política, `REVOKE` para `anon`/`authenticated` |
+| enum `booking_end_reason` (recriado) | `cancelled_by_renter`, `cancelled_by_owner`, `request_not_answered`, `payment_not_received`, `owner_end_request` |
+| `message_kind` (`text`/`audio`) e as colunas de áudio em `messages` | chat com áudio |
+| bucket `chat-audio` (Storage, privado) e suas políticas | áudio do chat e das instruções; só participante da conversa lê e envia |
+| `platform_settings`: `booking.request_expiry_hours` (24), `booking.payment_deadline_hours` (24), `booking.max_start_advance_days` (90), `rental.end_request_min_notice_days` (0), `privacy.exact_location_types` | prazos, aviso prévio (ainda sem regra) e tipos de espaço com ponto exato no mapa |
 
-- `bookings_unit_no_overlap` — restrição de exclusão (`btree_gist`): duas
-  reservas que ocupam a mesma unidade não têm intervalos sobrepostos. O
-  mensal ocupa do início em diante, sem fim. Substitui o antigo índice
-  `bookings_one_active_per_space`.
-- `bookings_occupying_has_unit` — reserva aceita, aguardando pagamento,
-  ativa ou com pagamento pendente sempre tem grupo e unidade.
-- `bookings_group_same_space_fk`, `bookings_unit_same_group_fk` — a unidade
-  é do grupo, e o grupo é do anúncio da reserva.
-- `bookings_derive_rental_shape` (gatilho) — o **banco** recalcula o valor
-  da reserva por tempo a partir das regras do grupo (`temporary_rent_cents`)
-  e recusa outro (`bookings_rent_matches_group`); confere o máximo, os
-  pacotes e o mínimo por cobrança (`bookings_temporary_rules`,
-  `bookings_temporary_minimum`), o horário de funcionamento
-  (`bookings_operating_hours`), o prazo para pagar (`bookings_temporary_hold`),
-  a janela de 7 minutos (`bookings_temporary_window`) e a renovação (mesma
-  unidade, a partir do fim — `bookings_renewal_rules`); depois de paga, a
-  reserva por tempo não muda de forma (`bookings_temporary_frozen`). O
-  mensal nasce com o preço do grupo.
-- `bookings_temporary_shape`, `bookings_continuous_open_ended`,
-  `bookings_payment_window` (40 min + 1 h, só em `past_due`),
-  `bookings_end_reason_matches` — cada estado com os campos que fazem
-  sentido para ele, e nada mais.
-- `bookings_one_live_renewal` — uma renovação viva por reserva;
-  `bookings_renter_idempotency_key` — o mesmo formulário enviado duas vezes
-  devolve a mesma reserva.
+**Funções:**
 
-**Funções:** `release_expired_rentals(space)` encerra pelo relógio do banco
-o que venceu (reserva não paga no prazo, janela de renovação, pagamento
-pendente sem pagamento) e devolve quantas mudou — roda na transação de quem
-vai alugar, antes das telas de aluguel e no agendador. O preço que a busca
-mostra (`spaces.price_monthly_cents` e o "a partir de" por tempo) é mantido
-pelos gatilhos `space_unit_groups_sync_summary`/`space_units_sync_summary`
-a partir dos grupos (`space_rental_summary`), e `spaces_price_from_units`
-recusa gravar outro valor direto no anúncio — a vitrine não mente.
-`spaces_publish_requires_units` não deixa publicar anúncio sem unidade
-alugável. A ocupação do anúncio (`rented`) passou a ser por unidade: só fica
-"alugado" quando **todas** as unidades ativas têm aluguel **mensal** vigente
-(`space_fully_rented`); aluguel por tempo nunca tira o anúncio do ar.
+- `refresh_space_availability(space)` — **reconta** (não soma/subtrai) as
+  locações que ocupam vaga e atualiza `quantity_available` e o status do
+  anúncio (`published` ↔ `rented`); trava a linha do anúncio. Chamada pelo
+  gatilho `bookings_sync_availability` e quando a quantidade muda
+  (`spaces_sync_after_quantity_change`).
+- `release_expired_rentals(space)` — encerra **pelo relógio do banco** o que
+  venceu: pedido sem resposta (24 h), aceite não pago (24 h), pagamento
+  pendente (2 h) e pedido de encerramento na data. Devolve quantas linhas
+  mudou. É chamada nas leituras e ações relevantes e pelo agendador.
+- `guard_availability_block` / `guard_booking_against_blocks` — o bloqueio
+  de datas do calendário fecha apenas o **início** de locações novas
+  (`bookings_period_not_blocked`); nunca derruba locação vigente.
+- `sync_approx_location` + `resync_approx_after_privacy_setting` — privacidade
+  da localização por tipo (ver `spaces`).
 
-**Índices para o agendador:** `bookings_hold_expires_idx`,
-`bookings_temporary_ending_idx`, `bookings_payment_deadline_idx`,
-`payments_outbox_idx` e `subscriptions_cancel_pending_idx` — cada varredura
-por minuto lê só o que está perto de vencer ou esperando o gateway.
+**Índices novos que importam:** `bookings_one_pending_per_renter_space` (um
+pedido pendente por pessoa e anúncio) e `booking_end_requests_due_idx` (a fila
+dos pedidos que vencem hoje).
 
-**Configurações novas:** `rental.hold_minutes` (15) e
-`rental.max_advance_days` (30). O mínimo por cobrança continua sendo
-`booking.min_rent_cents` (R$ 35).
-
-**Preenchimento:** cada anúncio que já existia ganhou um grupo e uma unidade
-com o mesmo preço mensal de antes, e cada reserva foi ligada a essa unidade —
-nada mudou para eles. **Uma exceção:** reserva que já estivesse em atraso
-(`past_due`) quando a `0032` roda ganha o prazo novo (40 min + 1 h) **a
-partir daquele momento** — antes não havia prazo nenhum.
+**Verificação do banco migrado:** `scripts/verify-paridade.ts` compara, tabela
+por tabela, colunas, índices, CHECKs e enums do banco com o schema do Drizzle;
+a cadeia `0000` → `0033` foi rodada num banco vazio para provar que ela sobe
+sozinha.
 
 ---
 
@@ -474,11 +490,12 @@ Nada acima é promessa. Os scripts rodam contra um **Postgres real**,
 provando que cada regra citada aqui bloqueia mesmo o dado inválido:
 
 ```bash
-pnpm tsx scripts/verify-schema.ts        # 218 — cada CHECK, trigger e índice único
-pnpm tsx scripts/verify-safety.ts        # 77 — segurança entre usuários
-pnpm tsx scripts/verify-confianca.ts     # 176 — perfil, avaliações, verificações, RLS
-pnpm tsx scripts/verify-descoberta.ts    # 373 — tudo da Fase 23, inclusive IDOR entre usuários
-pnpm tsx scripts/verify-alugueis.ts      # 106 — Parte 12: preço TS = SQL, unidades, prazos, concorrência
+pnpm tsx scripts/verify-schema.ts        # cada CHECK, gatilho e índice único (quantidade, preço, aceite, prazos, encerramento)
+pnpm tsx scripts/verify-safety.ts        # segurança entre usuários
+pnpm tsx scripts/verify-confianca.ts     # perfil, avaliações, verificações, RLS
+pnpm tsx scripts/verify-descoberta.ts    # tudo da Fase 23, inclusive IDOR entre usuários
+pnpm tsx scripts/verify-reservas.ts      # fluxo mensal por quantidade: prazos, última vaga em paralelo, encerramento
+pnpm tsx scripts/verify-paridade.ts      # banco migrado × schema do Drizzle
 pnpm verify                              # todos os scripts de servidor
 pnpm verify:integracoes                  # o app de verdade num navegador real
 ```

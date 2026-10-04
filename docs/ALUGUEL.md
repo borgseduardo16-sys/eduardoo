@@ -1,312 +1,299 @@
-# Aluguel — unidades, temporário, contínuo e pagamentos (Parte 12)
+# Locação mensal por quantidade
 
-Este documento registra a auditoria feita antes da Parte 12 e a arquitetura
-que saiu dela. O que muda no código está descrito aqui; o estado de cada
-peça fica em [STATUS.md](./STATUS.md).
+Este documento descreve como a MyPlace aluga espaços hoje: **só por mês**, com
+uma **quantidade** de unidades por anúncio. Ele substitui o desenho da Parte 12
+(unidades individuais, aluguel por hora/dia/semana), que foi removido. O
+estado de cada peça fica em [STATUS.md](./STATUS.md); as tabelas, em
+[BANCO-DE-DADOS.md](./BANCO-DE-DADOS.md).
+
+O fluxo inteiro, em uma linha:
+
+> **anúncio → quantidade disponível → solicitação → aceite (com instruções de
+> acesso) → pagamento → locação mensal → renovações**
 
 ---
 
-## 1. Auditoria — como era antes desta etapa
+## 1. O que existe e o que NÃO existe
 
-| Peça | Como funcionava | Consequência para a Parte 12 |
+| Existe | Não existe (de propósito) |
+|---|---|
+| Aluguel **mensal**, renovado todo mês até alguém encerrar | Aluguel por hora, dia ou semana |
+| **Quantidade** por anúncio: 1 garagem, 80 vagas de um estacionamento | Unidade física obrigatória (A1, B17…): a organização física é do proprietário |
+| Data de início escolhida pelo locatário (até 90 dias à frente) | Calendário de horários |
+| Instruções de acesso **obrigatórias** no aceite (texto e/ou áudio) | Ocupação física automática por unidade |
+| Chat com texto e **áudio** (sem imagens) | Clientes externos (quem não é da plataforma) |
+| Encerramento: o locatário na hora; o proprietário por **pedido** com data | Multa ou aviso prévio definidos (ainda não decididos) |
+
+Fica para a **próxima etapa, separada**: Selo Verificado, Premium e seus
+benefícios, redução de taxa por nível. Destaque e Turbo, que já existiam,
+continuam como estavam.
+
+---
+
+## 2. Quantidade e a última vaga
+
+O anúncio tem três números (`spaces`):
+
+- `quantity_offered` — quantas unidades o proprietário oferece **na plataforma**;
+- `quantity_total` — (opcional, só informativo) quantas o local tem no total.
+  "Este local tem 100 vagas; 80 são oferecidas aqui.";
+- `quantity_available` — quantas ainda estão livres **agora**.
+
+Quem mantém o `quantity_available` é o **banco**, não o código: a função
+`refresh_space_availability` **recomeça a contagem** a partir das locações
+(não soma nem subtrai), então o número nunca diverge delas. Ocupam vaga as
+locações em `approved`, `awaiting_payment`, `active` e `past_due`. Um pedido
+ainda sem resposta (`requested`) **não ocupa nada**.
+
+Quando não sobra vaga o anúncio vira `rented`; quando volta a sobrar, volta a
+`published`. Aceitar diminui 1; encerrar, cancelar, recusar um aceite não pago
+ou deixar o prazo vencer devolve 1.
+
+**Duas pessoas disputando a última vaga:** o gatilho `bookings_guard_capacity`
+trava a linha do anúncio (`FOR UPDATE`) antes de contar, então os aceites
+simultâneos passam em fila — o segundo recebe "as vagas deste anúncio foram
+preenchidas". O gatilho também recusa qualquer escrita direta (SQL, outro
+caminho do código) que passe do oferecido, reportando a constraint
+`bookings_capacity`. `verify-reservas.ts` e `verify-schema.ts` disparam
+aceites em paralelo contra o Postgres de verdade para provar isto.
+
+O proprietário não consegue baixar `quantity_offered` abaixo do que já está
+ocupado (`spaces_guard_quantity`), e um anúncio publicado não fica sem preço
+mensal (`spaces_published_requires_price`).
+
+---
+
+## 3. Estados — sem redundância
+
+Quem lê a tela vê três eixos, cada um com poucos estados:
+
+| Eixo | Estados vistos | Onde mora |
 |---|---|---|
-| Anúncio | um espaço = uma coisa alugável; `spaces.price_monthly_cents` obrigatório | não existia unidade, grupo, nem preço por hora/dia/semana |
-| Reserva | `bookings` com `start_date`/`end_date` em **dias**; índice único "uma reserva vigente por espaço" | não havia horário de início/fim, nem como ter 10 vagas alugadas ao mesmo tempo |
-| Fluxo | solicitar → proprietário aceita → locatário paga → ativo. Ao aceitar, **todas** as outras solicitações do espaço eram recusadas | com várias unidades, recusar todo mundo estaria errado |
-| Cobrança | assinatura mensal no Asaas com `billingType: UNDEFINED` (a pessoa escolhe Pix/boleto/cartão a cada mês, pela fatura) | não existia "cobrança automática", logo não existia "falha da cobrança automática" |
-| Atraso | `PAYMENT_OVERDUE` → reserva `past_due` **sem prazo** | a unidade podia ficar ocupada indefinidamente sem pagamento |
-| Encerrar | "Encerrar aluguel" já era imediato e cancelava a assinatura no Asaas antes de mexer no banco | aproveitado; ganhou o motivo do encerramento |
-| Agendador | um cron diário da Vercel (`/api/cron/notificacoes`, plano Hobby) | prazos de 7 e 40 minutos não cabem num cron diário |
-| Webhook | idempotente por `evento:idDaCobrança`, rota real `/api/webhooks/asaas` | aproveitado; ganhou o evento de cartão recusado |
+| **Solicitação** | pendente · aceita · recusada · expirada | `bookings.status` (`requested`, `approved`/`awaiting_payment`, `rejected`, `expired`) |
+| **Pagamento** | pendente · autorizado/confirmado · falhou · regularizado | `payments.status` (`pending`, `confirmed`, `received`, `overdue`, `failed`…) |
+| **Locação** | aguardando início · ativa · pagamento pendente · encerrada · cancelada | `bookings.status` (`active` com início futuro, `active`, `past_due`, `ended`, `cancelled`) |
 
-### O que o Asaas oferece (confirmado na documentação oficial)
+Duas decisões para não repetir informação:
 
-- Assinatura com `billingType: CREDIT_CARD` sem mandar o cartão pela API: a
-  pessoa informa o cartão na fatura do próprio Asaas (`invoiceUrl`) e as
-  próximas mensalidades são cobradas automaticamente nesse cartão.
-- Cartão recusado gera o evento `PAYMENT_CREDIT_CARD_CAPTURE_REFUSED`.
-- `DELETE /v3/subscriptions/{id}` encerra a recorrência **e remove as
-  cobranças pendentes ou vencidas** dela; as pagas continuam no histórico.
-- `PUT /v3/payments/{id}` troca a forma de pagamento (`billingType`) de uma
-  cobrança aguardando pagamento ou vencida.
-- `GET /v3/payments/{id}/pixQrCode` devolve o QR Code e o "copia e cola" do
-  Pix para cobranças `PIX`, `BOLETO` ou `UNDEFINED`.
-- Cartão de **débito** não é aceito pela API: só aparece na fatura do Asaas
-  quando a cobrança é `CREDIT_CARD` ou `UNDEFINED`.
-- Split vale também para cobrança avulsa (`POST /v3/payments`).
+- "Aceita" e "aguardando pagamento" são a **mesma situação** para quem aluga
+  (falta pagar). O banco distingue só se a pessoa já abriu o pagamento; a tela
+  mostra **"Aceita — falta pagar"** nos dois.
+- "Aguardando início" **não é um estado gravado**: é uma locação `active` cuja
+  data de início ainda não chegou (`bookingBadge` em `src/lib/bookings/format.ts`).
 
-Fontes: [webhook de cobranças](https://docs.asaas.com/docs/webhook-para-cobrancas),
+"Autorizado" não existe como etapa própria: no Asaas, cartão e Pix não têm
+pré-autorização separada (ver §5). "Regularizado" é o evento de uma locação em
+`past_due` que volta a `active` depois do pagamento.
+
+---
+
+## 4. Prazos — sempre pelo relógio do banco
+
+| Prazo | Quanto | Onde está gravado | Quem aplica |
+|---|---|---|---|
+| Proprietário responder | **24 h** | `bookings.response_deadline_at` | `release_expired_rentals` → `expired` (`request_not_answered`) |
+| Locatário pagar depois do aceite | **24 h** | `bookings.first_payment_deadline_at` | `release_expired_rentals` → `expired` (`payment_not_received`); a vaga volta |
+| Regularizar um pagamento que falhou | **2 h no total** | `payment_issue_started_at` / `payment_issue_deadline_at` | `release_expired_rentals` → `ended` (`payment_not_received`) |
+| Encerramento pedido pelo proprietário | na **data** do pedido | `booking_end_requests.requested_end_date` | `release_expired_rentals` → `ended` (`owner_end_request`) |
+| Início da locação | até **90 dias** à frente | `booking.max_start_advance_days` | a ação do servidor que recebe o pedido (`requestBookingAction`) |
+
+Os números de 24 h vêm de `platform_settings` (`booking.request_expiry_hours`,
+`booking.payment_deadline_hours`) e são **gravados na locação** quando o estado
+muda (trigger `bookings_set_deadlines`) — mudar a configuração depois não mexe
+em prazo que já corre. A janela de 2 horas é imposta por constraint:
+`bookings_payment_window` recusa qualquer valor que não seja exatamente
+`início + 120 min`.
+
+**Quem executa:** `release_expired_rentals(p_space)` roda no Postgres, com
+`now()` do banco (nunca o relógio do aparelho nem o do servidor web). Ela é
+chamada a cada leitura relevante (`sweepExpiredBookings`: abrir a locação, a
+lista, o anúncio) e por ações (aceitar, cancelar), então **o prazo vale mesmo
+sem agendador**. O agendador por minuto (`/api/cron/minuto`, SETUP §15) cuida do
+resto: avisos ("falta pouco para pagar"), e-mails e lista de espera.
+
+Textos de data: "Próximo vencimento: 21/11/2026" e, onde o banco **guarda a
+hora** (prazos de resposta/pagamento, janela de 2 h), "…às 13:00". O Asaas
+trabalha com vencimento **sem hora**, então a tela nunca inventa uma hora para
+a mensalidade.
+
+---
+
+## 5. Pagamento — o que foi adaptado, e por quê
+
+O pedido original era: "pagamento/autorização **antes** da aprovação do
+proprietário". **Isto não é possível de forma honesta com o Asaas** (a
+confirmação é da documentação oficial, listada no fim):
+
+- **Pix** não tem retenção nem pré-autorização: a cobrança só existe depois de
+  paga.
+- **Cartão** só teria pré-autorização com os dados do cartão trafegando por
+  este site (PCI) ou por um checkout próprio. Hoje o cartão é informado na
+  **fatura do Asaas** — nunca no site.
+
+Por isso a ordem é **solicitar → aceitar → pagar em até 24 h**: nada é cobrado
+ao solicitar (a tela diz isso), o proprietário aceita sabendo que a vaga fica
+presa por até 24 h, e se o locatário não pagar a vaga volta. **Esta é a maior
+divergência do pedido** e está listada de novo em STATUS.md.
+
+Depois do aceite o locatário escolhe:
+
+- **Cartão** — assinatura mensal no Asaas (`billingType: CREDIT_CARD`): a
+  primeira cobrança na fatura do Asaas e as seguintes **automáticas**;
+- **Pix** — cobrança avulsa, com QR Code e "copia e cola" **no app** (o QR vem
+  do Asaas, `GET /payments/{id}/pixQrCode`), uma por mês; a do mês aparece em
+  "Meus aluguéis" com lembrete.
+
+Os dois levam o **split** para o proprietário e todo valor é **inteiro em
+centavos** (`src/lib/money.ts`): o navegador manda só o id da locação, o
+servidor calcula o aluguel + a taxa do locatário, e o banco confere
+(`bookings_rent_matches_space`, no gatilho `bookings_guard_price`: o aluguel
+gravado tem de ser o preço do anúncio, no pedido e no aceite). A tela do proprietário mostra o líquido: "Você receberá R$ 291,00
+por mês. Esse valor já considera a taxa de serviço de 3%." e o extrato
+(`/meus-espacos/financeiro`) prioriza o valor líquido por mês e o total
+recebido.
+
+**Falha de cobrança** (cartão recusado, Pix não pago no mês): a locação vira
+`past_due` e abre a janela de **2 horas no total**. Durante ela dá para tentar
+outro cartão ou pagar por Pix (sobre a **mesma** cobrança). Regularizou: volta
+a `active`. Não regularizou: `ended` e a vaga volta. Ao abrir o app, quem tem
+pendência vê um aviso com **X** (some nesta sessão se fechar; os indicadores
+continuam até resolver).
+
+**Webhook** (`/api/webhooks/asaas`): idempotente por `evento:idDaCobrança`;
+pagamento que chega **depois** que a locação já terminou é **estornado
+automaticamente** e a pessoa é avisada.
+
+Fontes (documentação oficial do Asaas):
+[webhook de cobranças](https://docs.asaas.com/docs/webhook-para-cobrancas),
 [assinatura com cartão](https://docs.asaas.com/docs/criando-assinatura-com-cartao-de-credito),
 [remover assinatura](https://docs.asaas.com/reference/remover-assinatura),
-[atualizar cobrança](https://docs.asaas.com/reference/atualizar-cobranca-existente),
-[QR Code Pix](https://docs.asaas.com/reference/obter-qr-code-para-pagamentos-via-pix),
-[cobranças via cartão](https://docs.asaas.com/docs/cobrancas-via-cartao-de-credito).
+[split em cobranças avulsas](https://docs.asaas.com/docs/split-de-pagamentos).
 
 ---
 
-## 2. Modelo
+## 6. Instruções de acesso e privacidade
 
-### Unidades e grupos
+**Ao aceitar**, o proprietário é obrigado a escrever instruções (≥ 10
+caracteres), gravar um áudio, ou os dois — o trigger `guard_booking_approval`
+recusa o aceite sem isso, não só o formulário. O áudio vai para o bucket
+privado `chat-audio`, na pasta da conversa; só texto/áudio da própria
+locação são aceitos (o caminho é conferido).
 
-- **`space_unit_groups`**: um grupo de unidades com as mesmas regras — modos
-  (contínuo, temporário ou ambos), preço mensal, regra de tempo, horário de
-  funcionamento e se aceita renovação. Todo anúncio tem pelo menos um grupo.
-- **`space_units`**: cada vaga/box/sala. Pertence a um grupo do mesmo
-  anúncio (chave estrangeira composta). Unidade com histórico nunca é
-  apagada: é desativada.
-- Anúncios que já existiam ganharam um grupo e uma unidade, com o mesmo
-  preço mensal de antes — nada muda para eles.
+O locatário **só vê** as instruções, o áudio, o endereço exato e o botão
+**"Traçar rota"** depois do **pagamento confirmado** (locação `active` ou
+`past_due`). A regra está no `WHERE` das consultas
+(`getBookingAddressForRenter`, `accessAudioPathForUser`), não num `if` depois.
+Quando o pagamento confirma, as instruções também vão para o chat.
 
-### Regra de tempo (aluguel temporário)
+**Localização pública** (`approx_location`, mantida pelo trigger
+`sync_approx_location`):
 
-Duas formas, uma por grupo:
+- espaços **residenciais/pessoais**: ponto **deslocado** de 100 a 400 m,
+  estável (não muda a cada leitura);
+- tipos **comerciais** (`platform_settings['privacy.exact_location_types']`:
+  loja, escritório, galpão, estacionamento, espaço para eventos, oficina): o
+  ponto exato — o endereço desses espaços já é público por natureza;
+- **rua, número e complemento** continuam privados para qualquer tipo, até a
+  locação ser confirmada. Nenhuma consulta pública lê `location`.
 
-1. **Preço por período** — "R$ 50 por hora, máximo 5 horas". Hora, dia ou
-   semana. Opcional para dia/semana: aceitar períodos menores com preço
-   proporcional (diária de R$ 200 → 6 horas = R$ 50).
-2. **Pacotes** — "Até 1 hora R$ 50 · Até 5 horas R$ 120 · Até 10 horas
-   R$ 180". A pessoa escolhe um pacote. O banco recusa pacotes repetidos,
-   fora de ordem ou um pacote mais longo mais barato que um mais curto —
-   nunca há duas regras para a mesma duração.
-
-Todo cálculo é no servidor, em centavos inteiros. Proporcional arredonda
-**uma vez**, meio para cima (`round half up`) sobre o total — nunca soma
-valores já arredondados por hora.
-
-### Reserva
-
-`bookings` ganhou: `kind` (`continuous`/`temporary`), `group_id`, `unit_id`,
-`starts_at`/`ends_at` (horário exato), `occupied_until` (fim + janela de
-renovação), duração comprada, `hold_expires_at` (prazo para pagar a
-reserva temporária), as duas janelas de pagamento pendente e
-`end_reason` (por que acabou).
-
-**Ninguém aluga a mesma unidade ao mesmo tempo** — garantido pelo banco com
-uma restrição de exclusão (`bookings_unit_no_overlap`): duas reservas que
-ocupam a mesma unidade não podem ter intervalos sobrepostos. Aluguel
-contínuo ocupa a unidade do início em diante (intervalo sem fim), então
-também bloqueia temporárias por cima dele.
-
-### Estados
-
-Os estados que já existiam foram reaproveitados, sem criar sinônimos:
-
-| Estado | Contínuo | Temporário |
-|---|---|---|
-| `requested` | solicitação enviada | — |
-| `approved` | aceita, unidade reservada, falta pagar | — |
-| `awaiting_payment` | primeira cobrança gerada | unidade segura até `hold_expires_at` enquanto a pessoa paga |
-| `active` | em dia | pago; "próximo" se ainda não começou, "em uso" durante, "janela de renovação" nos 7 minutos depois do fim |
-| `past_due` | **pagamento pendente**: janelas de 40 min + 1 h | — |
-| `ended` | encerrado (motivo em `end_reason`) | terminou (motivo em `end_reason`) |
-| `cancelled`, `rejected`, `expired` | como antes | `expired` = prazo de pagamento passou |
-
-"Próximo", "em uso", "em processamento" e "janela de renovação" são
-derivados do horário do banco, não gravados — gravar seria criar um estado
-que fica errado sozinho com o passar do tempo.
+Mudar a lista de tipos recalcula os anúncios existentes
+(`platform_settings_privacy_resync`).
 
 ---
 
-## 3. Prazos — sempre pelo relógio do banco
+## 7. Encerrar
 
-| Prazo | Valor | Onde fica |
-|---|---|---|
-| Pagar uma reserva temporária | 15 min (configurável) | `hold_expires_at` |
-| Janela de renovação | **7 min, fixo** | `occupied_until = ends_at + 7 min` |
-| Aviso de fim | 10 min antes | agendador por minuto |
-| Pagamento pendente — 1ª janela | **40 min, fixo** | `payment_issue_started_at` |
-| Pagamento pendente — 2ª janela | **+1 h, fixo** | `payment_issue_deadline_at` |
+- **Locatário**: "Encerrar locação" — imediato; cancela a assinatura/cobranças
+  abertas no gateway e devolve a vaga. Antes do pagamento, "Desistir da
+  locação".
+- **Proprietário**: **"Solicitar encerramento da locação"** — registra o pedido
+  com **data** (até 1 ano à frente) e **motivo**, avisa o locatário e guarda o
+  histórico em `booking_end_requests` (um pendente por locação; dá para
+  retirar). Na data, a manutenção do banco encerra a locação e a vaga volta.
+  Escolher "hoje" encerra na hora, e a tela avisa. Só quem é dono do anúncio, só
+  em locação `active`/`past_due` (trigger `booking_end_requests_guard`).
+- O proprietário também pode **desfazer um aceite que ainda não foi pago**.
 
-A **correção não depende de agendador nenhum**: disponibilidade, contagem
-regressiva e prazos são calculados pelo horário do banco; reserva vencida
-é liberada pela própria transação que tenta alugar a unidade
-(`release_expired_rentals`). O agendador por minuto só dispara o que
-precisa acontecer na hora certa mesmo sem ninguém abrir o app: avisos,
-cancelamento da recorrência no Asaas e estornos.
-
----
-
-## 4. Pagamentos
-
-- **Temporário**: cobrança avulsa no Asaas, com split para o proprietário.
-  Pix aparece na própria tela (QR e copia e cola, do Asaas); cartão de
-  crédito ou débito abre a fatura do Asaas. Só vale quando o webhook
-  confirma.
-- **Contínuo**: assinatura mensal real. Cartão de crédito = cobrança
-  automática todo mês; Pix = cobrança mensal paga pelo app.
-- **Falha** (cartão recusado ou mensalidade vencida): 40 min, depois mais
-  1 h para regularizar. "Pagar agora" nunca cria cobrança nova — reaproveita
-  a cobrança em aberto (troca para Pix ou abre a fatura do cartão).
-  Passou o prazo: aluguel encerrado, recorrência cancelada no Asaas
-  (`DELETE`, que também remove a cobrança em aberto), unidade liberada.
-- **Pagamento depois do encerramento**: estornado automaticamente.
-- **Cancelar aluguel**: imediato — recorrência cancelada no Asaas antes de
-  qualquer mudança no banco; se o Asaas recusar, nada muda e a pessoa vê
-  o motivo.
-- **Valor mínimo por cobrança**: R$ 35 (`booking.min_rent_cents`), o mesmo
-  piso das reservas mensais. Durações que ficariam abaixo disso nem
-  aparecem na lista (R$ 20/hora começa em 2 horas), o servidor recusa com
-  "O valor mínimo de um aluguel é R$ 35,00. Escolha uma duração maior." e o
-  banco recusa de novo (`bookings_temporary_minimum`).
-- **Pix não passa por `PAYMENT_CONFIRMED`**: o Asaas manda
-  `PAYMENT_CREATED → PAYMENT_RECEIVED` para Pix e boleto, e
-  `PAYMENT_CREATED → PAYMENT_CONFIRMED → PAYMENT_RECEIVED` para cartão.
-  O `RECEIVED` de uma cobrança ainda pendente faz antes tudo o que o
-  `CONFIRMED` faria (ativar, regularizar, reativar ou estornar). Ver §8.
+Não há multa cobrada pela plataforma e **não há aviso prévio mínimo definido**
+(`rental.end_request_min_notice_days` = 0, conferido por trigger para a regra
+poder mudar sem deploy). O que valer entre as partes é o combinado no chat —
+ver as limitações abaixo.
 
 ---
 
-## 5. Telas
+## 8. Notificações — só o que importa
 
-| Tela | O que mostra |
+| Evento | Quem recebe |
 |---|---|
-| Página do anúncio | "Como alugar": quantas unidades há, livres e ocupadas ("3 vagas · 3 disponíveis · 0 ocupadas"), mensal por grupo e reserva por tempo com só as durações válidas; "Falar com o proprietário" pelo chat |
-| Pagar (`/reservas/[id]/pagar`) | Pix na tela (QR e "copia e cola" do Asaas) com o prazo de 15 min correndo — "A vaga fica segura para você até 13:21"; cartão abre a fatura segura do Asaas; confirma sozinha quando o webhook chega |
-| Meus aluguéis (`/reservas`) | seções **Pagamento pendente · Em andamento · Próximos · Aguardando · Histórico**. Temporário: "Começa em…", "Tempo restante: 1 h 59 min — termina às 15:06", janela de renovação e "Renovar aluguel" com o total que será cobrado ("Total: R$ 41,20 (aluguel R$ 40,00 + taxa de serviço R$ 1,20)", calculado no servidor). Mensal: "R$ 309,00/mês · Renovação automática ativa (cartão)" — o total que é cobrado todo mês, já com a taxa de serviço (aluguel de R$ 300) —, "Próxima cobrança", **sem contagem regressiva**, e "Cancelar aluguel" |
-| Detalhe do aluguel (`/reservas/[id]`) | o mesmo tempo restante, próximos passos, resumo (unidade, período, valores), como terminou, link para a renovação |
-| Pagamento pendente (`/reservas/[id]/pendente`) | o texto pedido, "Tempo restante" (1ª janela) ou "Último prazo" (2ª), valor em aberto, motivo informado pelo gateway, **Pagar agora** (a mesma cobrança: Pix na tela ou cartão) e **Cancelar aluguel**; pergunta de novo ao servidor a cada 8 s |
-| Aviso ao abrir o app | antes de tudo, o aviso "Pagamento pendente" com o texto, a unidade, o tempo restante, "Pagar agora", "Cancelar aluguel" e um **X**. Fechou: não volta nesta sessão para a mesma pendência. Abriu o app de novo: aparece de novo enquanto não resolver. Não aparece nas telas do próprio aluguel com problema |
-| Indicadores | ponto vermelho em "Meus aluguéis" (cabeçalho e barra inferior) enquanto houver pendência; **"!" só no aluguel com problema**. Os dois somem só quando o webhook confirma o pagamento — fechar o aviso não apaga nada |
-| Tela principal | **nenhum tempo restante** (observação da etapa 14): o tempo fica em Meus aluguéis e no detalhe do aluguel |
-| Proprietário — Solicitações | filtro "Em andamento", unidade e horário de cada aluguel, "Encerrar aluguel" no mensal |
+| Nova solicitação | proprietário |
+| Solicitação perto de expirar (4 h) | proprietário |
+| Aceita / recusada / expirada | locatário (e o proprietário, se expirou) |
+| Falta pouco para pagar (4 h) / prazo vencido | locatário |
+| **Pagamento confirmado** — um aviso por pessoa; se a locação já começou, o mesmo aviso diz isso | os dois |
+| Locação começou (quando o pagamento veio **antes** da data de início, no dia) | os dois |
+| Pagamento pendente (janela de 2 h) | os dois |
+| Pedido de encerramento / retirado | locatário |
+| Locação encerrada · avaliação disponível | quem não encerrou · locatário |
+| Há vaga de novo ("Avise-me quando estiver disponível") | quem pediu o aviso |
 
-Toda contagem regressiva parte da hora do **servidor** (a tela recebe a hora
-dele e os instantes gravados; o relógio do aparelho só faz o ponteiro andar)
-e todo horário é mostrado no fuso de Brasília.
-
----
-
-## 6. Agendador por minuto e fila do gateway
-
-`GET /api/cron/minuto` (com `Authorization: Bearer <CRON_SECRET>`) roda a
-manutenção dos aluguéis:
-
-1. **varre o que venceu** pelo relógio do banco (`release_expired_rentals`):
-   prazo de pagamento da reserva por tempo, janela de renovação, prazo
-   final do pagamento pendente;
-2. **avisa**: "Seu aluguel termina em 10 minutos.", "Último prazo para
-   regularizar o pagamento", "Aluguel encerrado por falta de pagamento" e
-   "Reserva expirada" — cada aviso uma vez só (`dedupeKey` por reserva);
-3. **executa no gateway o que o banco marcou** nas próprias linhas:
-   recorrência cancelada ainda sem confirmação do Asaas, cobrança marcada
-   para excluir, pagamento marcado para estornar. Um executor por vez
-   (`pg_try_advisory_xact_lock`): duas chamadas simultâneas nunca mandam o
-   mesmo estorno duas vezes. Se o Asaas falhar, a marca continua e a
-   próxima rodada tenta de novo.
-
-A mesma varredura roda **antes de ler** (Meus aluguéis, detalhe do
-aluguel, pagamento pendente) e na transação de quem tenta alugar. Quando ela
-encerra alguma coisa, os avisos e os efeitos no gateway saem depois da
-resposta (`after()`), sem atrasar a tela. A disponibilidade da página do
-anúncio nem depende dela: já é calculada pelo relógio do banco. O cron
-diário (`/api/cron/notificacoes`) roda a manutenção também, como rede de
-segurança.
-
-O plano Hobby da Vercel só agenda uma vez por dia, então o "por minuto"
-precisa de um agendador externo — [SETUP.md §15](./SETUP.md#15-agendador-por-minuto-parte-12).
-Sem ele, nada fica **errado** — disponibilidade, contagem e prazos são
-calculados pelo relógio do banco na hora de ler. O que deixa de acontecer
-na hora certa: o aviso "termina em 10 minutos" (na prática, não sai), o de
-último prazo e o de encerramento; e o cancelamento/estorno no Asaas, que só
-sai quando alguém abre uma tela de aluguel e há algo vencido para
-encerrar, ou na rodada diária.
+Cada aviso tem chave de deduplicação: reenvio de webhook ou duas rodadas do
+agendador não geram dois avisos iguais. Preferências por categoria e o push
+(VAPID) seguem como antes.
 
 ---
 
-## 7. Robustez
+## 9. Telas
 
-- **Valores**: o navegador manda só ids, a duração e o horário de início. O
-  servidor calcula em centavos (`src/lib/rentals/pricing.ts`), e o banco
-  recalcula e recusa outro valor (gatilho e `CHECK`).
-- **Idempotência**: cada formulário de reserva/renovação leva uma chave
-  gerada quando a tela abre, gravada na reserva (única por locatário).
-  Reenviar o mesmo formulário devolve a mesma reserva. O webhook continua
-  idempotente por `evento:idDaCobrança`.
-- **Duplo clique**: os botões ficam desabilitados durante o envio, e "Pagar
-  agora" trava a linha da cobrança (`SELECT … FOR UPDATE`): dois toques
-  simultâneos fazem **uma** chamada ao gateway (testado).
-- **Concorrência**: exclusão por unidade no banco + trava do anúncio na
-  transação. Duas pessoas no mesmo horário da última vaga: uma consegue, a
-  outra lê "Essa vaga acabou de ser reservada para esse horário. Escolha
-  outro horário." (testado).
-- **CPF/CNPJ**: conferido antes de chamar o gateway. Documento que já é de
-  outra conta vira mensagem clara, e a reserva que nasceu sem cobrança é
-  desfeita na hora (a unidade não fica presa).
-- **Fuso**: o servidor roda em UTC; dia e horário são sempre convertidos
-  pelo fuso de Brasília (`src/lib/rentals/time.ts`). Testado com reserva
-  das 23:00 à 01:00.
-- **Histórico**: toda mudança relevante vai para `audit_logs` — reserva
-  criada ou renovada, forma de pagamento escolhida, janela de pagamento
-  aberta, cobrança confirmada, recebida, vencida ou recusada, reativação
-  depois de pagamento atrasado, estorno pedido e enviado, recorrência
-  cancelada no gateway, reserva descartada — e o motivo do fim fica em
-  `end_reason`.
-
----
-
-## 8. Achados durante os testes desta etapa (corrigidos)
-
-1. **Pix nunca ativava a reserva** — defeito antigo, de antes desta etapa.
-   O código só ativava no `PAYMENT_CONFIRMED`, que o Asaas não manda para
-   Pix. Valia para o checkout mensal, as renovações, a reserva por tempo, a
-   compra de Destaque/Turbo e a caução. Corrigido nos três tratadores de
-   webhook.
-2. **Pagamento que chega depois do encerramento**: além do estorno, não gera
-   mais repasse ao proprietário nem lançamento de repasse no livro-razão.
-3. **CPF gravado antes das validações** e **erro 500** quando o CPF já era
-   de outra conta (o índice único estourava) — agora é mensagem clara, antes
-   de falar com o Asaas.
-4. **Dois toques em "Pagar agora"** faziam duas chamadas ao Asaas.
-5. **Erro de publicação sem mensagem**: o Drizzle embrulha o erro do
-   Postgres e o nome da regra violada fica em `cause`. Afetava também as
-   mensagens antigas "anúncio incompleto" e "marque a localização".
-6. **Modais colados no canto superior esquerdo** (denúncia, selo Premium,
-   destacar anúncio, filtros e o novo aviso): o preflight do Tailwind zera a
-   `margin: auto` que centraliza o `<dialog>`.
-7. **"Falar com o proprietário" sumiu da página do anúncio** na parte 1
-   desta etapa — regressão minha, achada pelo teste de ponta a ponta e
-   restaurada.
-8. **Recusa automática com texto errado**: com uma unidade só, a pessoa
-   lia "Todas as vagas foram alugadas"; com boxes, "Todas as boxes".
-9. **Ocupação no painel de desempenho**: um aluguel de 2 horas contava
-   como ocupado "até hoje". Agora conta só os dias que tocou.
-10. **Meus aluguéis mostrava o prazo final** (1 h 40) no lugar da janela
-    atual (40 min) no pagamento pendente — diferente do aviso e da tela de
-    pendência.
-11. **"Renovar aluguel" mostrava só o aluguel** ("Mais 2 horas — R$ 40,00")
-    ao lado de "R$ 41,20 pagos": agora mostra também o total que será
-    cobrado, com a taxa de serviço, pela mesma conta da cobrança.
-
----
-
-## 9. Limitações conhecidas
-
-- **Nada foi testado contra o Asaas de verdade** (nem sandbox): os testes
-  usam um dublê local que segue o contrato HTTP documentado. A primeira
-  cobrança real precisa ser acompanhada.
-- **Pix mensal não é automático**: o "Pix Automático" do Banco Central não
-  foi implementado. Quem escolhe Pix paga cada mensalidade pelo app; para
-  essa pessoa, "falha da cobrança automática" é a mensalidade vencida (a
-  tela diz isso com outras palavras). Cartão de crédito é automático.
-- **Débito** só pela fatura do Asaas (a API não aceita).
-- **QR do Pix na tela** exige uma chave Pix cadastrada na conta Asaas.
-- **Estorno com split**: o código pede o estorno da cobrança inteira; como o
-  Asaas desfaz a parte já repassada ao proprietário precisa ser confirmado
-  com o suporte deles antes de produção.
-- **Renovação não paga**: ao pedir a renovação, o fim protegido do aluguel
-  atual passa a ser o fim exato do horário (a renovação começa ali, sem
-  sobrepor). Se a pessoa não pagar a renovação nos 15 minutos, ela expira e
-  a unidade fica livre no fim exato do horário — sem os 7 minutos de
-  janela. Dá para pedir de novo enquanto o aluguel atual não acabar.
-- **Bloqueios do calendário** valem para o anúncio inteiro, não por unidade.
-- **Agendador por minuto** depende de configuração externa (§6).
-
----
-
-## 10. Testes
-
-| Suíte | O que prova | Resultado |
+| Tela | Para quem | O que mostra |
 |---|---|---|
-| `scripts/verify-alugueis.ts` | motor TS = SQL (centavos), regras e mensagens, reserva pelo fluxo real com Pix e split, concorrência, prazo vencido, pagamento atrasado (reativa ou estorna), renovação, aviso de 10 min, contínuo com cartão, recusa do cartão (40 min + 1 h, "Pagar agora" na mesma cobrança), encerramento sem pagamento, fila do gateway com dois executores, segredo do cron, fuso de Brasília | 106 checagens, 0 falhas — também no banco montado pelo SQL do Supabase, com o papel sem superusuário |
-| `scripts/verify-alugueis-navegador.ts` | Chromium de verdade, build de produção: proprietária configura e publica pela tela; locatário reserva 2 h e paga com Pix (webhook pela rota HTTP real); tempo restante em Meus aluguéis e **não** na tela principal, e o total da renovação com a taxa de serviço; recusa do cartão → aviso ao abrir com X, ponto no menu, "!" só no aluguel com problema, nova sessão mostra de novo, pago some tudo; proprietária vê unidade e horário | 28 checagens, 0 falhas |
-| `scripts/verify-schema.ts` | regras do banco (seção 16 nova: grupos, unidades, exclusão por unidade, gatilhos, prazos, permissões) | 218 checagens, 0 falhas |
+| `/mapa` | todos | mapa aéreo/de ruas centrado na localização aproximada, raio de 2 km, marcadores por categoria, prévia, filtros com contagem |
+| `/espacos/[slug]` | todos | valor mensal, "N de M vagas disponíveis", como funciona, "Avise-me quando estiver disponível" quando lotado |
+| `/espacos/[slug]/solicitar` | locatário | data de início, mensagem, resumo (aluguel + taxa), nada é cobrado |
+| `/reservas` ("Meus aluguéis") | locatário | espaço, estado, início, próximo vencimento, situação do pagamento, histórico |
+| `/reservas/[id]` | os dois | linha do tempo, instruções/rota (após pagar), renovação, encerramento |
+| `/reservas/[id]/pagar` · `/pendente` | locatário | pagar em 24 h · regularizar em 2 h |
+| `/meus-espacos` | proprietário | painel: anúncios, vagas, pendentes, ativas, próximas renovações, valores recebidos |
+| `/meus-espacos/solicitacoes` | proprietário | quem pediu (sinais de confiança reais), aceitar com instruções, recusar |
+| `/meus-espacos/financeiro` | proprietário | líquido por mês e total recebido |
+
+---
+
+## 10. O que depende de serviço externo (e não finge)
+
+| Peça | Depende de | Sem isso |
+|---|---|---|
+| Cobrança real (cartão/Pix, split) | Asaas — `ASAAS_*` | `requireIntegration` falha com mensagem; nada é simulado |
+| Imagem aérea no mapa | `NEXT_PUBLIC_MAPTILER_KEY` ou `NEXT_PUBLIC_SATELLITE_TILE_URL` | o botão fica desligado e diz isso |
+| Agendador por minuto | job externo chamando `/api/cron/minuto` (SETUP §15) | prazos continuam valendo (banco); avisos e lista de espera atrasam |
+| E-mail e push | Resend e VAPID | só a central de notificações |
+| Telefone verificado | Twilio Verify | o selo não aparece para ninguém |
+
+---
+
+## 11. Limitações conhecidas
+
+- O **Asaas só foi exercitado contra um dublê** local (contrato REST
+  reproduzido); a primeira cobrança real é o teste que falta.
+- O **áudio não passa por detector de contato** (o chat de texto tem um): dá
+  para combinar pagamento por fora falando. É uma limitação de transcrição, não
+  esquecimento.
+- Mudar a lista de tipos com **ponto exato** recalcula os anúncios já
+  publicados (inclusive o que o mapa mostra deles).
+- **Aviso prévio e multa** de encerramento não estão definidos.
+- A **avaliação** do locatário vale para o espaço e para o proprietário (uma
+  só); o proprietário avalia o locatário à parte.
+- Locações de **hora/dia/semana** da Parte 12 foram encerradas pela migração
+  `0033` (nunca apagadas: pagamentos e livro-razão apontam para elas).
+
+---
+
+## 12. Testes
+
+- `pnpm verify` — banco e regras: `verify-schema` (constraints e gatilhos),
+  `verify-reservas` (fluxo, prazos, concorrência da última vaga),
+  `verify-payments` (webhook, estorno, janela de 2 h), `verify-audio`,
+  `verify-mapa` (clusterização, filtros, privacidade), `verify-paridade`
+  (banco migrado × schema do Drizzle).
+- `pnpm verify:integracoes` — navegador (Chromium) contra o build de produção:
+  testes **R** (locação ponta a ponta no celular, com áudio gravado por
+  microfone falso) e **S** (`/mapa`), além dos antigos.
