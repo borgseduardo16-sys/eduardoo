@@ -1903,14 +1903,16 @@ async function main() {
 
   // ---- 11c. Prévia do link compartilhado ----
   const { sharePreviewDescription } = await import('../src/lib/spaces/share-preview');
-  await sql`UPDATE spaces SET street='Rua Secreta Onze', number='4321', complement='Fundos B' WHERE id=${base11.id}`;
+  // O número é um marcador que não aparece por acaso ("4321" já caiu dentro de um UUID ou de um timestamp).
+  await sql`UPDATE spaces SET street='Rua Secreta Onze', number='77-ZETA', complement='Fundos B' WHERE id=${base11.id}`;
   const publico11 = await getPublicSpaceBySlug(base11.slug);
   const descricaoOg = sharePreviewDescription(publico11!) ?? '';
   assert('prévia tem tipo e preço', descricaoOg.startsWith('Garagem · R$\u00a0400,00/mês'), descricaoOg);
   assert('prévia tem a localização geral (bairro e cidade)', descricaoOg.includes(`Centro, ${cidadeSim}`), descricaoOg);
   const textoPublico = JSON.stringify(publico11);
+  const vazamento = (textoPublico + descricaoOg).match(/Rua Secreta|77-ZETA|Fundos B/);
   assert('dado público do anúncio (fonte da prévia e da página) não traz rua, número nem complemento',
-    !/Rua Secreta|4321|Fundos B/.test(textoPublico) && !/Rua Secreta|4321|Fundos B/.test(descricaoOg));
+    vazamento === null, vazamento ? `apareceu "${vazamento[0]}" em: ${textoPublico.slice(Math.max(0, vazamento.index! - 60), vazamento.index! + 60)}` : '');
   const paginaFonte = await import('node:fs').then((fs) => fs.readFileSync('src/app/espacos/[slug]/page.tsx', 'utf8'));
   assert('link compartilhado é a URL estável do anúncio (/espacos/slug)',
     paginaFonte.includes('const shareUrl = `${serverEnv.NEXT_PUBLIC_SITE_URL}/espacos/${space.slug}`'));
