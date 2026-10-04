@@ -124,6 +124,12 @@ const nextConfig: NextConfig = {
  * O upload de source map so acontece com SENTRY_AUTH_TOKEN/ORG/PROJECT
  * definidos — sem eles o plugin so avisa e segue o build normalmente (nao
  * quebra `pnpm build` sem credencial, mesmo padrao das outras integracoes).
+ *
+ * `telemetry: false`: por padrao o plugin envia ao Sentry, a cada build, um
+ * sinal de uso do proprio plugin — mesmo sem conta configurada. Isso nao e
+ * necessario para o monitoramento de erros do site e, em ambiente com saida
+ * de rede restrita (CI fechado), derruba o build com um ECONNRESET que nao
+ * tem relacao com o codigo.
  */
 export default withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,
@@ -131,4 +137,5 @@ export default withSentryConfig(nextConfig, {
   authToken: process.env.SENTRY_AUTH_TOKEN,
   silent: true,
   widenClientFileUpload: true,
+  telemetry: false,
 });
