@@ -136,7 +136,7 @@ async function seedEspacoDeTeste(precoCents: number, ownerId: string = donoId): 
     VALUES
       (${ownerId}, ${slug}, 'garagem', 'Garagem para teste de pagamento (nao aparece em busca)',
        'Descricao com mais de vinte caracteres para passar na regra do banco.',
-       'Bairro de teste', 'Municipio de teste', 'ES', CURRENT_DATE, ${precoCents}, 18, 8,
+       'Bairro de teste', 'Municipio de teste', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${precoCents}, 18, 8,
        ST_SetSRID(ST_MakePoint(-40.0001, -18.0001), 4326),
        ST_SetSRID(ST_MakePoint(-40.0001, -18.0001), 4326))
     RETURNING id`;
@@ -159,7 +159,7 @@ async function seedBookingAprovada(
        owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
     VALUES
       (${`MP-${tag}${opts.sufixo ?? ''}`}, ${espacoId}, ${renterId}, ${opts.ownerId ?? donoId},
-       ${opts.status ?? 'awaiting_payment'}, CURRENT_DATE,
+       ${opts.status ?? 'awaiting_payment'}, (now() AT TIME ZONE 'America/Sao_Paulo')::date,
        ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps},
        ${amounts.renterFeeCents}, ${amounts.ownerFeeCents}, ${amounts.totalChargedCents},
        ${amounts.ownerPayoutCents}, ${opts.depositCents ?? 0})
@@ -179,7 +179,7 @@ async function seedSubscriptionEPayment(bookingId: string, amountCents: number, 
     RETURNING id`;
   const subscriptionId = sub!.id;
   await sql`INSERT INTO payments (booking_id, subscription_id, provider, provider_payment_id, status, method, amount_cents, due_date)
-    VALUES (${bookingId}, ${subscriptionId}, 'asaas', ${providerPaymentId}, 'pending', 'pix', ${amountCents}, CURRENT_DATE)`;
+    VALUES (${bookingId}, ${subscriptionId}, 'asaas', ${providerPaymentId}, 'pending', 'pix', ${amountCents}, (now() AT TIME ZONE 'America/Sao_Paulo')::date)`;
   return subscriptionId;
 }
 
@@ -520,7 +520,7 @@ async function main() {
 
   const providerPaymentId2 = `pay_${tag}_2`;
   await sql`INSERT INTO payments (booking_id, subscription_id, provider, provider_payment_id, status, method, amount_cents, due_date)
-    VALUES (${bookingId}, ${subscriptionId}, 'asaas', ${providerPaymentId2}, 'pending', 'pix', ${amounts.totalChargedCents}, CURRENT_DATE)`;
+    VALUES (${bookingId}, ${subscriptionId}, 'asaas', ${providerPaymentId2}, 'pending', 'pix', ${amounts.totalChargedCents}, (now() AT TIME ZONE 'America/Sao_Paulo')::date)`;
 
   await processAsaasWebhook({ event: 'PAYMENT_OVERDUE', payment: { id: providerPaymentId2 } });
   const [bookingAtrasada] = await sql<{ status: string }[]>`SELECT status FROM bookings WHERE id=${bookingId}`;
@@ -575,7 +575,7 @@ async function main() {
 
   const providerPaymentId3 = `pay_${tag}_3`;
   await sql`INSERT INTO payments (booking_id, subscription_id, provider, provider_payment_id, status, method, amount_cents, due_date)
-    VALUES (${bookingId}, ${subscriptionId}, 'asaas', ${providerPaymentId3}, 'pending', 'pix', ${amounts.totalChargedCents}, CURRENT_DATE)`;
+    VALUES (${bookingId}, ${subscriptionId}, 'asaas', ${providerPaymentId3}, 'pending', 'pix', ${amounts.totalChargedCents}, (now() AT TIME ZONE 'America/Sao_Paulo')::date)`;
   const comTokenCerto = await POST(new Request('http://localhost/api/webhooks/asaas', {
     method: 'POST',
     headers: { 'asaas-access-token': process.env.ASAAS_WEBHOOK_TOKEN!, 'content-type': 'application/json' },

@@ -203,7 +203,7 @@ async function main() {
       draft_step=6 WHERE id=${spaceId}`;
     // Preço agora vem do grupo de unidades (o anúncio só espelha).
     await mudarPreco(sql, spaceId, 180000);
-    await sql`UPDATE spaces SET available_from=CURRENT_DATE, draft_step=7 WHERE id=${spaceId}`;
+    await sql`UPDATE spaces SET available_from=(now() AT TIME ZONE 'America/Sao_Paulo')::date, draft_step=7 WHERE id=${spaceId}`;
     await sql`INSERT INTO space_features (space_id, feature_key) VALUES
       (${spaceId},'acesso_caminhao'),(${spaceId},'energia'),(${spaceId},'banheiro')`;
 
@@ -385,7 +385,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-SP-${tag.slice(-5)}`}, ${spaceId}, ${estranho}, ${dono}, 'ended',
-          CURRENT_DATE, 180000, 300, 300, 5400, 5400, 185400, 174600)
+          (now() AT TIME ZONE 'America/Sao_Paulo')::date, 180000, 300, 300, 5400, 5400, 185400, 174600)
         RETURNING id`;
 
       // Com reserva no historico, apagar de vez levaria junto o registro

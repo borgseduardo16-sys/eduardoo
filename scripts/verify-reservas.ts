@@ -345,9 +345,9 @@ async function main() {
   expect('vaga única ocupada pelo aceite', await vagas(sql, prazos), { livres: 0, oferecidas: 1, status: 'rented' });
   const [sub] = await sql<{ id: string }[]>`
     INSERT INTO subscriptions (booking_id, provider_subscription_id, status, method, amount_cents, billing_day, next_due_date)
-    VALUES (${pp}, ${`sub_${tag}`}, 'pending_authorization', 'pix', 20600, 5, CURRENT_DATE) RETURNING id`;
+    VALUES (${pp}, ${`sub_${tag}`}, 'pending_authorization', 'pix', 20600, 5, (now() AT TIME ZONE 'America/Sao_Paulo')::date) RETURNING id`;
   await sql`INSERT INTO payments (booking_id, subscription_id, provider_payment_id, status, method, amount_cents, due_date)
-    VALUES (${pp}, ${sub!.id}, ${`pay_${tag}`}, 'pending', 'pix', 20600, CURRENT_DATE)`;
+    VALUES (${pp}, ${sub!.id}, ${`pay_${tag}`}, 'pending', 'pix', 20600, (now() AT TIME ZONE 'America/Sao_Paulo')::date)`;
   await sql`UPDATE bookings SET status='awaiting_payment' WHERE id=${pp}`;
   await sql`UPDATE bookings SET first_payment_deadline_at = now() - interval '1 minute' WHERE id=${pp}`;
   const antes = await sweepExpiredBookings();
@@ -426,7 +426,7 @@ async function main() {
   // Novo pedido, agora para HOJE: a manutenção encerra, devolve a vaga e cancela a recorrência.
   const [subE] = await sql<{ id: string }[]>`
     INSERT INTO subscriptions (booking_id, provider_subscription_id, status, method, amount_cents, billing_day, next_due_date)
-    VALUES (${e1}, ${`sub_enc_${tag}`}, 'active', 'credit_card', 18540, 5, CURRENT_DATE + 20) RETURNING id`;
+    VALUES (${e1}, ${`sub_enc_${tag}`}, 'active', 'credit_card', 18540, 5, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 20) RETURNING id`;
   const pe3 = await pedirEncerramento(e1, hoje());
   assert('pedido para hoje (sem aviso mínimo configurado)', pe3.ok === true, JSON.stringify(pe3));
   const resumo = await runBookingMaintenance();

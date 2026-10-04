@@ -17,7 +17,7 @@ import { hasSearchContext, compatibilityScoreExpr, sameCityAsSearchExpr, type Co
 
 // ---------------------------------------------------------------------------
 // Varredura preguicosa de promocao vencida — mesmo padrao de
-// `expireStaleBookingRequests` (src/lib/bookings/queries.ts): sem worker,
+// `sweepExpiredBookings` (src/lib/bookings/maintenance.ts): sem worker,
 // sem cron, a promocao vira `expired` na proxima vez que algo relevante ler.
 // ---------------------------------------------------------------------------
 export async function expireStalePromotions(): Promise<number> {

@@ -361,7 +361,7 @@ async function publicarDireto(
     VALUES
       (${donoId}, ${slug}, ${tipo}, ${titulo},
        'Descricao com mais de vinte caracteres para passar na regra do banco.',
-       'Centro', ${cidade}, 'ES', CURRENT_DATE, ${precoCents}, 20, 8,
+       'Centro', ${cidade}, 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${precoCents}, 20, 8,
        ST_SetSRID(ST_MakePoint(${ponto.lng}, ${ponto.lat}), 4326))
     RETURNING id`;
   const id = row!.id;
@@ -392,7 +392,7 @@ async function criarRascunhoPromovivel(ownerId: string, slug: string, titulo: st
       (${ownerId}, ${slug}, 'garagem', ${titulo},
        'Descricao com mais de vinte caracteres para passar na regra do banco.',
        'Avenida Getulio Vargas', '100', 'Centro', 'Colatina', 'ES', '29700-000',
-       CURRENT_DATE, 30000, 18.5, 8,
+       (now() AT TIME ZONE 'America/Sao_Paulo')::date, 30000, 18.5, 8,
        ST_SetSRID(ST_MakePoint(${ISOLADO_PROMO.lng}, ${ISOLADO_PROMO.lat}), 4326))
     RETURNING id`;
   const id = row!.id;
@@ -427,7 +427,7 @@ async function seed() {
         (${donoId}, ${slug}, 'garagem', ${titulo},
          ${'Garagem coberta com portao automatico, seca e com acesso facil pela rua.'},
          'Avenida Getulio Vargas', '100', 'Centro', 'Colatina', 'ES', '29700-000',
-         CURRENT_DATE, 25000, 18.5, ${step},
+         (now() AT TIME ZONE 'America/Sao_Paulo')::date, 25000, 18.5, ${step},
          ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326))
       RETURNING id`;
     // Parte 12: quem já passou da etapa "Como alugar" tem grupo e unidade.

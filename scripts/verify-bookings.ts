@@ -88,7 +88,7 @@ async function criarPublicado(slug: string, precoCents: number): Promise<string>
     VALUES
       (${donoId}, ${slug}, 'garagem', ${`Garagem ${slug}`},
        'Descricao com mais de vinte caracteres para passar na regra do banco.',
-       'Centro', 'Colatina', 'ES', CURRENT_DATE, ${precoCents}, 18, 8,
+       'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${precoCents}, 18, 8,
        ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326),
        ST_SetSRID(ST_MakePoint(-40.6280, -19.5401), 4326))
     RETURNING id`;

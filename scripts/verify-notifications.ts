@@ -136,7 +136,7 @@ async function criarPublicado(
       available_from, price_monthly_cents, size_m2, draft_step, location, approx_location)
     VALUES (${ownerId}, ${slug}, ${opts?.tipo ?? 'garagem'}, ${`Espaço de teste ${slug}`},
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
-      'Centro', ${opts?.cidade ?? cidade}, 'ES', CURRENT_DATE, ${opts?.precoCents ?? 30000}, 20,
+      'Centro', ${opts?.cidade ?? cidade}, 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${opts?.precoCents ?? 30000}, 20,
       8, ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326),
       ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326))
     RETURNING id`;
@@ -381,7 +381,7 @@ async function main() {
   await sql`UPDATE spaces SET
     description='Descricao com mais de vinte caracteres para passar na regra do banco.',
     district='Centro', city=${cidade}, state='ES', street='Rua Teste', number='100',
-    available_from=CURRENT_DATE, price_monthly_cents=41000, size_m2=20, draft_step=8,
+    available_from=(now() AT TIME ZONE 'America/Sao_Paulo')::date, price_monthly_cents=41000, size_m2=20, draft_step=8,
     location=ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326),
     approx_location=ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326)
     WHERE id=${draft6Id}`;
@@ -452,7 +452,7 @@ async function main() {
       INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
         monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
         total_charged_cents, owner_payout_cents)
-      VALUES (${`MP-${tag}-${sufixo}`}, ${espacoId}, ${renterId}, ${ownerId}, 'active', CURRENT_DATE - INTERVAL '30 days',
+      VALUES (${`MP-${tag}-${sufixo}`}, ${espacoId}, ${renterId}, ${ownerId}, 'active', (now() AT TIME ZONE 'America/Sao_Paulo')::date - INTERVAL '30 days',
         ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps}, ${amounts.renterFeeCents},
         ${amounts.ownerFeeCents}, ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})
       RETURNING id`;
@@ -463,10 +463,10 @@ async function main() {
     return { bookingId: booking!.id, subscriptionId: subscription!.id };
   }
 
-  await seedAssinatura(dono5Id, renter7dId, '7d', 'active', sql`(CURRENT_DATE + INTERVAL '7 days')::date`);
-  await seedAssinatura(dono5Id, renter1dId, '1d', 'active', sql`(CURRENT_DATE + INTERVAL '1 day')::date`);
-  await seedAssinatura(dono5Id, renter3dId, '3d', 'active', sql`(CURRENT_DATE + INTERVAL '3 days')::date`);
-  await seedAssinatura(dono5Id, renterPastDueId, 'pastdue', 'past_due', sql`(CURRENT_DATE + INTERVAL '7 days')::date`);
+  await seedAssinatura(dono5Id, renter7dId, '7d', 'active', sql`((now() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '7 days')::date`);
+  await seedAssinatura(dono5Id, renter1dId, '1d', 'active', sql`((now() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '1 day')::date`);
+  await seedAssinatura(dono5Id, renter3dId, '3d', 'active', sql`((now() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '3 days')::date`);
+  await seedAssinatura(dono5Id, renterPastDueId, 'pastdue', 'past_due', sql`((now() AT TIME ZONE 'America/Sao_Paulo')::date + INTERVAL '7 days')::date`);
 
   const resultado1 = await runRentDueReminders();
   assert('rodada 1 enviou pelo menos os 2 lembretes esperados', resultado1.sent >= 2, `sent=${resultado1.sent}`);

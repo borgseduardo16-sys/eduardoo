@@ -84,7 +84,7 @@ async function criarPublicado(ownerId: string, slug: string): Promise<string> {
     VALUES
       (${ownerId}, ${slug}, 'garagem', ${`Garagem ${slug}`},
        'Descricao com mais de vinte caracteres para passar na regra do banco.',
-       'Centro', 'Colatina', 'ES', CURRENT_DATE, 20000, 18, 8,
+       'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 20000, 18, 8,
        ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326),
        ST_SetSRID(ST_MakePoint(-40.6280, -19.5401), 4326))
     RETURNING id`;
@@ -485,7 +485,7 @@ async function main() {
          owner_fee_cents, total_charged_cents, owner_payout_cents)
       VALUES
         (${`MP-${tag}-${sufixo}`}, ${espacoId}, ${locatarioId}, ${donoId},
-         'requested', CURRENT_DATE,
+         'requested', (now() AT TIME ZONE 'America/Sao_Paulo')::date,
          ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps},
          ${amounts.renterFeeCents}, ${amounts.ownerFeeCents}, ${amounts.totalChargedCents},
          ${amounts.ownerPayoutCents})

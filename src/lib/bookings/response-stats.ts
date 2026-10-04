@@ -9,7 +9,7 @@ import { RESPONSE_WINDOW_DAYS, type ResponseStats } from './response-format';
  * solicitações reais — as regras do que conta estão em `response-format.ts`.
  *
  * Solicitação ainda `requested` mas já fora do prazo conta como sem
- * resposta mesmo antes de `expireStaleBookingRequests` marcá-la `expired`
+ * resposta mesmo antes de `sweepExpiredBookings` marcá-la `expired`
  * (essa marcação é preguiçosa): a leitura não depende de alguém ter aberto
  * uma tela antes.
  *

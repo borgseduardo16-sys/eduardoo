@@ -108,7 +108,7 @@ async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairr
       available_from, price_monthly_cents, size_m2, draft_step, location, approx_location)
     VALUES (${dono}, ${slug}, ${opts?.tipo ?? 'garagem'}, ${`Garagem de teste ${slug}`},
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
-      ${opts?.bairro ?? 'Centro'}, ${opts?.cidade ?? cidade}, 'ES', CURRENT_DATE, ${opts?.precoCents ?? 40000},
+      ${opts?.bairro ?? 'Centro'}, ${opts?.cidade ?? cidade}, 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${opts?.precoCents ?? 40000},
       ${opts?.areaM2 === undefined ? 20 : opts.areaM2}, 8,
       ST_SetSRID(ST_MakePoint(${(opts?.ponto ?? PONTO).lng}, ${(opts?.ponto ?? PONTO).lat}), 4326),
       ST_SetSRID(ST_MakePoint(${(opts?.ponto ?? PONTO).lng}, ${(opts?.ponto ?? PONTO).lat}), 4326))
@@ -1239,7 +1239,7 @@ async function main() {
         available_from, price_monthly_cents, size_m2, draft_step, location, approx_location)
       VALUES (${donoId}, ${`${tag}-rasc-${seqRasc}`}, 'garagem', ${titulo},
         'Descricao com mais de vinte caracteres para passar na regra do banco.', 'Rua Teste', '10',
-        ${bairro}, ${cidade8}, 'ES', CURRENT_DATE, ${precoCents}, 20, 8,
+        ${bairro}, ${cidade8}, 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${precoCents}, 20, 8,
         ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326), ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326))
       RETURNING id`;
     for (let n = 0; n < 3; n++) {
@@ -1382,7 +1382,7 @@ async function main() {
       INSERT INTO spaces (owner_id, slug, type, title, description, street, number, complement, district, city, state,
         available_from, price_monthly_cents, size_m2, draft_step, location, approx_location, rules_text)
       VALUES (${ownerId}, ${`${tag}-ia-${seq}`}, 'garagem', ${titulo}, ${descricao},
-        'Rua Secreta', 'NumeroSecreto', 'ComplementoSecreto', 'Centro', ${cidade}, 'ES', CURRENT_DATE, 43210, 18, 8,
+        'Rua Secreta', 'NumeroSecreto', 'ComplementoSecreto', 'Centro', ${cidade}, 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 43210, 18, 8,
         ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326), ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326),
         'Proibido guardar produtos inflamáveis.')
       RETURNING id`;
@@ -1646,7 +1646,7 @@ async function main() {
     const pagamento = async (status: string, pagoHa: number | null) => {
       seq++;
       await sql`INSERT INTO payments (booking_id, provider, provider_payment_id, status, method, amount_cents, due_date, paid_at)
-        VALUES (${b1}, 'asaas', ${`pay_${tag}_${seq}`}, ${status}, 'pix', ${valores.totalChargedCents}, CURRENT_DATE,
+        VALUES (${b1}, 'asaas', ${`pay_${tag}_${seq}`}, ${status}, 'pix', ${valores.totalChargedCents}, (now() AT TIME ZONE 'America/Sao_Paulo')::date,
           ${pagoHa === null ? null : sql`now() - make_interval(days => ${pagoHa})`})`;
     };
     await pagamento('received', 18);   // conta
@@ -1864,10 +1864,10 @@ async function main() {
   const pausado11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
   await sql`UPDATE spaces SET status='paused' WHERE id=${pausado11.id}`;
   const futuro11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
-  await sql`UPDATE spaces SET available_from = CURRENT_DATE + 10 WHERE id=${futuro11.id}`;
+  await sql`UPDATE spaces SET available_from = (now() AT TIME ZONE 'America/Sao_Paulo')::date + 10 WHERE id=${futuro11.id}`;
   const bloqueado11 = await criarPublicado({ tipo: 'garagem', precoCents: 40000, cidade: cidadeSim, ponto: P0 });
   await sql`INSERT INTO space_availability_blocks (space_id, starts_on, ends_on, reason, created_by)
-    VALUES (${bloqueado11.id}, CURRENT_DATE, CURRENT_DATE + 5, 'manutencao', ${donoId})`;
+    VALUES (${bloqueado11.id}, (now() AT TIME ZONE 'America/Sao_Paulo')::date, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 5, 'manutencao', ${donoId})`;
   await sql`INSERT INTO space_features (space_id, feature_key) VALUES
     (${base11.id}, 'coberto'), (${base11.id}, 'portao'), (${igual.id}, 'coberto'), (${igual.id}, 'portao'), (${vagaSim.id}, 'coberto')`;
 

@@ -8,6 +8,7 @@
  * (`guard_publish_requires_photos`) e não dá para contornar.
  */
 import type postgres from 'postgres';
+import { todayInSaoPaulo } from '../../src/lib/dates';
 
 type Sql = postgres.Sql | postgres.TransactionSql;
 
@@ -43,7 +44,7 @@ export async function criarAnuncio(sql: Sql, a: NovoAnuncio): Promise<string> {
       (${a.ownerId}, ${a.slug}, ${a.tipo ?? 'garagem'}, ${`Espaço ${a.slug}`},
        'Descricao com mais de vinte caracteres para passar na regra do banco.',
        'Rua Exata', '123', ${a.bairro ?? 'Centro'}, ${a.cidade ?? 'Colatina'}, 'ES',
-       CURRENT_DATE, ${a.precoCents}, ${a.quantidade ?? 1}, 18, 8,
+       (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${a.precoCents}, ${a.quantidade ?? 1}, 18, 8,
        ${a.depositEnabled ?? false},
        ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326),
        ST_SetSRID(ST_MakePoint(${lng + 0.0015}, ${lat - 0.0015}), 4326))
@@ -103,6 +104,6 @@ export async function formPreco(sql: Sql, spaceId: string, precoReais: string): 
   fd.set('priceMonthly', precoReais);
   fd.set('quantityOffered', String(e!.qtd));
   if (e!.total != null) fd.set('quantityTotal', String(e!.total));
-  fd.set('availableFrom', e!.desde ?? new Date().toISOString().slice(0, 10));
+  fd.set('availableFrom', e!.desde ?? todayInSaoPaulo());
   return fd;
 }

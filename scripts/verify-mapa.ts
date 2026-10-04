@@ -147,7 +147,7 @@ async function main() {
   const idRascunho = await criarAnuncio(sql, { ownerId: donoId, slug: `${tag}-rascunho`, precoCents: 9000, status: 'draft', lat: dentro(200, 0.1).lat, lng: dentro(200, 0.1).lng });
   // Disponível só daqui a 30 dias.
   const idFuturo = await criarAnuncio(sql, { ownerId: donoId, slug: `${tag}-futuro`, precoCents: 9500, lat: dentro(500, 2.2).lat, lng: dentro(500, 2.2).lng });
-  await sql`UPDATE spaces SET available_from = CURRENT_DATE + 30 WHERE id = ${idFuturo}`;
+  await sql`UPDATE spaces SET available_from = (now() AT TIME ZONE 'America/Sao_Paulo')::date + 30 WHERE id = ${idFuturo}`;
 
   const area = {
     west: centro.lng - 0.2, south: centro.lat - 0.2, east: centro.lng + 0.2, north: centro.lat + 0.2,
@@ -217,7 +217,7 @@ async function main() {
     SELECT ${donoId}, ${`${tag}-massa-`} || g, 'garagem', 'Espaço em massa ' || g,
            'Descricao com mais de vinte caracteres para passar na regra do banco.',
            'Rua Exata', '1', 'Centro', 'Cidade Teste', 'TO',
-           CURRENT_DATE, 10000 + g, 1, 18, 8,
+           (now() AT TIME ZONE 'America/Sao_Paulo')::date, 10000 + g, 1, 18, 8,
            ST_SetSRID(ST_MakePoint(${centro.lng + 0.12} + (g % 10) * 0.0004, ${centro.lat + 0.12} + (g / 10) * 0.0004), 4326),
            NULL
       FROM generate_series(0, 119) g`;

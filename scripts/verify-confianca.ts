@@ -143,7 +143,7 @@ async function criarPublicado(ownerId: string, sufixo: string, precoCents = 3000
       postal_code, available_from, price_monthly_cents, size_m2, draft_step, location, approx_location)
     VALUES (${ownerId}, ${slug}, 'garagem', ${`Garagem de teste ${slug}`},
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
-      'Rua das Palmeiras', '1234', 'Centro', ${tag}, 'ES', '29700000', CURRENT_DATE, ${precoCents}, 20, 8,
+      'Rua das Palmeiras', '1234', 'Centro', ${tag}, 'ES', '29700000', (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${precoCents}, 20, 8,
       ST_SetSRID(ST_MakePoint(-43.2, -21.5), 4326), ST_SetSRID(ST_MakePoint(-43.2, -21.5), 4326))
     RETURNING id`;
   const id = row!.id;
@@ -162,7 +162,7 @@ async function criarReserva(spaceId: string, ownerId: string, renterId: string, 
     INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
       monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
       total_charged_cents, owner_payout_cents, ended_at)
-    VALUES (${`MP-${tag}-${seq}`}, ${spaceId}, ${renterId}, ${ownerId}, ${status}, CURRENT_DATE - 60,
+    VALUES (${`MP-${tag}-${seq}`}, ${spaceId}, ${renterId}, ${ownerId}, ${status}, (now() AT TIME ZONE 'America/Sao_Paulo')::date - 60,
       ${a.monthlyRentCents}, ${a.renterFeeBps}, ${a.ownerFeeBps}, ${a.renterFeeCents}, ${a.ownerFeeCents},
       ${a.totalChargedCents}, ${a.ownerPayoutCents}, ${status === 'ended' ? sql`now()` : null})
     RETURNING id`;
@@ -924,7 +924,7 @@ async function main() {
       INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
         monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
         total_charged_cents, owner_payout_cents, requested_at, responded_at, cancelled_by, cancelled_at, ended_at)
-      VALUES (${`MP-${tag}-${seq}`}, ${espacoResp.id}, ${renterId}, ${respId}, ${status}, CURRENT_DATE + 30,
+      VALUES (${`MP-${tag}-${seq}`}, ${espacoResp.id}, ${renterId}, ${respId}, ${status}, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 30,
         ${a.monthlyRentCents}, ${a.renterFeeBps}, ${a.ownerFeeBps}, ${a.renterFeeCents}, ${a.ownerFeeCents},
         ${a.totalChargedCents}, ${a.ownerPayoutCents},
         now() - make_interval(hours => ${pedidoHaHoras}::int),

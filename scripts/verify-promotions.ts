@@ -115,7 +115,7 @@ async function seedEspacoPublicado(ownerId: string, sufixo: string): Promise<str
       available_from, price_monthly_cents, size_m2, location)
     VALUES (${ownerId}, ${slug}, 'garagem', ${`Garagem de teste ${sufixo}`},
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
-      'Centro', 'Colatina', 'ES', CURRENT_DATE, 25000, 20,
+      'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 25000, 20,
       ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326))
     RETURNING id`;
   const id = row!.id;
@@ -134,7 +134,7 @@ async function seedEspacoRascunho(ownerId: string, sufixo: string): Promise<stri
       available_from, price_monthly_cents, size_m2, location, status)
     VALUES (${ownerId}, ${`${tag}-${sufixo}`}, 'garagem', ${`Espaco ${sufixo}`},
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
-      'Centro', 'Colatina', 'ES', CURRENT_DATE, 25000, 20,
+      'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 25000, 20,
       ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326), 'draft')
     RETURNING id`;
   return row!.id;
@@ -612,7 +612,7 @@ async function main() {
         available_from, price_monthly_cents, size_m2, location)
       VALUES (${donoCompatId}, ${`${tag}-compat-${sufixo}`}, ${tipo}::space_type,
         ${`Espaco compat ${sufixo}`}, 'Descricao com mais de vinte caracteres para passar na regra do banco.',
-        'Centro', 'Colatina', 'ES', CURRENT_DATE, 25000, 20,
+        'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 25000, 20,
         ST_SetSRID(ST_MakePoint(${PONTO_ISOLADO.lng}, ${PONTO_ISOLADO.lat}), 4326))
       RETURNING id`;
     const id = row!.id;

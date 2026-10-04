@@ -93,8 +93,8 @@ async function seed() {
   for (const s of SEEDS) {
     const slug = `${tag}-${s.slug}`;
     const disponivel = s.availableInDays
-      ? sql`CURRENT_DATE + ${s.availableInDays}::int`
-      : sql`CURRENT_DATE`;
+      ? sql`(now() AT TIME ZONE 'America/Sao_Paulo')::date + ${s.availableInDays}::int`
+      : sql`(now() AT TIME ZONE 'America/Sao_Paulo')::date`;
     const [row] = await sql<{ id: string }[]>`
       INSERT INTO spaces (owner_id, slug, type, title, description, district, city, state,
         available_from, price_monthly_cents, size_m2, location)
@@ -123,7 +123,7 @@ async function seed() {
       available_from, price_monthly_cents, size_m2, location, status)
     VALUES (${dono}, ${`${tag}-pausado`}, 'garagem', 'Garagem pausada no Centro',
       'Descricao com mais de vinte caracteres para passar na regra do banco.',
-      'Centro', 'Colatina', 'ES', CURRENT_DATE, 15000, 20,
+      'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 15000, 20,
       ST_SetSRID(ST_MakePoint(${CENTRO_COLATINA.lng}, ${CENTRO_COLATINA.lat}), 4326), 'draft')
     RETURNING id`;
   ids.pausado = pausado!.id;

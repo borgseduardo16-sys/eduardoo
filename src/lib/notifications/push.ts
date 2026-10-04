@@ -66,7 +66,7 @@ export async function countUserPushSubscriptions(userId: string): Promise<number
  * Manda o push para TODOS os dispositivos inscritos da pessoa. Nunca lança —
  * best-effort puro. Uma inscrição que o navegador já revogou (404/410,
  * confirmado no próprio protocolo Web Push) é apagada na hora, autolimpeza
- * no mesmo espírito de `expireStaleBookingRequests`.
+ * no mesmo espírito de `sweepExpiredBookings`.
  */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<void> {
   if (!isIntegrationConfigured('push')) return;

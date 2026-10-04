@@ -166,7 +166,7 @@ async function main() {
       VALUES (${ownerId}, ${`garagem-${tag}`}, 'garagem', 'draft',
               'Garagem coberta perto do centro',
               'Garagem fechada com portao automatico, cabe um carro medio.',
-              'Centro', 'Colatina', 'ES', CURRENT_DATE, 18000,
+              'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 18000,
               ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
       RETURNING id`;
     spaceId = space.id;
@@ -190,7 +190,7 @@ async function main() {
       VALUES (${ownerId}, ${`sem-geo-${tag}`}, 'deposito', 'draft',
               'Deposito sem coordenada',
               'Deposito completo em tudo, menos o ponto no mapa.',
-              'Centro', 'Colatina', 'ES', CURRENT_DATE, 10000)
+              'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 10000)
       RETURNING id`;
     for (const n of [0, 1, 2]) {
       await sql`INSERT INTO space_images (space_id, storage_path, position)
@@ -254,7 +254,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}`}, ${spaceId}, ${renterId}, ${ownerId},
-          'active', CURRENT_DATE,
+          'active', (now() AT TIME ZONE 'America/Sao_Paulo')::date,
           ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
           ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
           ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})
@@ -270,7 +270,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-FRAUD-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
-          'requested', CURRENT_DATE, 18000, 300, 300, 540, 540, 100, 17460)`,
+          'requested', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 18000, 300, 300, 540, 540, 100, 17460)`,
       'bookings_total_matches',
     );
 
@@ -281,7 +281,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-SELF-${tag.slice(-4)}`}, ${spaceId}, ${ownerId}, ${ownerId},
-          'requested', CURRENT_DATE, 18000, 300, 300, 540, 540, 18540, 17460)`,
+          'requested', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 18000, 300, 300, 540, 540, 18540, 17460)`,
       'bookings_distinct_parties',
     );
 
@@ -293,7 +293,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-DUP-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
-          'active', CURRENT_DATE, 18000, 300, 300, 540, 540, 18540, 17460)`,
+          'active', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 18000, 300, 300, 540, 540, 18540, 17460)`,
       'bookings_capacity',
     );
     // Pedido ainda sem resposta NÃO ocupa vaga: pode haver vários ao mesmo tempo.
@@ -302,7 +302,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-PED-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
-          'requested', CURRENT_DATE, 18000, 300, 300, 540, 540, 18540, 17460)`);
+          'requested', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 18000, 300, 300, 540, 540, 18540, 17460)`);
     // Fecha o pedido de teste: quem pediu não pode ter outro vivo neste anúncio nas seções seguintes.
     await sql`UPDATE bookings SET status = 'cancelled', cancelled_at = now() WHERE reference = ${`MP-PED-${tag.slice(-4)}`}`;
 
@@ -755,7 +755,7 @@ async function main() {
         VALUES (${ownerId}, ${`caucao-${tag}`}, 'garagem', 'draft',
                 'Garagem para teste de caução',
                 'Descricao com mais de vinte caracteres para passar na regra do banco.',
-                'Centro', 'Colatina', 'ES', CURRENT_DATE, 20000,
+                'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 20000,
                 ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
         RETURNING id`;
       const [bookingCaucao] = await sql<{ id: string }[]>`
@@ -763,7 +763,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}D`}, ${espacoCaucao.id}, ${renterId}, ${ownerId},
-          'approved', CURRENT_DATE,
+          'approved', (now() AT TIME ZONE 'America/Sao_Paulo')::date,
           20000, 300, 300, 600, 600, 20600, 19400, 20000)
         RETURNING id`;
       const bookingCaucaoId = bookingCaucao.id;
@@ -834,7 +834,7 @@ async function main() {
         VALUES (${ownerId}, ${`caucao2-${tag}`}, 'garagem', 'draft',
                 'Segunda garagem para teste de caução',
                 'Descricao com mais de vinte caracteres para passar na regra do banco.',
-                'Centro', 'Colatina', 'ES', CURRENT_DATE, 20000,
+                'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 20000,
                 ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
         RETURNING id`;
       const [bookingCaucao2] = await sql<{ id: string }[]>`
@@ -842,7 +842,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}E`}, ${espacoCaucao2.id}, ${renterId}, ${ownerId},
-          'approved', CURRENT_DATE,
+          'approved', (now() AT TIME ZONE 'America/Sao_Paulo')::date,
           20000, 300, 300, 600, 600, 20600, 19400, 20000)
         RETURNING id`;
 
@@ -909,7 +909,7 @@ async function main() {
             monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
             owner_fee_cents, total_charged_cents, owner_payout_cents)
           VALUES (${`MP-${tag.slice(-6).toUpperCase()}${sufixo}`}, ${spaceId}, ${renterId}, ${ownerId},
-            'ended', CURRENT_DATE - 90, now(), 18000, 300, 300, 540, 540, 18540, 17460)
+            'ended', (now() AT TIME ZONE 'America/Sao_Paulo')::date - 90, now(), 18000, 300, 300, 540, 540, 18540, 17460)
           RETURNING id`;
         return b.id;
       };
@@ -1168,14 +1168,14 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}${sufixo}`}, ${spaceId}, ${renter}, ${ownerId},
-          'active', CURRENT_DATE + ${inicioEmDias}::int,
+          'active', (now() AT TIME ZONE 'America/Sao_Paulo')::date + ${inicioEmDias}::int,
           ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
           ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
           ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})
         RETURNING id`;
       const bloquear = (de: number, ate: number) => sql<{ id: string }[]>`
         INSERT INTO space_availability_blocks (space_id, starts_on, ends_on, reason, created_by)
-        VALUES (${spaceId}, CURRENT_DATE + ${de}::int, CURRENT_DATE + ${ate}::int, 'manutencao', ${ownerId})
+        VALUES (${spaceId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date + ${de}::int, (now() AT TIME ZONE 'America/Sao_Paulo')::date + ${ate}::int, 'manutencao', ${ownerId})
         RETURNING id`;
 
       // --- Ocupação real: o status do anúncio acompanha a reserva ---
@@ -1217,7 +1217,7 @@ async function main() {
             monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
             owner_fee_cents, total_charged_cents, owner_payout_cents)
           VALUES (${`MP-${tag.slice(-6).toUpperCase()}U`}, ${spaceId}, ${strangerId}, ${ownerId},
-            'active', CURRENT_DATE + 10, CURRENT_DATE + 5,
+            'active', (now() AT TIME ZONE 'America/Sao_Paulo')::date + 10, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 5,
             ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
             ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
             ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})`,
@@ -1325,10 +1325,10 @@ async function main() {
 
       // --- Contadores ---
       await mustReject('visualização negativa no contador diário é bloqueada',
-        () => sql`INSERT INTO space_daily_stats (space_id, day, views) VALUES (${spaceId}, CURRENT_DATE, -1)`,
+        () => sql`INSERT INTO space_daily_stats (space_id, day, views) VALUES (${spaceId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date, -1)`,
         'space_daily_stats_non_negative');
       await mustReject('uso negativo de IA no contador é bloqueado',
-        () => sql`INSERT INTO ai_usage_counters (day, feature, calls) VALUES (CURRENT_DATE, ${`verify-${tag}`}, -1)`,
+        () => sql`INSERT INTO ai_usage_counters (day, feature, calls) VALUES ((now() AT TIME ZONE 'America/Sao_Paulo')::date, ${`verify-${tag}`}, -1)`,
         'ai_usage_counters_calls_non_negative');
 
       // --- Nenhuma tabela nova é alcançável pelo navegador ---
@@ -1404,7 +1404,7 @@ async function main() {
                             available_from, price_monthly_cents, quantity_offered, quantity_total, location)
         VALUES (${ownerId}, ${`quantidade-${tag}`}, 'estacionamento', 'draft', 'Estacionamento com duas vagas na plataforma',
                 'Estacionamento coberto com vagas mensais para teste da quantidade.',
-                'Centro', 'Colatina', 'ES', CURRENT_DATE, 30000, 2, 5,
+                'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 30000, 2, 5,
                 ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
         RETURNING id`;
       const qId = q!.id;
@@ -1427,7 +1427,7 @@ async function main() {
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
-        VALUES (${`MP-Q${tag.slice(-5).toUpperCase()}${sufixo}`}, ${qId}, ${renter}, ${ownerId}, ${status}, CURRENT_DATE,
+        VALUES (${`MP-Q${tag.slice(-5).toUpperCase()}${sufixo}`}, ${qId}, ${renter}, ${ownerId}, ${status}, (now() AT TIME ZONE 'America/Sao_Paulo')::date,
           30000, 300, 300, 900, 900, 30900, 29100)
         RETURNING id`;
       const [ped] = await com('P', renterId, 'requested');
@@ -1479,24 +1479,24 @@ async function main() {
       // ---- Pedido de encerramento do proprietário: um por vez, com data válida.
       const [ativa] = await com('E', strangerId, 'active');
       await sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date, reason)
-                VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 30, 'Preciso do espaço')`;
+                VALUES (${ativa!.id}, ${ownerId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 30, 'Preciso do espaço')`;
       await mustReject('segundo pedido de encerramento em aberto é bloqueado',
         () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
-                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 40)`, 'booking_end_requests_one_pending');
+                  VALUES (${ativa!.id}, ${ownerId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 40)`, 'booking_end_requests_one_pending');
       await sql`UPDATE booking_end_requests SET status = 'withdrawn', resolved_at = now() WHERE booking_id = ${ativa!.id}`;
       await mustReject('data de encerramento no passado é bloqueada',
         () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
-                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE - 1)`, 'booking_end_requests_min_notice');
+                  VALUES (${ativa!.id}, ${ownerId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date - 1)`, 'booking_end_requests_min_notice');
       await mustReject('data de encerramento a mais de um ano é bloqueada',
         () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
-                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 400)`, 'booking_end_requests_horizon');
+                  VALUES (${ativa!.id}, ${ownerId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 400)`, 'booking_end_requests_horizon');
       await mustReject('quem aluga não pode pedir o encerramento',
         () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
-                  VALUES (${ativa!.id}, ${renterId}, CURRENT_DATE + 10)`, 'booking_end_requests_by_owner');
+                  VALUES (${ativa!.id}, ${renterId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 10)`, 'booking_end_requests_by_owner');
       await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${ativa!.id}`;
       await mustReject('locação já encerrada não recebe pedido de encerramento',
         () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
-                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 10)`, 'booking_end_requests_live_booking');
+                  VALUES (${ativa!.id}, ${ownerId}, (now() AT TIME ZONE 'America/Sao_Paulo')::date + 10)`, 'booking_end_requests_live_booking');
 
       // ---- Privacidade por tipo: comercial mostra o ponto exato, residencial é deslocado.
       const [ponto] = await sql<{ iguais: boolean }[]>`SELECT ST_Equals(location, approx_location) AS iguais FROM spaces WHERE id = ${qId}`;

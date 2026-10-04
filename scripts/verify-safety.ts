@@ -199,7 +199,7 @@ async function main() {
                           price_monthly_cents, location)
       VALUES (${ana}, ${`box-${tag}`}, 'deposito', 'draft', 'Deposito seco no centro',
               'Deposito fechado e ventilado, bom para movel e caixa.',
-              'Centro', 'Colatina', 'ES', CURRENT_DATE, 25000,
+              'Centro', 'Colatina', 'ES', (now() AT TIME ZONE 'America/Sao_Paulo')::date, 25000,
               ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
       RETURNING id`;
     spaceId = space.id;
@@ -258,7 +258,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-BLK-${tag.slice(-4)}`}, ${spaceId}, ${bruno}, ${ana}, 'requested',
-          CURRENT_DATE, 25000, 300, 300, 750, 750, 25750, 24250)`,
+          (now() AT TIME ZONE 'America/Sao_Paulo')::date, 25000, 300, 300, 750, 750, 25750, 24250)`,
       'bloqueio entre os usuarios',
     );
 
@@ -490,7 +490,7 @@ async function main() {
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-HIST-${tag.slice(-4)}`}, ${spaceId}, ${bruno}, ${ana}, 'active',
-          CURRENT_DATE, 25000, 300, 300, 750, 750, 25750, 24250)
+          (now() AT TIME ZONE 'America/Sao_Paulo')::date, 25000, 300, 300, 750, 750, 25750, 24250)
         RETURNING id`;
 
       const antesFim = await sql<{ c: number }[]>`
