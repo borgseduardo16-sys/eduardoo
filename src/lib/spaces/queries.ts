@@ -7,6 +7,7 @@ import { latOf, lngOf, withinMeters, distanceMeters, type LatLng } from '@/db/sc
 import { gatedPromotionTierExpr } from '@/lib/promotions/queries';
 import { compatibilityScoreExpr } from '@/lib/promotions/compatibility';
 import { upcomingBlocksExpr } from './sql';
+import { HOJE_BR_SQL } from '@/lib/dates';
 
 /**
  * Leitura de anuncios.
@@ -244,7 +245,7 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
     conditions.push(lte(spaces.priceMonthlyCents, options.priceMaxCents));
   }
   if (options?.availableNow) {
-    conditions.push(startPossibleOn(sql`CURRENT_DATE`));
+    conditions.push(startPossibleOn(sql.raw(HOJE_BR_SQL)));
   }
   if (point && options?.radiusMeters) {
     conditions.push(withinMeters(spaces.approxLocation, point, options.radiusMeters));

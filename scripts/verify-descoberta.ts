@@ -2049,6 +2049,43 @@ async function main() {
   expect('cobrança criada com link inválido (não https) não guarda link', (await sql<{ u: string | null }[]>`SELECT invoice_url AS u FROM payments WHERE provider_payment_id=${`pay_${tag}_4`}`)[0]?.u ?? null, null);
 
   // =========================================================================
+  secao('13. Datas: o "hoje" das consultas é o de Brasília, não o fuso do banco');
+  // =========================================================================
+  const { HOJE_BR_SQL, todayInSaoPaulo: hojeBrasilia } = await import('../src/lib/dates');
+  // Dois fusos com 26 h de diferença nunca estão no mesmo dia do calendário. Se o "hoje" dependesse do fuso da
+  // sessão (como CURRENT_DATE, que no Supabase é UTC), os dois resultados abaixo sairiam diferentes.
+  const hojeEm = (fuso: string) => sql.begin(async (tx) => {
+    await tx.unsafe(`SET LOCAL TIME ZONE '${fuso}'`);
+    const [linha] = await tx.unsafe(`SELECT ${HOJE_BR_SQL}::text AS hoje, CURRENT_DATE::text AS atual`);
+    return linha as unknown as { hoje: string; atual: string };
+  });
+  const leste = await hojeEm('Pacific/Kiritimati'); // UTC+14
+  const oeste = await hojeEm('Etc/GMT+12'); // UTC-12
+  assert('a prova vale: CURRENT_DATE muda com o fuso da sessão (os dois fusos estão em dias diferentes)',
+    leste.atual !== oeste.atual, `${leste.atual} × ${oeste.atual}`);
+  expect('o "hoje" do app não muda com o fuso da sessão do banco', leste.hoje, oeste.hoje);
+  expect('e é o mesmo dia que o servidor usa em Brasília', leste.hoje, hojeBrasilia());
+
+  const { readdirSync, readFileSync, statSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const arquivosSrc: string[] = [];
+  const percorrer = (dir: string) => {
+    for (const nome of readdirSync(dir)) {
+      const caminho = join(dir, nome);
+      if (statSync(caminho).isDirectory()) percorrer(caminho);
+      else if (/\.(ts|tsx)$/.test(nome)) arquivosSrc.push(caminho);
+    }
+  };
+  percorrer(fileURLToPath(new URL('../src', import.meta.url)));
+  const usosDeCurrentDate = arquivosSrc.flatMap((arquivo) =>
+    readFileSync(arquivo, 'utf8').split('\n')
+      .map((linha, i) => ({ onde: `${arquivo.split('/src/')[1]}:${i + 1}`, linha }))
+      .filter(({ linha }) => /CURRENT_DATE/i.test(linha) && !/^\s*(\*|\/\/|\/\*)/.test(linha))
+      .map(({ onde }) => onde));
+  expect('nenhuma consulta do app usa CURRENT_DATE (todas usam o dia de Brasília)', usosDeCurrentDate, []);
+
+  // =========================================================================
   await limpar();
   console.log(`\n\x1b[1mResultado:\x1b[0m ${failed === 0 ? '\x1b[32m' : '\x1b[31m'}${passed} passaram, ${failed} falharam\x1b[0m`);
   if (failed > 0) {

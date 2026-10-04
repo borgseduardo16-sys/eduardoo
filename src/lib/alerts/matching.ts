@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { notifyUser } from '@/lib/notifications/dispatch';
 import { settingInt } from '@/lib/settings';
-import { todayInSaoPaulo } from '@/lib/dates';
+import { HOJE_BR_SQL, todayInSaoPaulo } from '@/lib/dates';
 import { earliestStartFrom } from '@/lib/search/match';
 import { alertCriteriaSchema, alertSearchHref, spaceMatchesAlert } from './criteria';
 
@@ -57,7 +57,7 @@ export async function matchNewSpaceToAlerts(spaceId: string): Promise<{ userIds:
         s.size_m2::text AS size_m2, s.available_from::text AS available_from,
         (SELECT json_agg(json_build_object('startsOn', b.starts_on::text, 'endsOn', b.ends_on::text) ORDER BY b.starts_on)
           FROM space_availability_blocks b
-          WHERE b.space_id = s.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE) AS upcoming_blocks,
+          WHERE b.space_id = s.id AND b.cancelled_at IS NULL AND b.ends_on >= ${sql.raw(HOJE_BR_SQL)}) AS upcoming_blocks,
         COALESCE((SELECT array_agg(sf.feature_key) FROM space_features sf WHERE sf.space_id = s.id), '{}') AS feature_keys
       FROM spaces s
       WHERE s.id = ${spaceId} AND s.status = 'published' AND s.deleted_at IS NULL

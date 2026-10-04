@@ -3,6 +3,7 @@ import { and, asc, desc, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { bookings, profiles, spaceAvailabilityBlocks, spaces } from '@/db/schema';
 import { OCCUPYING_STATUSES } from '@/lib/bookings/queries';
+import { HOJE_BR_SQL } from '@/lib/dates';
 import type { CalendarRange } from './month';
 
 /**
@@ -74,7 +75,7 @@ export async function getOwnerCalendarData(spaceId: string, ownerId: string) {
         and(
           eq(spaceAvailabilityBlocks.spaceId, spaceId),
           isNull(spaceAvailabilityBlocks.cancelledAt),
-          gte(spaceAvailabilityBlocks.endsOn, sql`CURRENT_DATE`),
+          gte(spaceAvailabilityBlocks.endsOn, sql.raw(HOJE_BR_SQL)),
         ),
       )
       .orderBy(asc(spaceAvailabilityBlocks.startsOn)),

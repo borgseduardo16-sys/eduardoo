@@ -4,6 +4,10 @@ import { db } from '@/db/client';
 import { subscriptions, bookings, spaces, notifications, favorites, conversations, promotions } from '@/db/schema';
 import { notifyUser, notifyUsers } from './dispatch';
 import { formatBRL } from '@/lib/money';
+import { HOJE_BR_SQL } from '@/lib/dates';
+
+/** Hoje em Brasília, pelo relógio do Postgres (nunca `CURRENT_DATE`, que seguiria o fuso UTC do banco). */
+const HOJE = sql.raw(HOJE_BR_SQL);
 
 /**
  * Jobs agendados (Vercel Cron — ver src/app/api/cron/notificacoes/route.ts).
@@ -25,9 +29,9 @@ type RentDueNotificationData = {
 /**
  * Lembrete de aluguel vencendo: EXATAMENTE dois avisos por ciclo — 7 dias e
  * 1 dia antes do vencimento — nunca uma contagem regressiva diária. A data
- * "daqui a 7/1 dias" é calculada pelo Postgres (`CURRENT_DATE`), nunca por
- * `new Date()` do processo — evita divergência de fuso entre o servidor cron
- * e o banco.
+ * "daqui a 7/1 dias" é calculada pelo Postgres (o dia de Brasília, `HOJE`), nunca
+ * por `new Date()` do processo — evita divergência de fuso entre o servidor
+ * cron e o banco.
  *
  * Idempotência: como o cron roda 1x/dia e `next_due_date` é fixo até o ciclo
  * virar, cada assinatura só bate em "vence em 7 dias" num único dia do
@@ -64,8 +68,8 @@ export async function runRentDueReminders(): Promise<{ sent: number }> {
         WHERE p.subscription_id = subscriptions.id AND p.due_date = subscriptions.next_due_date AND p.status = 'pending')`,
       milestone: sql<'7d' | '1d'>`(
         CASE
-          WHEN ${subscriptions.nextDueDate} = (CURRENT_DATE + INTERVAL '7 days')::date THEN '7d'
-          WHEN ${subscriptions.nextDueDate} = (CURRENT_DATE + INTERVAL '1 day')::date THEN '1d'
+          WHEN ${subscriptions.nextDueDate} = (${HOJE} + INTERVAL '7 days')::date THEN '7d'
+          WHEN ${subscriptions.nextDueDate} = (${HOJE} + INTERVAL '1 day')::date THEN '1d'
         END
       )`,
     })
@@ -75,7 +79,7 @@ export async function runRentDueReminders(): Promise<{ sent: number }> {
     .where(
       and(
         eq(subscriptions.status, 'active'),
-        sql`${subscriptions.nextDueDate} IN ((CURRENT_DATE + INTERVAL '7 days')::date, (CURRENT_DATE + INTERVAL '1 day')::date)`,
+        sql`${subscriptions.nextDueDate} IN ((${HOJE} + INTERVAL '7 days')::date, (${HOJE} + INTERVAL '1 day')::date)`,
       ),
     );
 

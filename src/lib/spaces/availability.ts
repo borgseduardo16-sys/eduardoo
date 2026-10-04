@@ -3,6 +3,7 @@ import { and, asc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { spaces, spaceAvailabilityBlocks } from '@/db/schema';
 import { addDaysToDate } from '@/lib/time';
+import { HOJE_BR_SQL } from '@/lib/dates';
 import type { SpaceBlockPublic } from './start-dates';
 
 export { blockCoveringStart, earliestStartDate, type SpaceBlockPublic } from './start-dates';
@@ -74,7 +75,7 @@ export async function listUpcomingBlocks(spaceId: string): Promise<SpaceBlockPub
       and(
         eq(spaceAvailabilityBlocks.spaceId, spaceId),
         isNull(spaceAvailabilityBlocks.cancelledAt),
-        gte(spaceAvailabilityBlocks.endsOn, sql`CURRENT_DATE`),
+        gte(spaceAvailabilityBlocks.endsOn, sql.raw(HOJE_BR_SQL)),
       ),
     )
     .orderBy(asc(spaceAvailabilityBlocks.startsOn));

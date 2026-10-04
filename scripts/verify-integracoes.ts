@@ -2142,7 +2142,14 @@ async function testeSMapaExploracao() {
       ownerId: donoId, slug: `${tag}-mapa-${sufixo}`, precoCents, quantidade, tipo, cidade: 'Colatina',
       lat: aoNorte(metros), lng: base.lng,
     });
-    await sql`UPDATE spaces SET title=${titulo} WHERE id=${id}`;
+    /*
+     * O ponto público de um anúncio residencial é DESLOCADO de 100 a 400 m, sorteado pelo id (que muda a cada
+     * rodada). Com o deslocamento solto, em algumas rodadas dois marcadores caíam um em cima do outro e o toque
+     * no de baixo era interceptado pelo de cima. Aqui o que se testa é a tela do mapa, então os pontos ficam
+     * onde foram pedidos; o deslocamento tem o teste dele (verify-mapa.ts e verify-schema.ts). O gatilho só
+     * recalcula quando `location` ou `type` mudam, então este UPDATE não o dispara.
+     */
+    await sql`UPDATE spaces SET title=${titulo}, approx_location = location WHERE id=${id}`;
     return id;
   };
   const a = await criar('a', 'Garagem coberta pertinho', 'garagem', 15_000, 300);

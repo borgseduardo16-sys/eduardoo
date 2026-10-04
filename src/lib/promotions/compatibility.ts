@@ -1,6 +1,7 @@
 import 'server-only';
 import { sql, type SQL } from 'drizzle-orm';
 import { spaces } from '@/db/schema';
+import { HOJE_BR_SQL } from '@/lib/dates';
 
 /**
  * Compatibilidade entre um espaco e a busca em andamento.
@@ -75,9 +76,9 @@ export function compatibilityScoreExpr(ctx: CompatibilityContext): SQL<number> {
   // vai LITERAL: interpolado, sairia "id" sem tabela e o Postgres ligaria
   // ao `b.id` do bloqueio (ver a nota da capa em listPublishedSpaces).
   const disponivel = ctx.availableNow
-    ? sql`(CASE WHEN ${spaces.availableFrom} <= CURRENT_DATE AND NOT EXISTS (
+    ? sql`(CASE WHEN ${spaces.availableFrom} <= ${sql.raw(HOJE_BR_SQL)} AND NOT EXISTS (
         SELECT 1 FROM space_availability_blocks b
-        WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= CURRENT_DATE
+        WHERE b.space_id = spaces.id AND b.cancelled_at IS NULL AND b.ends_on >= ${sql.raw(HOJE_BR_SQL)}
       ) THEN 1 ELSE 0 END)`
     : sql`0`;
 
