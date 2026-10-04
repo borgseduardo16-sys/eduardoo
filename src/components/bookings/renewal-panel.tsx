@@ -120,8 +120,8 @@ export function RenewalPanel({ info }: { info: RenewalInfo }) {
 
       {info.state !== 'encerrada' ? (
         <p className="text-[0.8125rem] text-[var(--content-muted)]">
-          A renovação é automática, todo mês, até alguém encerrar o aluguel — pelas regras de sempre, em “Encerrar
-          aluguel”.
+          A renovação acontece todo mês, até alguém encerrar a locação. Quem aluga encerra em “Encerrar locação”; o
+          proprietário registra um pedido de encerramento com a data.
         </p>
       ) : (
         <p className="text-[0.8125rem] text-[var(--content-muted)]">Aluguel encerrado: não há novas cobranças.</p>

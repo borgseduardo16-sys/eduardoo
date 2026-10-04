@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 const COLETA = [
   { titulo: 'Conta', texto: 'Nome, e-mail e telefone informados no cadastro.' },
   { titulo: 'Pagamento', texto: 'CPF ou CNPJ, usado só para identificar a cobrança junto ao gateway de pagamento — número de cartão e dados bancários nunca passam pelos nossos servidores, ficam só com o gateway.' },
-  { titulo: 'Localização', texto: 'Endereço completo do espaço (privado até uma reserva ser aceita) e, se você autorizar, sua localização aproximada para ordenar resultados por distância.' },
+  { titulo: 'Localização', texto: 'Endereço completo do espaço (privado até a locação ser confirmada) e, se você autorizar, sua localização aproximada para ordenar resultados por distância.' },
   { titulo: 'Conteúdo', texto: 'Fotos enviadas para anúncios (sem os metadados de câmera/GPS originais, removidos automaticamente) e o texto das conversas entre as partes.' },
   { titulo: 'Uso', texto: 'Registros técnicos de acesso e ações sensíveis (login, pagamento, denúncia, suspensão), guardados para segurança e auditoria.' },
 ];
@@ -68,7 +68,7 @@ export default function PrivacidadePage() {
             <h2 className="text-[1.125rem] font-semibold">Quem mais vê o quê</h2>
             <p className="text-[0.9375rem] text-[var(--content-muted)] leading-relaxed">
               O endereço exato de um espaço só é visível para você mesmo, e para o locatário
-              depois que uma reserva é confirmada com o primeiro pagamento. Outros usuários
+              depois que a locação é confirmada com o primeiro pagamento. Outros usuários
               veem apenas o nome público (nome de exibição ou primeiro nome), a foto de perfil,
               a apresentação, as verificações concluídas e o histórico de avaliações — nunca
               telefone, e-mail, CPF/CNPJ ou nome completo.

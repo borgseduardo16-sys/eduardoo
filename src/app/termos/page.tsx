@@ -28,21 +28,22 @@ const SECOES = [
     titulo: '3. Publicação de anúncios',
     paragrafos: [
       'Um anúncio precisa descrever o espaço real, com fotos do espaço real, e só pode ser publicado com as informações mínimas exigidas (tipo, localização, ao menos 3 fotos, preço, disponibilidade).',
-      'A localização exata (rua, número, complemento) só é revelada ao locatário depois que uma reserva é confirmada, com o primeiro pagamento aprovado — antes disso, só a área aproximada aparece publicamente.',
+      'A localização exata (rua, número, complemento) só é revelada ao locatário depois que a locação é confirmada, com o primeiro pagamento confirmado — antes disso, só aparece uma localização aproximada.',
     ],
   },
   {
-    titulo: '4. Reserva e pagamento',
+    titulo: '4. Solicitação, aceite e pagamento',
     paragrafos: [
-      'O aluguel é uma assinatura mensal recorrente, cobrada automaticamente pela plataforma através de um gateway de pagamento. A MyPlace cobra uma taxa sobre cada transação — os percentuais atuais estão sempre visíveis em /taxas antes de qualquer confirmação.',
-      'O repasse ao proprietário acontece depois que o pagamento é confirmado pelo gateway, já descontada a taxa da plataforma.',
+      'A locação é mensal. O locatário envia uma solicitação com a data de início; nada é cobrado nessa etapa. O proprietário tem 24 horas para aceitar ou recusar — sem resposta, a solicitação expira. Ao aceitar, o proprietário informa como o locatário encontra e usa o espaço (texto ou áudio), e essas instruções só aparecem para o locatário depois do pagamento.',
+      'Aceita a solicitação, o locatário tem 24 horas para pagar a primeira mensalidade pela plataforma. Sem pagamento nesse prazo, a solicitação expira e a vaga volta a ficar disponível. As mensalidades seguintes são cobradas todo mês: automaticamente no cartão, ou por uma cobrança Pix que o locatário paga pelo app. Se um pagamento falhar, o locatário tem 2 horas para regularizar; sem regularização, a locação é encerrada.',
+      'A MyPlace cobra uma taxa sobre cada mensalidade — os percentuais atuais estão sempre visíveis em /taxas antes de qualquer confirmação. O repasse ao proprietário acontece depois que o pagamento é confirmado pelo gateway, já descontada a taxa da plataforma.',
     ],
   },
   {
     titulo: '5. Cancelamento e encerramento',
     paragrafos: [
-      'Qualquer uma das partes pode cancelar uma solicitação antes dela ser aceita, ou encerrar um aluguel já ativo — o histórico da reserva permanece registrado para ambas as partes.',
-      'Cancelar não gera reembolso automático de valores já cobrados; casos específicos são avaliados manualmente.',
+      'Antes do pagamento, o locatário pode desistir e o proprietário pode desfazer o aceite. Com a locação ativa, o locatário pode encerrá-la quando quiser — a cobrança automática é cancelada. O proprietário pode solicitar o encerramento informando a data e, se quiser, o motivo; o locatário é avisado e o histórico permanece registrado para ambas as partes.',
+      'A MyPlace não aplica multa pelo encerramento. Cancelar ou encerrar não gera reembolso automático de valores já cobrados; casos específicos são avaliados manualmente.',
     ],
   },
   {

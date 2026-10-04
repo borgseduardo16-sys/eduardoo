@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 const PERGUNTAS = [
   {
     p: 'Como funciona o pagamento do aluguel?',
-    r: 'É uma assinatura mensal, cobrada automaticamente pela plataforma via Pix, boleto ou cartão. Você confirma uma vez no checkout, e as cobranças seguintes acontecem sozinhas.',
+    r: 'Nada é cobrado ao solicitar. Se o proprietário aceitar, você tem 24 horas para pagar a primeira mensalidade pelo app. No cartão, as mensalidades seguintes são cobradas sozinhas todo mês; no Pix, a cobrança do mês aparece em Meus aluguéis para você pagar. Se um pagamento falhar, você tem 2 horas para regularizar.',
   },
   {
     p: 'Posso conhecer o espaço antes de fechar?',
@@ -21,7 +21,7 @@ const PERGUNTAS = [
   },
   {
     p: 'O que acontece se eu não conseguir mais usar o espaço?',
-    r: 'Você pode encerrar o aluguel a qualquer momento. O histórico continua disponível para os dois lados; valores já cobrados não são estornados automaticamente.',
+    r: 'Em Meus aluguéis, use “Encerrar locação”: a cobrança automática para e a vaga volta para o anúncio. O histórico continua disponível para os dois lados; valores já cobrados não são estornados automaticamente.',
   },
   {
     p: 'Como sei que o proprietário é confiável?',
@@ -59,7 +59,7 @@ export default function SuportePage() {
                 className="rounded-[var(--radius-card)] border p-5 space-y-2 hover:bg-[var(--surface-sunken)] transition-colors"
               >
                 <MessageCircle className="size-5 text-[var(--accent)]" aria-hidden />
-                <p className="font-semibold text-[0.9375rem]">Problema com uma reserva ou conversa</p>
+                <p className="font-semibold text-[0.9375rem]">Problema com uma locação ou conversa</p>
                 <p className="text-[0.875rem] text-[var(--content-muted)] leading-relaxed">
                   Fale primeiro com a outra parte pelo chat — a maioria dos casos se resolve ali.
                 </p>

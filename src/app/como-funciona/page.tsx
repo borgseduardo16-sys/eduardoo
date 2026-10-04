@@ -10,17 +10,17 @@ export const metadata: Metadata = {
 };
 
 const PASSOS_PROCURA = [
-  { icon: Search, titulo: 'Busque perto de você', texto: 'Por cidade, bairro, endereço ou sua localização atual. Filtre por tipo, preço e características.' },
-  { icon: MessageCircle, titulo: 'Solicite e converse', texto: 'Envie uma solicitação com a data que precisa. Combine detalhes com o anunciante pelo chat da plataforma.' },
-  { icon: ShieldCheck, titulo: 'Visite antes de fechar', texto: 'O endereço completo só aparece depois que o proprietário aceita — mas você sempre pode (e deve) visitar antes de pagar.' },
-  { icon: Wallet, titulo: 'Pague pela plataforma', texto: 'Assinatura mensal recorrente, cobrada automaticamente. Nada de dinheiro na mão ou combinar "por fora".' },
+  { icon: Search, titulo: 'Busque no mapa ou na lista', texto: 'Por cidade, bairro ou pela sua localização. O mapa mostra os espaços perto de você com o valor por mês; dá para filtrar por categoria, preço e distância.' },
+  { icon: MessageCircle, titulo: 'Solicite a locação', texto: 'Escolha a data de início e envie a solicitação. Nada é cobrado agora. O proprietário tem 24 horas para aceitar ou recusar, e vocês podem conversar por texto ou áudio.' },
+  { icon: Wallet, titulo: 'Pague para confirmar', texto: 'Se ele aceitar, você tem 24 horas para pagar a primeira mensalidade pelo app: cartão com cobrança automática todo mês, ou Pix a cada mês. A locação só vale com o pagamento confirmado.' },
+  { icon: ShieldCheck, titulo: 'Receba o acesso e use', texto: 'Com o pagamento confirmado aparecem o endereço exato, a rota e as instruções do proprietário (texto ou áudio). Antes disso, o endereço fica protegido — e visitar antes de pedir é sempre uma boa ideia.' },
 ];
 
 const PASSOS_ANUNCIA = [
-  { icon: Camera, titulo: 'Publique em poucos minutos', texto: 'Tipo, localização, fotos (mínimo de 3), preço e regras de uso. Sem burocracia.' },
-  { icon: MessageCircle, titulo: 'Responda solicitações', texto: 'Quem se interessar te manda uma solicitação. Você aceita ou recusa, sem compromisso até aceitar.' },
+  { icon: Camera, titulo: 'Publique em poucos minutos', texto: 'Tipo, localização, fotos (mínimo de 3), valor mensal e quantas unidades você oferece: uma garagem é 1, um estacionamento pode ser 80. Sem burocracia.' },
+  { icon: MessageCircle, titulo: 'Responda em até 24 horas', texto: 'Veja quem pediu: telefone verificado, avaliações e histórico. Ao aceitar, explique como a pessoa chega e usa o espaço, por texto ou áudio — ela só vê isso depois de pagar.' },
   { icon: Rocket, titulo: 'Ganhe mais visibilidade (opcional)', texto: 'Destaque ou Turbo aumentam a posição do seu anúncio nos resultados — sempre respeitando a relevância pra quem busca.' },
-  { icon: Wallet, titulo: 'Receba todo mês', texto: 'O pagamento cai automaticamente, já com a taxa da plataforma descontada. Sem precisar cobrar ninguém.' },
+  { icon: Wallet, titulo: 'Receba todo mês', texto: 'A mensalidade é cobrada de quem aluga e repassada a você já com a taxa da plataforma descontada. O painel mostra o valor líquido de cada locação.' },
 ];
 
 export default function ComoFuncionaPage() {
@@ -99,7 +99,7 @@ export default function ComoFuncionaPage() {
               {[
                 'Conversa registrada — em caso de problema, existe histórico.',
                 'Pagamento rastreável, sem dinheiro em espécie ou combinado por fora.',
-                'Localização exata do espaço só é revelada depois que a reserva é confirmada, com o primeiro pagamento aprovado.',
+                'Endereço exato e instruções de acesso só são revelados depois do primeiro pagamento confirmado.',
                 'Denúncia e suspensão de conta para quem descumpre as regras.',
               ].map((t) => (
                 <li key={t} className="flex items-start gap-2.5 text-[0.9375rem] text-[var(--content-muted)]">
