@@ -1,6 +1,6 @@
 # Status honesto do projeto
 
-> **Atualizado em:** 01/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23, Parte 12 + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas)** · **Parte 12 (unidades, aluguel por hora/dia/semana e mensal, Meus aluguéis, pagamento pendente com 40 min + 1 h, aviso ao abrir o app) funciona de ponta a ponta contra o dublê do Asaas; falta configurar o agendador por minuto e a chave Pix, e a cobrança real depende da credencial Asaas** · **Banco no Supabase parado na `0024` (29/09): falta rodar o `supabase/setup.sql`, que aplica as 8 migrações da Fase 23 e da Parte 12 (`0025` a `0032`)**
+> **Atualizado em:** 04/10/2026 · **Fases concluídas:** 1 a 6, 9 a 23, Parte 13 (que substitui a Parte 12) + segurança interna + auditoria de segurança adversarial · **Fases 5, 7 e 8 dependem só da credencial Asaas real** (código e testes prontos) · **Fase 13+14 (Destaques/Turbo/Premium, compra avulsa, elegibilidade e área de gerenciamento) funcionam de ponta a ponta, com cobrança real no Asaas; a assinatura mensal paga do Premium em si ainda não existe — hoje o benefício grátis é concedido manualmente pelo admin, como mecanismo interino** · **Fase 15 (avaliações, notificações, navegação no celular, páginas institucionais, encerrar aluguel) fecha as lacunas mais visíveis de um marketplace real; layout ajustado — paleta de cores segue em aberto, por pedido do usuário** · **Fase 16 (classificação de padrão do espaço por IA de visão — ferramenta do proprietário, não selo público) depende só da credencial Anthropic real** (código, schema e motor de cálculo prontos e testados) · **Fase 17 (sugestão de valor de aluguel, na mesma tela da Fase 16) funciona de ponta a ponta, sem depender de credencial nenhuma — é aritmética sobre comparáveis reais, não usa IA** · **Fase 18 (sistema inteligente de notificações — queda de preço/disponibilidade em favoritos, "novo espaço compatível", lembrete de vencimento, resumo do proprietário) funciona de ponta a ponta; só os dois avisos agendados (vencimento e resumo) dependem de configurar o `CRON_SECRET` da Vercel Cron — o resto não depende de credencial nenhuma** · **Fases 19 a 21 (push no celular, caução e a camada de confiança — perfil público, avaliações dos dois lados, verificações, página da reserva, preferências de notificação) funcionam de ponta a ponta; dependem de credencial só o push (VAPID), a verificação de telefone por SMS (Twilio Verify) e a cobrança real da caução (Asaas). Verificação de identidade ainda não tem provedor — o selo não aparece para ninguém** · **Fase 23 (busca por necessidade, compatibilidade, alertas de busca, lista de espera, calendário, histórico de preço, painel de desempenho, relatório mensal, compartilhar, espaços semelhantes e renovação mensal) funciona de ponta a ponta; dependem de credencial só a IA (Anthropic — opcional, sempre com alternativa sem IA) e a cobrança real das renovações (Asaas)** · **Parte 13 (locação mensal por quantidade — anúncio → vagas → solicitação → aceite com instruções de acesso → pagamento → renovações —, mapa de exploração e chat com áudio) substitui a Parte 12 e funciona de ponta a ponta contra o dublê do Asaas; a cobrança real depende da credencial Asaas, a imagem aérea do mapa de uma chave de tiles e os avisos por minuto de um agendador** · **Banco no Supabase parado na `0024` (29/09): falta rodar o `supabase/setup.sql` (ou a `atualizacao-0025.sql`), que aplica as 9 migrações da Fase 23, da Parte 12 e da Parte 13 (`0025` a `0033`)**
 
 Estados usados:
 
@@ -201,7 +201,7 @@ as duas partes, registrado e protegido contra corrida no banco.
 | Taxa aplicada: 3% locatário + 3% proprietário | ✅ | lida de `platform_settings` no momento da solicitação **e recongelada** no momento do aceite |
 | Não deixa duplicar solicitação pendente para o mesmo espaço | ✅ | testado |
 | Não deixa solicitar o próprio espaço | ✅ | testado |
-| Expiração automática de solicitação parada | ✅ | varredura a cada listagem (`expireStaleBookingRequests`), sem precisar de worker/cron — status vira `expired` de verdade no banco |
+| Expiração automática de solicitação parada | ✅ | varredura a cada listagem (`sweepExpiredBookings`, que chama `release_expired_rentals` no banco; antes chamava-se `expireStaleBookingRequests`), sem precisar de worker/cron — status vira `expired` de verdade no banco |
 
 ### Área do proprietário — Solicitações
 
@@ -518,7 +518,7 @@ preço, localização, disponibilidade ou avaliação de um anúncio.
 | Tabela `premium_memberships` | ✅ | status, origem, quem concedeu, quando |
 | Nenhum Destaque/Turbo sobreposto no mesmo espaço | ✅ | índice único parcial `promotions_one_active_per_space`, mesmo padrão de `bookings_one_active_per_space` |
 | Concorrência real | ✅ | **testado com corrida real (`Promise.all`)**: cota mensal travada por `SELECT ... FOR UPDATE`, duplo-clique no mesmo espaço coberto pelo índice único — exatamente uma ativação vence nos dois casos |
-| Expiração preguiçosa | ✅ | sem worker/cron — varredura no início das consultas que precisam de dado fresco, mesmo padrão de `expireStaleBookingRequests` |
+| Expiração preguiçosa | ✅ | sem worker/cron — varredura no início das consultas que precisam de dado fresco, mesmo padrão de `sweepExpiredBookings` |
 | Duração e cota mensal | ⚙️ | **placeholder** em `platform_settings` (7 dias Destaque / 48h Turbo, 2+1 por mês) — o usuário confirmou que já tem o modelo de números real e vai enviar depois; trocar é um `UPDATE`, sem deploy |
 
 ### Fluxo "Destacar anúncio" e identidade visual
@@ -1155,7 +1155,7 @@ residencial à venda) sem perguntar de novo.
 ### Infraestrutura nova: primeiro cron real do projeto
 
 Até aqui, todo "job periódico" do app era uma **varredura preguiçosa**
-(ex.: `expireStaleBookingRequests`, chamada de dentro de uma consulta de
+(ex.: `sweepExpiredBookings`, chamada de dentro de uma consulta de
 leitura) — funciona bem para autocorreção de estado, mas não serve para
 um lembrete genuinamente proativo: quem nunca abre o app antes do
 vencimento nunca dispararia a varredura a tempo. Por isso a Fase 18.4/18.5
@@ -1550,8 +1550,8 @@ pela tela como uma pessoa faria:
 ### Banco no seu Supabase — falta rodar
 
 O SQL desta fase são as migrações `0025` a `0030` — hoje dentro do
-`supabase/setup.sql` e da `atualizacao-0025.sql`, que desde a Parte 12 vai
-até a `0032` (ver a seção da Parte 12). **Ainda não foi rodado no seu
+`supabase/setup.sql` e da `atualizacao-0025.sql`, que desde a Parte 13 vai
+até a `0033` (ver a seção da Parte 13). **Ainda não foi rodado no seu
 projeto**: sem ele, as
 telas novas (alertas, desempenho, calendário, lista de espera, melhorar
 anúncio) quebram em produção, porque as tabelas não existem. Validado aqui
@@ -1564,7 +1564,15 @@ de queda dos favoritos.
 
 ---
 
-## Parte 12 — Unidades, aluguel por tempo e contínuo, pagamento pendente ✅ *(01/10/2026)*
+## Parte 12 — Unidades, aluguel por tempo e contínuo, pagamento pendente *(01/10/2026 · substituída pela Parte 13 em 04/10/2026)*
+
+> **Esta parte foi substituída pela Parte 13 (logo abaixo).** A migração `0033`
+> removeu unidades, grupos, aluguel por hora/dia/semana, reserva imediata e as
+> janelas de 40 min + 1 h, e os scripts `verify-alugueis*.ts` saíram junto. O
+> texto que segue fica como **registro histórico** do que foi construído e dos
+> defeitos que os testes acharam — **não descreve o app de hoje**. O que
+> continua valendo (Pix com QR no app, estorno de pagamento tardio, agendador
+> por minuto, as correções) está repetido na Parte 13.
 
 Construída em cima do que já existia (reserva mensal, assinatura no Asaas,
 webhook idempotente, "Encerrar aluguel") — nada foi substituído. Arquitetura,
@@ -1657,20 +1665,148 @@ foram testados o projeto Supabase real (a rede deste ambiente bloqueia
 `*.supabase.co`), um agendador externo de verdade (só a rota) e o push em
 aparelho de verdade.
 
+### Banco no seu Supabase
+
+As migrações `0031` e `0032` desta parte continuam dentro do SQL, mas a `0033`
+(Parte 13) as desfaz. As instruções vigentes para o seu projeto estão na
+Parte 13, em "Banco no seu Supabase — falta rodar".
+
+---
+
+## Parte 13 — Locação mensal por quantidade, mapa de exploração e chat com áudio ✅ *(04/10/2026)*
+
+Construída em cima do que já existia — anúncios, busca, favoritos, avaliações,
+notificações, Asaas, webhook idempotente, Destaque, Turbo e Premium. **Nada foi
+recriado do zero**, e o que não conflitava com o modelo novo ficou como estava.
+O fluxo agora é um só:
+
+> **anúncio → quantidade disponível → solicitação → aceite (com instruções de
+> acesso) → pagamento → locação mensal → renovações**
+
+Arquitetura, estados, prazos e limitações em [ALUGUEL.md](./ALUGUEL.md); tabelas
+e regras do banco em
+[BANCO-DE-DADOS.md](./BANCO-DE-DADOS.md#modelo-mensal-por-quantidade-migração-0033).
+Nenhum valor é calculado no navegador e nenhuma cobrança é fingida: só o webhook
+do Asaas confirma pagamento.
+
+### O que foi construído
+
+| Item | Estado | Observação |
+|------|--------|------------|
+| Só aluguel mensal | ✅ | hora, dia, semana, calendário de horários, unidade individual (A1, B17…) e ocupação física automática saíram na migração `0033` — sem apagar nenhuma locação (pagamentos e livro-razão apontam para elas) |
+| Quantidade por anúncio | ✅ | "100 vagas no local, 80 na plataforma, R$ 300 por mês": `quantity_offered`, `quantity_total` e `quantity_available`; a disponível é **recontada pelo banco**, nunca somada ou subtraída pelo código |
+| Duas pessoas, uma última vaga | ✅ | o gatilho `bookings_guard_capacity` trava a linha do anúncio; aceites simultâneos entram em fila e o segundo é recusado (`bookings_capacity`). Provado com aceites em paralelo contra o Postgres de verdade |
+| Solicitação com data de início | ✅ | até 90 dias à frente (imposto pelo servidor); nada é cobrado ao solicitar; o navegador manda só o id e o banco confere o aluguel (`bookings_rent_matches_space`) |
+| 24 h para o proprietário responder | ✅ | sem resposta, expira; pedido sem resposta **não ocupa vaga** |
+| Aceite com instruções de acesso | ✅ | texto (10 caracteres ou mais) e/ou áudio, **obrigatório** — quem recusa é o banco (`guard_booking_approval`), não só o formulário. O locatário só vê depois de pagar |
+| O proprietário vê quem está pedindo | ✅ | nome, avaliações reais, histórico de locações e sinais de confiança do solicitante (e-mail e telefone verificados, tempo de conta); nenhum dado inventado |
+| Telefone verificado | 🔑 | exige o Twilio Verify (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_VERIFY_SERVICE_SID`); sem ele o selo não aparece para ninguém — nada é fingido |
+| Pagamento em até 24 h depois do aceite | ⚙️ | Pix (QR Code e "copia e cola" no app) ou cartão (assinatura); testado contra o dublê do Asaas |
+| Mensalidade e renovações | ⚙️ | cartão: cobrança automática; Pix: uma cobrança por mês, com lembrete. "Próximo vencimento: 21/11/2026" |
+| Falha de cobrança | ✅ | "Pagamento pendente" com janela de **2 h no total** (constraint `bookings_payment_window`); dá para trocar de cartão ou pagar por Pix sobre a mesma cobrança; sem pagamento, a locação termina e a vaga volta |
+| Pagamento que chega tarde | ✅ | estornado automaticamente, a pessoa é avisada, nunca gera repasse |
+| Chat com texto e áudio, sem imagens | ✅ | gravador e player; de 1 s a 3 min e até 3 MB; bucket privado `chat-audio` com política por conversa; gravado no Chromium com microfone falso |
+| Encerrar | ✅ | o locatário, na hora; o proprietário, por "Solicitar encerramento da locação" (data, motivo, avisa a pessoa, histórico preservado, sem multa) |
+| Privacidade da localização | ✅ | aproximada antes da locação; tipos comerciais com ponto exato (configurável); rua, número e complemento só depois do pagamento |
+| "Traçar rota" | ✅ | só com a locação ativa; abre o Google Maps com o destino exato |
+| Mapa de exploração (`/mapa`) | ✅ | raio inicial de 2 km, ícones por categoria, agrupamento por zoom, prévia ao tocar, filtros (preço R$ 100, 200, 300 ou outro valor; distância 1, 2, 5 e 10 km; categoria; disponibilidade) com a contagem de resultados |
+| Taxa transparente | ✅ | "Você receberá R$ 291,00 por mês. Esse valor já considera a taxa de serviço de 3%." — a mesma conta do repasse (`money.ts`), com a taxa lida do banco |
+| Meus aluguéis e painel do proprietário | ✅ | vencimentos, histórico, instruções e rota; o painel mostra o líquido por mês e o total recebido |
+| "Avise-me quando estiver disponível" | ✅ | a lista de espera continua; nenhuma vaga fica reservada para quem pediu o aviso |
+| Notificações só do que importa | ✅ | um aviso por pessoa quando o pagamento confirma; chave de deduplicação em todos |
+| Avaliações e favoritos | ✅ | preservados; avaliação só de locação real (regra do banco, das fases anteriores) |
+| Imagem aérea no mapa | 🔑 | exige `NEXT_PUBLIC_MAPTILER_KEY` ou `NEXT_PUBLIC_SATELLITE_TILE_URL` ([SETUP.md §3](./SETUP.md#3-mapas--o-que-está-valendo-e-quando-vira-obrigação)); sem isso o botão fica desligado e diz isso |
+| Agendador por minuto | 🔑 | a rota `/api/cron/minuto` está pronta; falta um agendador chamá-la ([SETUP.md §15](./SETUP.md#15-agendador-por-minuto)). **Os prazos valem sem ele** (quem aplica é o banco); sem ele atrasam os avisos, os e-mails e a lista de espera |
+| Cobrança real | ⚙️ | código e testes contra o dublê prontos; falta a credencial Asaas (a mesma pendência das Fases 5 e 7) |
+| Selo Verificado, Premium e benefícios, redução de taxa por nível | ⬜ | **próxima etapa, separada, por pedido**. Destaque, Turbo e Premium existentes ficaram como estavam |
+| Pix Automático | ⬜ | no Pix, cada mensalidade é paga pela pessoa |
+
+### Decisões onde o pedido deixava espaço (todas fáceis de mudar)
+
+- **Pagar depois do aceite**, em até 24 h — a divergência maior, explicada logo abaixo.
+- A data de início pode ficar até **90 dias** à frente (`booking.max_start_advance_days`).
+- **Sem aviso prévio mínimo** para encerrar e **sem multa**: `rental.end_request_min_notice_days` vale 0. O que valer entre as partes é o combinado no chat.
+- Tipos com **ponto exato** no mapa: loja, escritório, galpão, estacionamento, espaço para eventos e oficina (`privacy.exact_location_types`). Os demais aparecem deslocados de 100 a 400 m.
+- O mapa agrupa em círculos com contagem acima de 60 espaços na tela.
+
+### Divergências do pedido e limitações — leia antes de publicar
+
+1. **Pagar antes do aceite do proprietário não é possível com o Asaas, e não foi inventado.** Pix não tem retenção nem pré-autorização; o cartão só teria pré-autorização com os dados do cartão passando pelo site (PCI), e hoje ele é informado na fatura do Asaas. A ordem é **solicitar → aceitar → pagar em até 24 h**: nada é cobrado ao solicitar (a tela diz isso) e, se a pessoa não pagar, a vaga volta.
+2. **"Às 13:00" só aparece onde existe de verdade.** O banco guarda a hora dos prazos de resposta, de pagamento e da janela de 2 h. O vencimento da mensalidade no Asaas é **só uma data**, então a tela mostra "Próximo vencimento: 21/11/2026", sem hora inventada.
+3. **O áudio não passa por detector de contato.** O chat de texto tem um; áudio exigiria transcrição. Dá para combinar pagamento por fora falando.
+4. **A avaliação do locatário vale para o espaço e para o proprietário (uma só).** O proprietário avalia o locatário à parte.
+5. **Mudar a lista de tipos com ponto exato recalcula o que o mapa mostra dos anúncios já publicados.**
+6. **Locações de hora, dia e semana da Parte 12** foram encerradas ou canceladas pela `0033`, sem apagar. No seu Supabase isso não afeta ninguém: ele parou na `0024` e nunca recebeu a Parte 12.
+7. **A mensalidade no Pix depende da pessoa:** não existe débito automático em Pix (Pix Automático segue não implementado).
+8. **No `/mapa`, dois marcadores muito próximos podem se sobrepor** até a pessoa dar zoom (o toque vai para o de cima). O mapa só agrupa em círculos acima de 60 espaços na tela.
+
+### Defeitos encontrados no navegador e nos testes (corrigidos)
+
+1. **O player de áudio não tocava**: a política de segurança (CSP) não liberava `blob:` em `<audio>`. Agora `media-src 'self' blob:`.
+2. **Erro 500 ao abrir uma locação com pedido de encerramento**: a consulta crua devolvia a data como texto e a tela chamava `getTime()`. Agora é consulta tipada.
+3. **O rótulo "Valor mensal" ficava amarrado a um `div` e não ao campo** (leitor de tela e clique no rótulo). Agora o campo é um componente próprio.
+4. **O mapa abria, mas o círculo do raio não aparecia**: o MapLibre 6 procurava o worker numa URL que o Next não serve. O arquivo agora é copiado para `public/maplibre/` e a URL é informada com `setWorkerUrl` (`src/lib/maps/worker.ts`).
+5. **`pnpm build` quebrava em rede restrita** (`ECONNRESET`): o plugin do Sentry enviava telemetria de uso a cada build. Desligada em `next.config.ts`; o monitoramento de erros não depende dela.
+6. **Dois avisos iguais por pessoa quando o pagamento confirmava** ("pagamento confirmado" e "locação começou" no mesmo instante). Agora é um só; o aviso de início só dispara no dia, quando o pagamento veio antes.
+7. **Sete consultas do app usavam `CURRENT_DATE`**, que segue o fuso do banco (UTC): depois das 21h em Brasília já é "amanhã". Um bloqueio do calendário que termina hoje sumia da lista, "disponível agora" enxergava anúncios de amanhã e o lembrete de vencimento (7 e 1 dia) podia errar o dia. Agora todas usam o dia de Brasília (`HOJE_BR_SQL`), como as funções do banco já faziam, e um teste impede a volta do `CURRENT_DATE`.
+8. **Achados da revisão visual (celular de 390 px)**: o calendário mostrava "Outubro De 2026" (o CSS `capitalize` põe maiúscula em toda palavra; agora só na primeira letra); o exemplo do campo "Quantas vagas você oferece?" falava de estacionamento mesmo num depósito ("80 boxes"); e os textos de exemplo da busca da home e da categoria do assistente saíam cortados na borda do campo.
+9. **Nos scripts**: anúncios de teste (`int-*`) ficavam publicados quando uma rodada era interrompida e quebravam as suítes seguintes — todos os scripts agora limpam o que criam, inclusive quando falham. E o TESTE S falhava em algumas rodadas porque o deslocamento aleatório do ponto público fazia dois marcadores se sobreporem: os pontos agora ficam onde foram pedidos (o deslocamento tem teste próprio).
+
+### Verificação automatizada
+
+| Suíte | Resultado |
+|-------|-----------|
+| `pnpm verify` (18 scripts) | **1.663 checagens, 0 falhas**, mais a paridade (abaixo) |
+| `scripts/verify-schema.ts` | 164 checagens: quantidade, última vaga em paralelo, preço, aceite com instruções, prazos, janela de 2 h, pedido de encerramento, privacidade da localização, áudio, RLS |
+| `scripts/verify-reservas.ts` (nova) | 101 checagens: fluxo mensal inteiro, prazos pelo relógio do banco, última vaga disputada em paralelo, encerramento |
+| `scripts/verify-audio.ts` (nova) | 66 checagens: formato lido pelos bytes, limites, bucket privado, quem pode ouvir |
+| `scripts/verify-mapa.ts` (nova) | 65 checagens: agrupamento, filtros, raio, contagem, privacidade do ponto |
+| `scripts/verify-paridade.ts` (nova) | "PARIDADE OK": o banco migrado de `0000` a `0033` tem as mesmas tabelas, colunas, índices, CHECKs e enums do schema do Drizzle |
+| `scripts/verify-payments.ts` | 152 checagens: Asaas (dublê), webhook, estorno de pagamento tardio, janela de 2 h |
+| `scripts/verify-descoberta.ts` | 383 checagens (Fase 23, com a disponibilidade por quantidade e a seção 13: o "hoje" é o de Brasília) |
+| `pnpm verify:integracoes` (testes A a T, Chromium, build de produção) | **361 checagens, 0 falhas** — fotos, mapa, CEP, permissões, busca com GPS, filtros, favoritos, compartilhar, solicitar e aceitar, pagar, chat, painel administrativo, Destaque/Turbo/Premium, as 23 etapas da Fase 23 e, novos, a locação mensal no celular (R), o mapa de exploração (S) e o passeio pelas telas (T) |
+| `pnpm typecheck && pnpm lint && pnpm build` | ✅ sem erro; mais `verify-schema` (164 checagens) |
+| SQL do Supabase | `setup.sql` (34 migrações, 766 comandos), `atualizacao-0025.sql` (0025 a 0033) e `atualizacao-0033.sql`: conferidos num banco vazio, num banco no estado da `0024`, no da `0032`, com dados, com o papel sem superusuário e com as políticas do bucket |
+
+Os testes novos do navegador são o **R** (a locação do começo ao fim, no
+celular, com áudio gravado: solicitar, aceitar com instruções, pagar, ver a rota,
+pedir encerramento), o **S** (o `/mapa` sem nenhuma violação da política de
+segurança, com o círculo do raio desenhado) e o **T** (passeio por 43 telas no
+celular de 390 px — públicas, do locatário, do proprietário e as 8 etapas do
+assistente de anúncio: cada uma tem de abrir, sem erro na página nem no console
+e **sem rolagem lateral**, e deixa uma captura para a revisão visual com
+`MANTER_TMP=1`).
+
+**O que NÃO foi testado** (não diga que foi):
+
+- nenhuma chamada ao Asaas de verdade, nem sandbox, e nenhum pagamento real com Pix ou cartão — os testes usam um dublê local que segue o contrato HTTP documentado;
+- o projeto Supabase real: a rede deste ambiente bloqueia `*.supabase.co`. O bucket e as políticas foram testados num Postgres local que imita o Supabase;
+- um agendador externo de verdade (só a rota `/api/cron/minuto`);
+- tiles de imagem aérea de verdade (MapTiler): o ambiente de teste serve tiles PNG próprios;
+- gravação de áudio num iPhone: o servidor reconhece o formato do Safari (MP4/M4A), mas quem gravou nos testes foi o Chromium (WebM);
+- push, e-mail (Resend) e SMS (Twilio) em aparelho ou caixa de entrada de verdade.
+
+### Ambiente de desenvolvimento (para quem for rodar os testes)
+
+- `NODE_USE_ENV_PROXY=1` faz o Node respeitar o proxy de saída (o `next/font`
+  baixa as fontes durante o build) e `NEXT_TELEMETRY_DISABLED=1` evita ruído de
+  rede. Nunca desligue a verificação de TLS.
+- O banco local usa o fuso UTC, como o Supabase. O "hoje" de toda consulta é o
+  dia de Brasília (veja "Datas" no §4 de [ALUGUEL.md](./ALUGUEL.md)).
+
 ### Banco no seu Supabase — falta rodar
 
-O seu projeto parou na `0024` (29/09). Faltam as 8 migrações da Fase 23 e
-desta etapa (`0025` a `0032`). **Sem elas, o app quebra em produção** —
-reservas, anúncios e Meus aluguéis passam a ler colunas e tabelas que ainda
-não existem. O caminho mais simples é colar o `supabase/setup.sql` completo:
-ele aplica só o que falta e pula o resto. A `atualizacao-0025.sql` (agora
-de `0025` a `0032`, 2.135 linhas) dá no mesmo, menor. As duas foram
-conferidas aqui num banco no estado do seu, com dados (ver
-[SETUP.md §1.6](./SETUP.md#16-criar-o-schema--cole-um-sql-não-mande-senha-para-ninguém)).
+O seu projeto parou na `0024` (29/09). Faltam as **9 migrações** da Fase 23,
+da Parte 12 e desta parte (`0025` a `0033`). **Sem elas, o app quebra em
+produção**: reservas, anúncios, mapa e chat passam a ler colunas e tabelas que
+ainda não existem. O caminho mais simples é colar o `supabase/setup.sql`
+completo — ele aplica só o que falta e pula o resto. A `atualizacao-0025.sql`
+dá no mesmo, menor. Quem já estiver na `0032` usa a `atualizacao-0033.sql`.
+O mesmo SQL cria o bucket privado `chat-audio` e as duas políticas por
+conversa; só se ele avisar que não tem permissão é que o bucket vai à mão
+([SETUP.md, "O bucket de áudio"](./SETUP.md#o-bucket-de-áudio-chat-audio)).
 Ativar o `btree_gist` no painel antes é opcional
-([SETUP.md §1.2](./SETUP.md#12-ativar-o-postgis)). Se houver algum aluguel
-em atraso no banco nessa hora, ele ganha o prazo novo (40 min + 1 h) a
-partir dali.
+([SETUP.md §1.2](./SETUP.md#12-ativar-o-postgis)).
 
 ---
 
@@ -1764,11 +1900,12 @@ ViaCEP, tiles do OpenStreetMap, Nominatim e `*.supabase.co` devolvem `000`).
 Para não cair no teste de mentirinha — "clicou, então funciona" — os testes
 sobem, na própria máquina, um servidor que implementa o **contrato REST**
 desses serviços, e exercitam o app inteiro contra ele **em um Chromium de
-verdade** (`scripts/verify-integracoes.ts`, 262 checagens — fotos, mapa, CEP,
+verdade** (`scripts/verify-integracoes.ts`, 361 checagens — fotos, mapa, CEP,
 busca com GPS real, filtros, favoritos, compartilhar, o fluxo de solicitar,
 aceitar e cancelar aluguel, o de configurar recebimento e pagar, o chat
-com e-mail de aviso e mensagem de sistema, o painel administrativo, e
-Destaque/Turbo/Premium).
+com e-mail de aviso e mensagem de sistema, o painel administrativo,
+Destaque/Turbo/Premium, a locação mensal inteira no celular com áudio, o mapa
+de exploração e o passeio por 43 telas).
 
 **18/09/2026 — você rodou `supabase/atualizacao-0009.sql` no painel do seu
 projeto real e confirmou sucesso.** Isso quer dizer que, no **seu** Supabase,
@@ -1856,7 +1993,7 @@ colar o DSN ([SETUP.md §7](./SETUP.md#7-sentry-erros-antes-de-produção)).
 
 ### ⚠️ 7. Teste de interface só em parte das telas
 
-São 876 checagens reais (`pnpm verify:tudo` = 652 de banco + 224 de
+São 2.024 checagens reais (`pnpm verify:tudo` = 1.663 de banco + 361 de
 navegador). As telas de foto, mapa, CEP, busca (com GPS real), filtros,
 favoritos, galeria, compartilhar, o fluxo de solicitar/aceitar/cancelar
 aluguel, o chat, os paineis financeiros (com webhook de pagamento disparado
@@ -1864,10 +2001,12 @@ pela rota HTTP real), o painel administrativo (fila de moderação, resolver
 denúncia, suspensão manual, o 404 pra quem não é admin) e o sistema de
 Destaque/Turbo/Premium (ativar e cancelar pela tela, selo na home/busca/Meus
 espaços, consumo real em `/premium`, admin concedendo e revogando Premium)
-rodam em Chromium de verdade (`pnpm verify:integracoes`). O que ainda não
-tem teste automatizado de interface: cadastro, login, e as ações de
-pausar/editar/excluir dentro de "Meus espaços" (só o fluxo de Destacar,
-dentro dessa mesma tela, foi testado).
+rodam em Chromium de verdade (`pnpm verify:integracoes`). O cadastro pela
+tela e o assistente de anúncio entraram no TESTE Q (Fase 23). O que ainda não
+tem teste automatizado de interação: o login com senha pela tela (os testes
+entram com um cookie de sessão do dublê do Supabase) e as ações de pausar,
+editar e excluir dentro de "Meus espaços" (só o fluxo de Destacar, dentro
+dessa mesma tela, foi testado).
 
 **Fase 15 (25/09/2026)** soma-se a essa lista: avaliação, encerrar
 aluguel, central de notificações, navegação no celular e as páginas
@@ -1904,6 +2043,14 @@ real é a de banco/Server Action, com as 51 checagens de
 (`saveStepAction`, `toggleSpaceStatusAction`, `publishSpaceAction`), não
 só as funções isoladas.
 
+**Parte 13 (04/10/2026)**: o TESTE T passeia por 43 telas no celular de
+390 px (públicas, do locatário, do proprietário e as 8 etapas do assistente) e
+confere que cada uma abre, sem erro e sem rolagem lateral — isso cobre a
+**largura** de todas as telas principais, mas não a interação de cada uma. O
+fluxo da locação (TESTE R) e o mapa (TESTE S) têm interação completa. Nada
+disso foi visto num aparelho de verdade (iPhone ou Android), só no Chromium
+com a tela do tamanho de um celular.
+
 ### ⚠️ 8. Sem documentos jurídicos
 
 Termos de Uso, Política de Privacidade, LGPD, regras de cancelamento,
@@ -1921,9 +2068,8 @@ pessoas que se conheceram pela sua plataforma.
 ```bash
 pnpm install
 pnpm db:migrate                      # aplica o schema
-pnpm verify                          # 1.573 checagens contra o Postgres real (15 suítes)
-pnpm verify:integracoes              # 262 checagens em Chromium real (fotos, mapa, CEP, busca, favoritos, solicitar/aceitar/cancelar aluguel, configurar recebimento e pagar, chat, paineis financeiros, painel administrativo, Destaque/Turbo/Premium, as 23 etapas da Fase 23)
-pnpm verify:alugueis-navegador       # 28 checagens em Chromium real (Parte 12: reserva por tempo, Meus aluguéis, pagamento pendente)
+pnpm verify                          # 1.663 checagens contra o Postgres real (18 scripts)
+pnpm verify:integracoes              # 361 checagens em Chromium real, testes A a T (fotos, mapa, CEP, busca, favoritos, locação mensal no celular com áudio, configurar recebimento e pagar, chat, painéis financeiros, painel administrativo, Destaque/Turbo/Premium, as 23 etapas da Fase 23, mapa de exploração, passeio pelas telas)
 pnpm check                           # typecheck + lint + build
 pnpm check:producao                  # relatorio do que falta configurar antes do primeiro usuario real
 pnpm dev                             # http://localhost:3000

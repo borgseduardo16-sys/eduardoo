@@ -235,10 +235,11 @@ Honestidade sobre os buracos conhecidos:
 2. **Monitoramento de erro: código pronto (Fase 12).** Sentry integrado via
    `instrumentation.ts`/`instrumentation-client.ts` — falta só o DSN de um
    projeto Sentry real (SETUP.md §7).
-3. **Cobertura de teste.** 472 checagens contra Postgres real (`pnpm verify`)
-   e 184 num Chromium de verdade via Playwright (`pnpm verify:integracoes`) —
-   656 no total (`pnpm verify:tudo`). Ainda falta teste de unidade de
-   componente (Vitest) e cobertura de UI de cadastro/login/"Meus espaços".
+3. **Cobertura de teste.** 1.663 checagens contra Postgres real (`pnpm verify`)
+   e 361 num Chromium de verdade via Playwright (`pnpm verify:integracoes`) —
+   2.024 no total (`pnpm verify:tudo`). Ainda falta teste de unidade de
+   componente (Vitest), teste de interação do login e das ações de "Meus
+   espaços", e teste em aparelho de verdade (iPhone, Android).
 4. **Split junto com Pix Automático não confirmado** com o Asaas.
 5. **Sem documentos jurídicos.** Termos de Uso e Política de Privacidade
    precisam de advogado, não de mim.

@@ -415,7 +415,7 @@ um espaço.
 
 **PRECISA DA SUA AÇÃO — CONFIGURAÇÃO DO GATEWAY.** O cliente e o webhook já
 existem e estão testados sem dinheiro real (`pnpm tsx scripts/verify-payments.ts`,
-50 checagens — ver [STATUS.md](./STATUS.md)). O que falta agora só você
+152 checagens — ver [STATUS.md](./STATUS.md)). O que falta agora só você
 consegue fazer: criar a conta e me passar a credencial.
 
 **Leia [PAGAMENTOS.md](./PAGAMENTOS.md) primeiro** — tem a conta completa de
@@ -454,7 +454,7 @@ merecem sua conferência, ou do gerente, antes de produção).
 pnpm tsx scripts/verify-payments.ts
 ```
 
-Isso já roda 50 checagens contra um Asaas "de mentira" que imita o contrato
+Isso já roda 152 checagens contra um Asaas "de mentira" que imita o contrato
 real (mesma técnica usada para CEP e mapa neste projeto) — prova que o
 cliente monta a chamada certa e que o webhook nunca duplica cobrança, reserva
 ou repasse, sem precisar de conta nenhuma. Vale rodar antes de mexer em

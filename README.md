@@ -10,12 +10,17 @@ vaga, sala, terreno — a quem precisa de espaço perto de casa.
 
 ## Estado atual
 
-**Fase 1 de 12 concluída:** arquitetura, banco de dados e autenticação.
-**Mais:** subsistema de segurança entre usuários (denúncia, bloqueio, detecção de golpe).
+A locação é **mensal, por quantidade de vagas**: anúncio → quantidade
+disponível → solicitação → aceite com instruções de acesso → pagamento →
+locação mensal → renovações. Há mapa de exploração, chat com texto e áudio,
+painéis do proprietário e do locatário, e as camadas de segurança e confiança
+entre usuários (denúncia, bloqueio, detecção de golpe, avaliações de locações
+reais).
 
 Leia [`docs/STATUS.md`](./docs/STATUS.md) para o estado honesto de cada
 funcionalidade — o que existe, o que não existe e o que está bloqueado
-esperando configuração externa.
+esperando configuração externa (a cobrança real, por exemplo, depende da
+credencial do Asaas).
 
 ---
 
@@ -30,11 +35,12 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Verificar que as regras do banco realmente funcionam (101 checagens):
+Verificar que as regras realmente funcionam — os scripts tentam gravar dado
+inválido e conferem que o banco recusa:
 
 ```bash
-pnpm tsx scripts/verify-schema.ts   # 29 — invariantes centrais
-pnpm tsx scripts/verify-safety.ts   # 72 — segurança entre usuários
+pnpm verify                  # regras do banco e do servidor, contra o Postgres real
+pnpm verify:integracoes      # o app num Chromium real, com o build de produção
 ```
 
 ## Comandos
@@ -44,6 +50,8 @@ pnpm tsx scripts/verify-safety.ts   # 72 — segurança entre usuários
 | `pnpm dev` | Servidor de desenvolvimento |
 | `pnpm build` | Build de produção |
 | `pnpm check` | typecheck + lint + build |
+| `pnpm verify` | Todas as suítes contra o Postgres real |
+| `pnpm verify:integracoes` | Testes no navegador (Chromium) |
 | `pnpm db:generate` | Gera migração a partir do schema |
 | `pnpm db:migrate` | Aplica migrações |
 | `pnpm db:studio` | Interface visual do banco |
@@ -56,6 +64,7 @@ pnpm tsx scripts/verify-safety.ts   # 72 — segurança entre usuários
 |-----------|----------|
 | [ARQUITETURA.md](./docs/ARQUITETURA.md) | Stack, decisões e trade-offs |
 | [BANCO-DE-DADOS.md](./docs/BANCO-DE-DADOS.md) | O que cada tabela faz, em linguagem simples |
+| [ALUGUEL.md](./docs/ALUGUEL.md) | A locação mensal por quantidade: vagas, prazos, pagamento, encerramento |
 | [PAGAMENTOS.md](./docs/PAGAMENTOS.md) | Análise dos gateways e a economia real do modelo de taxa |
 | [SEGURANCA.md](./docs/SEGURANCA.md) | Denúncia, bloqueio e detecção de golpe |
 | [SETUP.md](./docs/SETUP.md) | Passo a passo das contas externas |
@@ -80,7 +89,9 @@ R$ 35,00 — configuráveis sem deploy.
 **Técnica:**
 - Autorização na **Data Access Layer**, colada ao acesso ao dado
 - **RLS negando por padrão** em todas as tabelas
-- Endereço exato e coordenada precisa **nunca** saem em resposta pública
+- Rua, número e complemento **nunca** saem em resposta pública antes da locação;
+  o ponto no mapa é aproximado (só os tipos comerciais configurados, como loja e
+  galpão, mostram o ponto exato)
 - Chave secreta **nunca** no frontend
 
 **Entre usuários** (ver [SEGURANCA.md](./docs/SEGURANCA.md)):

@@ -551,7 +551,7 @@ pnpm tsx scripts/verify-safety.ts
 
 **77 checagens**, entre funções puras e invariantes do banco. As regras de
 confiança da Fase 21 (avaliações, perfil público, verificações, RLS) têm
-suíte própria: `pnpm tsx scripts/verify-confianca.ts` (158 checagens). Inclui os casos
+suíte própria: `pnpm tsx scripts/verify-confianca.ts` (177 checagens). Inclui os casos
 que não podem dar falso positivo:
 
 ```

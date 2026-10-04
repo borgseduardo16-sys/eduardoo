@@ -116,6 +116,14 @@ hora** (prazos de resposta/pagamento, janela de 2 h), "…às 13:00". O Asaas
 trabalha com vencimento **sem hora**, então a tela nunca inventa uma hora para
 a mensalidade.
 
+**Datas: o "hoje" é o de Brasília.** O banco roda em UTC (o Supabase também), e
+lá, depois das 21h em Brasília, já é "amanhã". Por isso nem as funções do banco
+nem as consultas do app usam `CURRENT_DATE`: usam
+`(now() AT TIME ZONE 'America/Sao_Paulo')::date` (no app, a constante
+`HOJE_BR_SQL` de `src/lib/dates.ts`). A seção 13 de `verify-descoberta.ts`
+prova que o resultado não muda com o fuso da sessão e que nenhum arquivo de
+`src/` volta a usar `CURRENT_DATE`.
+
 ---
 
 ## 5. Pagamento — o que foi adaptado, e por quê
@@ -280,6 +288,9 @@ agendador não geram dois avisos iguais. Preferências por categoria e o push
 - Mudar a lista de tipos com **ponto exato** recalcula os anúncios já
   publicados (inclusive o que o mapa mostra deles).
 - **Aviso prévio e multa** de encerramento não estão definidos.
+- No `/mapa`, até 60 espaços na tela cada um tem o seu marcador; **dois muito
+  próximos podem se sobrepor** até a pessoa dar zoom (o toque vai para o de
+  cima). Acima de 60 o mapa agrupa em círculos com contagem.
 - A **avaliação** do locatário vale para o espaço e para o proprietário (uma
   só); o proprietário avalia o locatário à parte.
 - Locações de **hora/dia/semana** da Parte 12 foram encerradas pela migração
@@ -296,4 +307,5 @@ agendador não geram dois avisos iguais. Preferências por categoria e o push
   (banco migrado × schema do Drizzle).
 - `pnpm verify:integracoes` — navegador (Chromium) contra o build de produção:
   testes **R** (locação ponta a ponta no celular, com áudio gravado por
-  microfone falso) e **S** (`/mapa`), além dos antigos.
+  microfone falso), **S** (`/mapa`) e **T** (passeio por 43 telas em 390 px:
+  abrem sem erro e sem rolagem lateral), além dos antigos.

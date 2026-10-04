@@ -295,8 +295,16 @@ conferir os nomes exatos de campo/endpoint abaixo contra a documentação viva.
 | Tela de checkout (resumo antes de pagar) | **IMPLEMENTADO** — `/reservas/[id]/pagar`, redireciona pra fatura hospedada pelo Asaas |
 | Tela de onboarding do proprietário (chama `createSubaccount`) | **IMPLEMENTADO** — dentro de `/meus-espacos/financeiro` |
 | Criação de subconta e KYC do proprietário | **IMPLEMENTADO, aprovação não confirmada** — a subconta é criada e marcada `can_receive=true` de imediato (decisão otimista, ver §4); se o Asaas exigir aprovação antes de aceitar split de verdade, precisa revisar |
+| Pagar **antes** do aceite do proprietário (retenção ou pré-autorização) | **NÃO É POSSÍVEL com o Asaas, e não foi inventado** — Pix não tem retenção; cartão só teria pré-autorização com os dados do cartão passando pelo site. A ordem adotada é solicitar → aceitar → pagar em até 24 h ([ALUGUEL.md §5](./ALUGUEL.md#5-pagamento--o-que-foi-adaptado-e-por-quê)) |
+| Pix mensal | **IMPLEMENTADO contra o dublê** — uma cobrança avulsa por mês, com QR Code e "copia e cola" no app; o Pix Automático continua não implementado |
+| Cartão mensal | **IMPLEMENTADO contra o dublê** — assinatura no Asaas, cobrança automática; o cartão é informado na fatura do Asaas, nunca no site |
+| Falha de cobrança | **IMPLEMENTADO** — janela de **2 horas no total** (o banco recusa qualquer outro valor) para trocar de cartão ou pagar por Pix sobre a mesma cobrança; sem pagamento, a locação termina e a vaga volta |
+| Pagamento que chega depois do fim da locação | **IMPLEMENTADO** — estornado automaticamente e a pessoa é avisada; nunca gera repasse |
 | Cobrança real | **BLOQUEADO POR SERVIÇO EXTERNO** — depende da sua conta Asaas e de testar fora deste ambiente (rede bloqueada aqui) |
 
-**Nenhum botão de pagamento existe hoje.** Não há checkout falso, não há
-"pagamento simulado", não há tela de sucesso sem cobrança. Quando existir, vai
-ser cobrança real ou erro real.
+**Os botões de pagamento existem e só fazem uma coisa: cobrar de verdade ou
+mostrar o erro real.** Cada chamada ao Asaas passa por
+`requireIntegration('payments')`: sem `ASAAS_API_KEY` o pagamento falha com a
+mensagem de que a integração não está configurada. Não há checkout falso, não
+há "pagamento simulado", não há tela de sucesso sem cobrança — a locação só
+fica ativa quando o **webhook do Asaas** confirma o pagamento.
