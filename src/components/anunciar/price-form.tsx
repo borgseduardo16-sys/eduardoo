@@ -144,7 +144,7 @@ export function PriceForm({
           hint={
             occupied > 0
               ? `${occupied} ${occupied === 1 ? 'está ocupada' : 'estão ocupadas'} por locações em andamento: não dá para oferecer menos que isso.`
-              : `Uma garagem é 1. Um estacionamento com 80 ${noun.plural} na plataforma é 80. Cada locação aceita ocupa uma e, quando termina, ela volta.`
+              : `Um espaço único (uma garagem, uma sala) é 1. Um local com 80 ${noun.plural} oferecidos aqui é 80. Cada locação aceita ocupa uma e, quando termina, ela volta.`
           }
         >
           <Input

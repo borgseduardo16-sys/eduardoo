@@ -55,7 +55,7 @@ export function PublicAvailability({
         <div className="px-2 sm:px-4 pb-4 space-y-4">
           {meses.map((m) => (
             <div key={`${m.year}-${m.month}`} className="space-y-1">
-              <p className="text-[0.8125rem] font-medium capitalize px-1">{m.label}</p>
+              <p className="text-[0.8125rem] font-medium first-letter:uppercase px-1">{m.label}</p>
               <MonthCalendar month={m} />
             </div>
           ))}

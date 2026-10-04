@@ -50,7 +50,7 @@ export function TypePicker() {
           type="search"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar categoria (ex.: estacionamento, salão, oficina)"
+          placeholder="Buscar categoria (ex.: oficina)"
           aria-label="Buscar categoria"
           className={cn(
             'w-full h-11 pl-10 pr-3.5 rounded-[var(--radius-field)] bg-[var(--surface)]',

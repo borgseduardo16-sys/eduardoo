@@ -43,7 +43,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
 import sharp from 'sharp';
-import { chromium, type Browser, type Page, type Locator } from 'playwright';
+import { chromium, type Browser, type ConsoleMessage, type Page, type Locator } from 'playwright';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { formatBRL } from '../src/lib/money';
 import { startTestbed, sessionCookie, fakeJwt, type Testbed } from './testbed/server';
@@ -130,6 +130,8 @@ const ISOLADO = { lat: -18.0001, lng: -40.0001 };
 /** Pontos isolados, so pros TESTES R (locacao mensal) e S (mapa de exploracao) — longe de tudo que os outros contam. */
 const ISOLADO_LOCACAO = { lat: -17.3, lng: -41.3 };
 const ISOLADO_MAPA = { lat: -16.3, lng: -39.7 };
+/** Ponto isolado, so pro TESTE T (passeio pelas telas). */
+const ISOLADO_PASSEIO = { lat: -15.3, lng: -42.7 };
 /** Isolada tambem, so pro TESTE O — mesmo motivo de ISOLADO, sem dividir o ponto com o TESTE L. */
 const ISOLADO_PROMO = { lat: -18.777, lng: -40.222 };
 const GPS_EXIF = { lat: '19/1 32/1 1896/100', lng: '40/1 37/1 4620/100' };
@@ -274,7 +276,7 @@ async function main() {
   });
 
   // SOMENTE=A,C roda so os testes escolhidos — util ao investigar uma falha.
-  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNOPQRS').toUpperCase();
+  const quais = (process.env.SOMENTE ?? 'ABCDEFGHIJKLMNOPQRST').toUpperCase();
   if (quais.includes('A')) await testeAFotos();
   if (quais.includes('B')) await testeBMapa();
   if (quais.includes('C')) await testeCCep();
@@ -294,6 +296,7 @@ async function main() {
   if (quais.includes('Q')) await testeQFase23();
   if (quais.includes('R')) await testeRLocacaoMensal();
   if (quais.includes('S')) await testeSMapaExploracao();
+  if (quais.includes('T')) await testeTPasseio();
 }
 
 /**
@@ -2228,6 +2231,105 @@ async function testeSMapaExploracao() {
   }
 }
 
+/**
+ * TESTE T — passeio pelas telas no celular.
+ *
+ * Os outros testes conferem fluxos; este confere o que eles não olham: que cada tela principal ABRE (sem erro de
+ * página nem erro no console), que o conteúdo CABE na largura do celular (nenhuma rolagem lateral, o defeito mais
+ * comum de layout) e deixa uma captura de cada uma para a revisão visual (`MANTER_TMP=1`).
+ */
+async function testeTPasseio() {
+  secao('TESTE T (navegador, celular 390x844) - passeio pelas telas: abre sem erro, cabe na largura e fica registrado');
+
+  const slug = `${tag}-passeio`;
+  const espacoId = await criarAnuncio(sql, {
+    ownerId: donoId, slug, precoCents: 25_000, quantidade: 3, tipo: 'garagem',
+    cidade: 'Colatina', lat: ISOLADO_PASSEIO.lat, lng: ISOLADO_PASSEIO.lng,
+  });
+  await sql`UPDATE spaces SET title='Garagem coberta com 3 vagas' WHERE id=${espacoId}`;
+  // Rascunho completo (as 8 etapas preenchidas), para abrir cada passo do assistente.
+  const rascunhoId = await criarAnuncio(sql, {
+    ownerId: donoId, slug: `${tag}-passeio-rascunho`, precoCents: 18_000, tipo: 'deposito', cidade: 'Colatina',
+    lat: ISOLADO_PASSEIO.lat + 0.05, lng: ISOLADO_PASSEIO.lng, status: 'draft',
+  });
+  const celular = { width: 390, height: 844 };
+  let capturas = 0;
+
+  /** Abre a rota e confere: abre, sem erro de pagina, sem rolagem lateral. Guarda a captura. */
+  const passear = async (page: Page, rotulo: string, rota: string) => {
+    const erros: string[] = [];
+    const aoErro = (e: Error) => { erros.push(e.message.slice(0, 160)); };
+    const aoConsole = (m: ConsoleMessage) => {
+      // "Failed to load resource" e rede (foto/mapa que o dublê nao serve), nao erro da pagina.
+      if (m.type() === 'error' && !/Failed to load resource|favicon/i.test(m.text())) erros.push(m.text().slice(0, 160));
+    };
+    page.on('pageerror', aoErro);
+    page.on('console', aoConsole);
+    try {
+      const resposta = await page.goto(`${baseUrl}${rota}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
+      const medidas = await page.evaluate(() => ({ conteudo: document.documentElement.scrollWidth, janela: document.documentElement.clientWidth }));
+      const status = resposta?.status() ?? 0;
+      capturas += 1;
+      await page.screenshot({ path: join(tmp, `teste-t-${String(capturas).padStart(2, '0')}-${rotulo}.png`), fullPage: true }).catch(() => {});
+      assert(`${rotulo}: abre (HTTP ${status}), sem erro na pagina e sem rolagem lateral`,
+        status > 0 && status < 400 && erros.length === 0 && medidas.conteudo <= medidas.janela,
+        `largura ${medidas.conteudo}/${medidas.janela}${erros.length ? ` · erros: ${erros.join(' | ')}` : ''}`);
+    } finally {
+      page.off('pageerror', aoErro);
+      page.off('console', aoConsole);
+    }
+  };
+
+  // --- quem ainda nao entrou ---
+  const ctxPublico = await browser!.newContext({ viewport: celular });
+  const publico = await ctxPublico.newPage();
+  for (const [rotulo, rota] of [
+    ['home', '/'], ['busca', '/espacos'], ['anuncio', `/espacos/${slug}`], ['mapa', '/mapa'],
+    ['como-funciona', '/como-funciona'], ['taxas', '/taxas'], ['protecao', '/protecao'], ['premium', '/premium'],
+    ['termos', '/termos'], ['privacidade', '/privacidade'], ['suporte', '/suporte'],
+    ['entrar', '/entrar'], ['criar-conta', '/criar-conta'], ['recuperar-senha', '/recuperar-senha'],
+  ] as const) await passear(publico, `publico-${rotulo}`, rota);
+  await ctxPublico.close();
+
+  // --- o locatario ---
+  const locatario = await novaAba(testbed!.users.get(outroId)!, {
+    viewport: celular, geolocation: { latitude: ISOLADO_PASSEIO.lat, longitude: ISOLADO_PASSEIO.lng },
+  });
+  await passear(locatario, 'locatario-solicitar', `/espacos/${slug}/solicitar`);
+  // O pedido de verdade, pela tela (o TESTE R confere o fluxo): aqui interessa ter dado nas telas seguintes.
+  const amanha = new Date();
+  amanha.setDate(amanha.getDate() + 1);
+  await locatario.getByLabel('A partir de quando?').fill(amanha.toISOString().slice(0, 10));
+  await locatario.getByLabel('Mensagem para o proprietário').fill('Preciso de uma vaga para o meu carro.');
+  await locatario.getByRole('button', { name: 'Enviar solicitação' }).click();
+  await locatario.waitForURL(/\/reservas\/[0-9a-f-]{36}/, { timeout: 20_000 });
+  const reservaId = locatario.url().match(/\/reservas\/([0-9a-f-]{36})/)![1]!;
+  for (const [rotulo, rota] of [
+    ['mapa', '/mapa'], ['reservas', '/reservas'], ['reserva', `/reservas/${reservaId}`],
+    ['favoritos', '/favoritos'], ['mensagens', '/mensagens'], ['alertas', '/alertas'],
+    ['notificacoes', '/notificacoes'], ['preferencias-de-aviso', '/notificacoes/preferencias'],
+    ['minha-conta', '/minha-conta'], ['perfil', '/minha-conta/perfil'],
+    ['seguranca', '/minha-conta/seguranca'], ['verificacoes', '/minha-conta/verificacoes'],
+  ] as const) await passear(locatario, `locatario-${rotulo}`, rota);
+  await locatario.context().close();
+
+  // --- o proprietario ---
+  const dono = await novaAba(testbed!.users.get(donoId)!, { viewport: celular });
+  for (const [rotulo, rota] of [
+    ['painel', '/meus-espacos'], ['solicitacoes', '/meus-espacos/solicitacoes'],
+    ['financeiro', '/meus-espacos/financeiro'], ['desempenho', '/meus-espacos/desempenho'],
+    ['promocoes', '/meus-espacos/promocoes'], ['calendario', `/meus-espacos/${espacoId}/calendario`],
+    ['melhorar-anuncio', `/meus-espacos/${espacoId}/melhorar`], ['classificacao', `/meus-espacos/${espacoId}/classificacao`],
+    ['anunciar', '/anunciar'],
+    ['assistente-localizacao', `/anunciar/${rascunhoId}/localizacao`], ['assistente-fotos', `/anunciar/${rascunhoId}/fotos`],
+    ['assistente-descricao', `/anunciar/${rascunhoId}/descricao`], ['assistente-caracteristicas', `/anunciar/${rascunhoId}/caracteristicas`],
+    ['assistente-preco', `/anunciar/${rascunhoId}/preco`], ['assistente-regras', `/anunciar/${rascunhoId}/regras`],
+    ['assistente-revisao', `/anunciar/${rascunhoId}/revisao`],
+  ] as const) await passear(dono, `dono-${rotulo}`, rota);
+  await dono.context().close();
+}
+
 async function testeMChat() {
   secao('TESTE M (navegador) - chat real entre locatario e proprietario');
 
@@ -2989,7 +3091,7 @@ async function testeQFase23() {
 
     // ---- 9. Busca por necessidade ----
     await pageLoc.goto(`${baseUrl}/espacos`, { waitUntil: 'domcontentloaded' });
-    await pageLoc.getByPlaceholder('Ex.: vaga coberta para moto no centro').fill('garagem coberta em Colatina');
+    await pageLoc.getByPlaceholder('Ex.: vaga para moto no centro').fill('garagem coberta em Colatina');
     await pageLoc.getByPlaceholder('Bairro, cidade ou CEP').fill('');
     await pageLoc.locator('form').filter({ has: pageLoc.locator('input[name="q"]') }).locator('button[type="submit"]').click();
     await pageLoc.getByText('Resultados para:').waitFor({ timeout: 20_000 });

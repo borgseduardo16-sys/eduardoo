@@ -143,7 +143,7 @@ export function SearchBar({
             onChange={(e) => setTexto(e.target.value)}
             maxLength={300}
             enterKeyHint="search"
-            placeholder="Ex.: vaga coberta para moto no centro"
+            placeholder="Ex.: vaga para moto no centro"
             autoFocus={autoFocus}
             className="w-full bg-transparent border-0 p-0 mt-0.5 text-base md:text-[0.9375rem] placeholder:text-[var(--content-subtle)] focus:outline-none"
           />

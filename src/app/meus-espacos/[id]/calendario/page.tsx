@@ -130,7 +130,7 @@ export default async function CalendarioPage({
             ) : (
               <span className="size-10" aria-hidden />
             )}
-            <h2 id="mes-titulo" className="font-semibold capitalize">
+            <h2 id="mes-titulo" className="font-semibold first-letter:uppercase">
               {mes.label}
             </h2>
             {proximo ? (
