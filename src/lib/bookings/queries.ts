@@ -2,7 +2,7 @@ import 'server-only';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { db } from '@/db/client';
-import { bookings, spaces, profiles, bookingStatus, payments } from '@/db/schema';
+import { bookings, bookingEndRequests, spaces, profiles, bookingStatus, payments } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
 import { sweepExpiredBookings } from './maintenance';
 
@@ -478,20 +478,19 @@ export async function findLatestBookingForSpaceAndRenter(spaceId: string, renter
  * chama já provou isso com `getBookingForParticipant`.
  */
 export async function listEndRequests(bookingId: string) {
-  return (await db.execute(sql`
-    SELECT r.id, r.requested_end_date::text AS "endDate", r.reason, r.status::text AS status,
-           r.created_at AS "createdAt", r.resolved_at AS "resolvedAt"
-      FROM booking_end_requests r
-     WHERE r.booking_id = ${bookingId}
-     ORDER BY r.created_at DESC
-  `)) as unknown as {
-    id: string;
-    endDate: string;
-    reason: string | null;
-    status: 'pending' | 'withdrawn' | 'completed';
-    createdAt: Date;
-    resolvedAt: Date | null;
-  }[];
+  // Consulta tipada (e não SQL cru): só ela devolve as datas como `Date`, que a linha do tempo da locação ordena.
+  return db
+    .select({
+      id: bookingEndRequests.id,
+      endDate: bookingEndRequests.requestedEndDate,
+      reason: bookingEndRequests.reason,
+      status: bookingEndRequests.status,
+      createdAt: bookingEndRequests.createdAt,
+      resolvedAt: bookingEndRequests.resolvedAt,
+    })
+    .from(bookingEndRequests)
+    .where(eq(bookingEndRequests.bookingId, bookingId))
+    .orderBy(desc(bookingEndRequests.createdAt));
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

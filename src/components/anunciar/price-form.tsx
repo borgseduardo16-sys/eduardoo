@@ -11,6 +11,7 @@ import { unitNounFor } from '@/lib/spaces/types';
 import { StepActions } from './step-actions';
 import { useAdvanceOnSave } from './use-advance';
 import { keepTypedValues } from './keep-values';
+import { cn } from '@/lib/utils';
 
 type Initial = {
   priceMonthlyCents: number | null;
@@ -18,6 +19,20 @@ type Initial = {
   quantityTotal: number | null;
   availableFrom: string | null;
 };
+
+/**
+ * Campo de valor com o "R$" na frente. É um componente próprio (e não um `div` em volta do `Input`) porque o
+ * `Field` aplica `id`, `aria-describedby` e `aria-invalid` no filho DIRETO: com um `div` no meio, o rótulo
+ * "Valor mensal" ficava amarrado ao `div` e não ao campo.
+ */
+function MoneyInput({ className, ...props }: React.ComponentProps<typeof Input>) {
+  return (
+    <div className="relative">
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--content-muted)]" aria-hidden>R$</span>
+      <Input {...props} className={cn('pl-10 tabular-nums', className)} />
+    </div>
+  );
+}
 
 /** "300,00" para o campo, a partir de centavos inteiros (sem passar por float). */
 function centsToField(cents: number | null): string {
@@ -102,13 +117,10 @@ export function PriceForm({
             label="Valor mensal" htmlFor={`${id}-preco`} error={err('priceMonthly')}
             hint={`Por unidade, por mês. O mínimo é ${formatBRL(minRentCents)}.`}
           >
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--content-muted)]" aria-hidden>R$</span>
-              <Input
-                name="priceMonthly" inputMode="decimal" autoComplete="off" placeholder="300,00"
-                className="pl-10 tabular-nums" value={preco} onChange={(e) => setPreco(e.target.value)}
-              />
-            </div>
+            <MoneyInput
+              name="priceMonthly" inputMode="decimal" autoComplete="off" placeholder="300,00"
+              value={preco} onChange={(e) => setPreco(e.target.value)}
+            />
           </Field>
           {frase && (
             <div className="rounded-[var(--radius-field)] bg-[var(--surface-sunken)] px-3.5 py-3 space-y-1" data-testid="frase-liquido">

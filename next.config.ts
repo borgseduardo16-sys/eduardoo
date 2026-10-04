@@ -33,6 +33,9 @@ const isDev = process.env.NODE_ENV === 'development';
  * SO as paginas que realmente desenham um mapa (resultado de busca, detalhe
  * do anuncio, escolha de localizacao ao anunciar) recebem `unsafe-eval` no
  * script-src — o resto do site, PAGAMENTO incluso, fica na politica estrita.
+ * O mapa de exploracao (/mapa) NAO precisa: usa marcadores HTML e uma camada
+ * simples, sem expressoes de estilo — o TESTE S de scripts/verify-integracoes.ts
+ * confere, no navegador, que ele roda sem nenhuma violacao da politica.
  */
 function cspFor(comEval: boolean): string {
   return `
@@ -43,6 +46,7 @@ function cspFor(comEval: boolean): string {
     connect-src 'self' https: http: wss: ws: ${supabaseOrigin} ${supabaseWsOrigin};
     worker-src 'self' blob:;
     font-src 'self' data:;
+    media-src 'self' blob:;
     object-src 'none';
     base-uri 'self';
     form-action 'self';
