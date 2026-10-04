@@ -78,7 +78,7 @@ export const SPACE_TYPE_CONFIG = {
     featureCategories: ['acesso', 'seguranca', 'estrutura', 'veiculo'],
     measurements: [],
     requiredMeasurements: [],
-    titleExample: 'Estacionamento coberto no centro, vagas por hora e mensais',
+    titleExample: 'Estacionamento coberto no centro, vagas mensais',
     priceHintCents: [8000, 35000],
   },
   garagem: {

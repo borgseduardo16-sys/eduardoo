@@ -96,7 +96,7 @@ export type FavoriteSpace = {
   district: string | null;
   city: string | null;
   state: string | null;
-  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
+  /** NULL enquanto o anúncio não tem valor mensal definido. */
   priceMonthlyCents: number | null;
   status: string;
   approxLat: number | null;

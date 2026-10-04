@@ -37,8 +37,7 @@ export class NeedAiError extends Error {
 }
 
 const SYSTEM_PROMPT = `Você transforma o pedido de busca de uma pessoa em filtros de busca, num
-marketplace brasileiro de aluguel de espaços ociosos (por mês ou por hora, dia
-ou semana). Você não conversa
+marketplace brasileiro de aluguel mensal de espaços ociosos. Você não conversa
 e não explica nada: só preenche o formato pedido.
 
 Tipos de espaço:
@@ -52,7 +51,7 @@ Tipos de espaço:
 - loja: ponto comercial com fachada
 - terreno: área aberta, pátio, lote
 - quarto: cômodo vazio para guardar coisas
-- estacionamento: pátio ou prédio com várias vagas (por hora ou mensal)
+- estacionamento: pátio ou prédio com várias vagas (mensalistas)
 - oficina: box ou galpão para serviços e reparos
 - espaco_eventos: salão ou área para festas e encontros
 - area_lazer: piscina, churrasqueira, quadra ou área ao ar livre

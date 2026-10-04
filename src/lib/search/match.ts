@@ -180,8 +180,8 @@ export function computeMatch(
   if (c.priceMinCents != null || c.priceMaxCents != null) {
     const p = space.priceMonthlyCents;
     if (p == null) {
-      // O orçamento da busca é mensal; anúncio só por hora não tem como comparar.
-      somar(MATCH_WEIGHTS.preco, 0, { status: 'nao', text: 'Não tem aluguel mensal (só por hora, dia ou semana)' });
+      // O orçamento da busca é mensal; anúncio sem valor mensal definido não tem como comparar.
+      somar(MATCH_WEIGHTS.preco, 0, { status: 'nao', text: 'Sem valor mensal definido neste anúncio' });
     } else {
     const acima = c.priceMaxCents != null && p > c.priceMaxCents;
     const abaixo = c.priceMinCents != null && p < c.priceMinCents;

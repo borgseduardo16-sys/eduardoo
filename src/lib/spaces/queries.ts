@@ -328,8 +328,8 @@ export async function listPublishedSpaces(options?: SearchSpacesOptions): Promis
         featureKeys: options?.featureKeys,
       })), desc(spaces.publishedAt)]
     : sort === 'distance' ? [asc(distanceExpr), desc(tierExpr)]
-    // Ordenar por preço é pelo MENSAL; anúncio só por hora vai para o fim
-    // nos dois sentidos (não tem preço mensal para comparar).
+    // Ordenar por preço é pelo valor MENSAL; anúncio sem valor definido vai para o
+    // fim nos dois sentidos (não tem preço para comparar).
     : sort === 'price_asc' ? [sql`${spaces.priceMonthlyCents} ASC NULLS LAST`, desc(tierExpr)]
     : sort === 'price_desc' ? [sql`${spaces.priceMonthlyCents} DESC NULLS LAST`, desc(tierExpr)]
     : [desc(tierExpr), desc(spaces.publishedAt)];

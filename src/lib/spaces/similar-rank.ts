@@ -38,7 +38,7 @@ export const SIMILAR_LIMITS = {
 
 export type SimilarBase = {
   type: string;
-  /** Parte 12: NULL quando o anúncio só aluga por hora/dia/semana. */
+  /** NULL enquanto o anúncio não tem valor mensal definido (rascunho). */
   priceMonthlyCents: number | null;
   featureKeys: readonly string[];
   city: string | null;
@@ -86,7 +86,7 @@ export function similarityScore(base: SimilarBase, c: SimilarCandidate): { score
     reasons.push('Na mesma cidade');
   }
 
-  // Preço só compara mensal com mensal; anúncio só por hora não entra nessa conta.
+  // Preço só entra na conta quando os dois anúncios têm valor mensal definido.
   if (base.priceMonthlyCents != null && c.priceMonthlyCents != null) {
     const diferenca = (c.priceMonthlyCents - base.priceMonthlyCents) / base.priceMonthlyCents;
     score += 20 * Math.max(0, 1 - Math.abs(diferenca) / 0.5);

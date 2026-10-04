@@ -281,9 +281,9 @@ export type CreatePaymentInput = {
   /** Nosso id, para reconciliar em auditoria/suporte. */
   externalReference: string;
   /**
-   * Parte 12: aluguel temporario e cobranca avulsa COM split para o
-   * proprietario (o split vale tambem para `POST /payments`, documentado em
-   * "Split em cobranças avulsas"). Compra de Destaque/Turbo continua sem.
+   * Mensalidade paga por Pix: cobranca avulsa COM split para o proprietario
+   * (o split vale tambem para `POST /payments`, documentado em "Split em
+   * cobranças avulsas"). Compra de Destaque/Turbo continua sem.
    */
   split?: AsaasSplitItem[];
 };
@@ -337,8 +337,8 @@ export async function getPixQrCode(providerPaymentId: string): Promise<AsaasPixQ
 }
 
 /**
- * Exclui uma cobranca que nao deve mais ser paga (reserva temporaria que
- * expirou sem pagamento). Cobranca ja paga nao e excluida — o Asaas recusa,
+ * Exclui uma cobranca que nao deve mais ser paga (aceite que expirou sem
+ * pagamento, locacao encerrada). Cobranca ja paga nao e excluida — o Asaas recusa,
  * e o caminho nesse caso e o estorno.
  */
 export async function deletePayment(providerPaymentId: string): Promise<void> {
