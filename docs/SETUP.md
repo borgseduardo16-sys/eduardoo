@@ -115,6 +115,22 @@ Se você já criou políticas à mão nesse bucket antes, confira depois em
 **Storage → Policies** se sobrou alguma coisa mais permissiva — o SQL cria as
 dele com nome próprio (`space_images_dono_*`) e não apaga política de terceiro.
 
+#### O bucket de áudio (`chat-audio`)
+
+O chat e as instruções de acesso aceitam **áudio** (sem imagens). O SQL do
+passo 1.6 já cria o bucket **`chat-audio`**: privado, 5 MB, só `audio/webm`,
+`audio/ogg`, `audio/mp4` e `audio/mpeg`. O caminho do arquivo é
+`<id da conversa>/<uuid>.<ext>` e duas políticas em `storage.objects` deixam
+**só quem participa daquela conversa** (locatário ou proprietário) ler e enviar;
+não há política para `anon`, nem para editar ou apagar. A autorização de
+verdade fica no servidor (`src/lib/messaging/audio.ts`): o áudio só sai por URL
+assinada de curta validade, e só para quem pode ouvir (o locatário só ouve as
+instruções de acesso **depois do pagamento**).
+
+Se o SQL avisar que não tem permissão para configurar o bucket (acontece em
+alguns planos), faça à mão: **Storage → New bucket** → nome `chat-audio`,
+**desmarque** "Public bucket", limite de 5 MB e os quatro tipos acima.
+
 ### 1.6 Criar o schema — cole um SQL, não mande senha para ninguém
 
 Existem dois caminhos. **Prefira o primeiro.**
@@ -133,8 +149,8 @@ mesmo hash — então dá no mesmo:
 
 | Arquivo | Migrações | O que traz | Para quem parou em |
 |---|---|---|---|
-| `supabase/atualizacao-0025.sql` | `0025` a `0032` | Fase 23 e Parte 12 | `0024` (a última confirmada no seu projeto, em 29/09) |
-| `supabase/atualizacao-0031.sql` | `0031` e `0032` | Parte 12: unidades, aluguel por tempo, pagamento pendente | `0030` |
+| `supabase/atualizacao-0025.sql` | `0025` a `0033` | Fase 23, Parte 12 e o **modelo mensal por quantidade** (`0033`) | `0024` (a última confirmada no seu projeto, em 29/09) |
+| `supabase/atualizacao-0033.sql` | `0033` | só o modelo mensal por quantidade, o bucket e as políticas do áudio | `0032` |
 
 Cada arquivo parcial confere, antes de tudo, se a migração anterior à
 primeira dele já está no banco. Se não estiver, ele para ali **sem mudar
@@ -144,28 +160,28 @@ alterado: rode o supabase/setup.sql completo". **Na dúvida, cole o
 parciais são gerados com:
 
 ```bash
-pnpm tsx scripts/build-supabase-setup.ts --desde 31
+pnpm tsx scripts/build-supabase-setup.ts --desde 33
 ```
 
-*Verificado em 01/10/2026 (Parte 12):* em bancos vazios, o `setup.sql`
-anterior (até a `0030`) seguido do `atualizacao-0031.sql` produz o **mesmo
-schema**, linha por linha (6.353 linhas de `pg_dump`, com permissões), que o
-`setup.sql` novo e que o `pnpm db:migrate`. Rodar a atualização de novo pula
-as 2 migrações. E num banco montado como o Supabase monta — PostGIS no
-schema `extensions` e o SQL rodado por um papel **sem superusuário**, como o
-do SQL Editor — tudo entra sem erro, e as checagens de banco
-(`verify-schema`, 218) e de aluguel (`verify-alugueis`, 106) passam. A
-`atualizacao-0025.sql` passou pela mesma conferência na Fase 23.
+*Verificado em 04/10/2026 (modelo mensal, migração `0033`):* num banco montado
+como o Supabase monta — PostGIS no schema `extensions`, schemas `auth` e
+`storage` já existentes e o SQL rodado por um papel **sem superusuário** — o
+`setup.sql` entra sem erro (34 de 34 migrações), cria o bucket `chat-audio` e as
+duas políticas, e rodar de novo não faz nada. O schema resultante bate com o do
+Drizzle (`verify-paridade`, coluna por coluna, índice por índice, CHECK por
+CHECK), e as 101 checagens de locação (`verify-reservas`) passam nele. Também
+bateram o `atualizacao-0025.sql` sobre um banco parado na `0024`, o
+`atualizacao-0033.sql` sobre um parado na `0032` e o `setup.sql` completo sobre
+um parado na `0024`. As políticas do áudio foram exercitadas de verdade: quem
+participa da conversa lê o arquivo; um estranho não lê e não envia.
 
-*Verificado com dados, no estado do seu projeto:* um banco montado com o
-`setup.sql` de 29/09 (até a `0024`) e com anúncios publicados, pausados,
-arquivados e rascunhos, reservas aguardando resposta, aceitas, ativas, em
-atraso, canceladas, recusadas e encerradas, assinaturas, cobranças e
-favoritos recebeu tanto o `setup.sql` novo quanto a `atualizacao-0025.sql`
-sem erro: as 8 migrações entraram, nenhuma linha foi apagada, cada anúncio
-ganhou seu grupo e sua unidade, anúncio com aluguel passou a "alugado", o
-atraso ganhou o prazo de 1 h 40, e o schema final ficou idêntico ao de um
-banco novo. As checagens de banco (218) e de aluguel (106) passam nele.
+*Verificado com dados:* a `0033` foi aplicada a cópias de bancos de
+desenvolvimento **parados na `0032` e já cheios** (29 e 9 reservas, 18 delas por
+hora/dia/semana, anúncios publicados, alugados, pausados e arquivados): nenhuma
+reserva foi apagada, a quantidade disponível de **todos** os anúncios ficou
+igual a "oferecidas − locações que ocupam vaga", e o schema final bateu com o
+de um banco novo. A cadeia completa `0000` → `0033` também sobe sozinha num
+banco vazio.
 
 Pronto: 40 tabelas, índices geoespaciais, triggers, RLS, as políticas do
 bucket de fotos e as taxas iniciais.
@@ -195,7 +211,7 @@ O arquivo também mantém a tabela de controle do Drizzle em dia, então um
 Confira o resultado com:
 
 ```sql
-SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 33 (uma por migração)
+SELECT count(*) FROM drizzle.__drizzle_migrations;            -- 34 (uma por migração)
 SELECT key, value FROM platform_settings ORDER BY key;        -- taxas 3%+3%
 SELECT PostGIS_Version();                                     -- extensão ativa
 ```
@@ -212,7 +228,7 @@ nunca sai da sua máquina:
 cp .env.example .env.local     # preencha com os valores acima
 pnpm install
 pnpm db:migrate
-pnpm tsx scripts/verify-schema.ts   # 218 passaram
+pnpm tsx scripts/verify-schema.ts   # 164 passaram
 pnpm tsx scripts/verify-safety.ts   # 77 passaram
 pnpm dev
 ```
@@ -302,6 +318,27 @@ de origem** no painel do MapTiler:
 
 > Nada disso é urgente. Sem a chave, o mapa continua funcionando com o
 > OpenStreetMap — o que muda é de quem é a infraestrutura.
+
+**Imagem aérea (satélite) no mapa de exploração (`/mapa`).** O botão
+"Mostrar imagem aérea" só liga com uma destas variáveis — sem elas ele fica
+desligado e **diz isso** (nada é simulado):
+
+| Variável | O que faz |
+|---|---|
+| `NEXT_PUBLIC_MAPTILER_KEY` | usa o estilo `hybrid` do MapTiler (imagem aérea com nomes de ruas). A mesma chave dos tiles de rua |
+| `NEXT_PUBLIC_SATELLITE_TILE_URL` (+ `NEXT_PUBLIC_SATELLITE_TILE_ATTRIBUTION`) | fonte própria de tiles aéreos, `https://.../{z}/{x}/{y}.jpg` |
+
+Imagem aérea tem custo e licença próprios — confira os termos do provedor
+antes de ligar para o público.
+
+**O worker do mapa (automático, mas bom saber).** O MapLibre processa camadas
+(como o círculo do raio) e estilos vetoriais num *worker*. Dentro do Next ele
+não acha o próprio arquivo sozinho, então o projeto copia o worker de
+`node_modules` para `public/maplibre/` (`scripts/copy-maplibre-worker.mjs`, que
+roda em `postinstall`, `pnpm dev` e `pnpm build`) e o `setWorkerUrl()` aponta
+para lá (`src/lib/maps/worker.ts`). `public/maplibre/` é **gerado** e não vai
+para o Git. Sem ele, o círculo do raio não aparece e o MapTiler sai em branco —
+o `pnpm check:producao` avisa se a pasta estiver ausente.
 
 ### 3.3 Busca de CEP — não precisa de chave
 
@@ -448,7 +485,7 @@ isso exige uma URL alcançável pela internet, **não funciona com
        dois). Sem ele, nada pago por Pix é confirmado.
      - `PAYMENT_CREDIT_CARD_CAPTURE_REFUSED` (Parte 12) é o cartão recusado
        na cobrança automática do mês: é ele que abre o "Pagamento pendente"
-       com os 40 minutos + 1 hora para regularizar.
+       com a janela de 2 horas para regularizar.
      O `PAYMENT_CREATED` é o da renovação mensal (Fase 23): é ele que avisa
      quando o Asaas gera a mensalidade seguinte, e com ele o locatário vê
      "Pagar agora" e o lembrete antes do vencimento. Sem ele, a renovação
@@ -815,15 +852,20 @@ deploy.
 
 ---
 
-## 15. Agendador por minuto (Parte 12)
+## 15. Agendador por minuto
 
-**PRECISA DA SUA AÇÃO.** O aluguel por hora tem coisas que precisam
-acontecer no minuto certo mesmo com o app fechado: o aviso "Seu aluguel
-termina em 10 minutos.", o aviso de último prazo do pagamento pendente, o
-encerramento quando o prazo acaba e o cancelamento da cobrança no Asaas. Quem
-faz isso é a rota `GET /api/cron/minuto`, que precisa ser chamada **a cada
-minuto** com o header `Authorization: Bearer <CRON_SECRET>` (o mesmo
-segredo do §11).
+**PRECISA DA SUA AÇÃO.** Alguns avisos e rotinas precisam acontecer no minuto
+certo mesmo com o app fechado: "falta pouco para o proprietário responder",
+"falta pouco para pagar", o aviso do pagamento pendente, a lista de espera
+("Avise-me quando estiver disponível"), o encerramento dos pedidos que
+chegaram na data e o cancelamento da cobrança no Asaas. Quem faz isso é a rota
+`GET /api/cron/minuto`, que precisa ser chamada **a cada minuto** com o header
+`Authorization: Bearer <CRON_SECRET>` (o mesmo segredo do §11).
+
+> Os **prazos em si** (24 h para o proprietário responder, 24 h para pagar,
+> 2 h para regularizar) não dependem deste agendador: quem os aplica é o
+> relógio do banco, a cada leitura. Sem o agendador, o prazo vale do mesmo
+> jeito; o que atrasa são os avisos e a lista de espera.
 
 O plano Hobby da Vercel só agenda uma vez por dia — por isso a rota **não**
 está no `vercel.json`. Escolha um dos caminhos:
@@ -881,7 +923,8 @@ Chamar duas vezes no mesmo minuto não duplica nada (avisos com chave única,
 um executor por vez no gateway). E se o agendador parar, nada fica
 **errado**: disponibilidade, contagem e prazos são calculados pelo relógio
 do banco na hora de ler, e o job diário roda a mesma manutenção como rede de
-segurança — só os avisos e o cancelamento no Asaas deixam de sair na hora.
+segurança — só os avisos, a lista de espera e o cancelamento no Asaas deixam de
+sair na hora.
 
 ---
 
