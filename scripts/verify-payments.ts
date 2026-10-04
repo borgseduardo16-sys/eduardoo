@@ -31,7 +31,7 @@ import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
 import { startTestbed, type Testbed } from './testbed/server';
-import { unidadeLivre } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -150,21 +150,19 @@ async function seedBookingAprovada(
   opts: { status?: string; ownerId?: string; sufixo?: string; depositCents?: number } = {},
 ) {
   const amounts = computeBookingAmounts(precoCents, { renterFeeBps: 300, ownerFeeBps: 300 });
-  // Parte 12: reserva que ocupa precisa de grupo e unidade (e o valor bate com o grupo).
-  const { groupId, unitId } = await unidadeLivre(sql, espacoId);
+  // Reserva que ocupa precisa de vaga livre no anúncio.
+  await prepararAnuncio(sql, espacoId, 5);
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO bookings
       (reference, space_id, renter_id, owner_id, status, start_date,
        monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-       owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents,
-       group_id, unit_id)
+       owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
     VALUES
       (${`MP-${tag}${opts.sufixo ?? ''}`}, ${espacoId}, ${renterId}, ${opts.ownerId ?? donoId},
        ${opts.status ?? 'awaiting_payment'}, CURRENT_DATE,
        ${amounts.monthlyRentCents}, ${amounts.renterFeeBps}, ${amounts.ownerFeeBps},
        ${amounts.renterFeeCents}, ${amounts.ownerFeeCents}, ${amounts.totalChargedCents},
-       ${amounts.ownerPayoutCents}, ${opts.depositCents ?? 0},
-       ${groupId}, ${unitId})
+       ${amounts.ownerPayoutCents}, ${opts.depositCents ?? 0})
     RETURNING id`;
   return { bookingId: row!.id, amounts };
 }

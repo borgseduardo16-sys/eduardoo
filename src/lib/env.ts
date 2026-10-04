@@ -33,6 +33,9 @@ const baseSchema = z.object({
   GEOCODING_PROVIDER: z.enum(['google', 'maptiler']).optional(),
   GOOGLE_GEOCODING_API_KEY: z.string().optional(),
   NEXT_PUBLIC_MAPTILER_KEY: z.string().optional(),
+  /** Imagem aérea do mapa de exploração (template {z}/{x}/{y}); sem ela e sem MapTiler, o modo satélite fica desligado. */
+  NEXT_PUBLIC_SATELLITE_TILE_URL: z.string().optional(),
+  NEXT_PUBLIC_SATELLITE_TILE_ATTRIBUTION: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
   UPSTASH_REDIS_REST_URL: z.string().optional(),

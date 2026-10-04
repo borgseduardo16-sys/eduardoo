@@ -372,3 +372,16 @@
 /* O MapLibre traz o proprio CSS; estes ajustes so encaixam na identidade. */
 .maplibregl-ctrl-attrib { font-size: 10px; }
 .maplibregl-ctrl-group { border-radius: var(--radius-field) !important; }
+
+
+/*
+ * Página do mapa de exploração: ocupa a tela inteira, sem rolagem da página.
+ * Altura = tela menos o cabeçalho (4rem); no celular, com a navegação inferior
+ * presente (só quando há sessão), menos ela também.
+ */
+.myplace-mapa-pagina { height: calc(100dvh - 4rem); }
+@media (max-width: 639px) {
+  body:has([data-mobile-bottom-nav]) .myplace-mapa-pagina {
+    height: calc(100dvh - 8rem - env(safe-area-inset-bottom));
+  }
+}

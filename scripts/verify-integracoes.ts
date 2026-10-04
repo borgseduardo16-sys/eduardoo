@@ -47,7 +47,7 @@ import { chromium, type Browser, type Page, type Locator } from 'playwright';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { formatBRL } from '../src/lib/money';
 import { startTestbed, sessionCookie, fakeJwt, type Testbed } from './testbed/server';
-import { garantirUnidadePadrao } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
@@ -349,7 +349,7 @@ async function publicarDireto(
       VALUES (${id}, ${`${donoId}/${id}/f${n}.jpg`}, ${n})`;
   }
   await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, ${feature})`;
-  await garantirUnidadePadrao(sql, id);
+  await prepararAnuncio(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return id;
 }
@@ -380,7 +380,7 @@ async function criarRascunhoPromovivel(ownerId: string, slug: string, titulo: st
       VALUES (${id}, ${`${ownerId}/${id}/f${n}.jpg`}, ${n})`;
   }
   // Parte 12: rascunho "pronto" já passou pela etapa "Como alugar".
-  await garantirUnidadePadrao(sql, id);
+  await prepararAnuncio(sql, id);
   return id;
 }
 
@@ -410,7 +410,7 @@ async function seed() {
          ST_SetSRID(ST_MakePoint(${PONTO.lng}, ${PONTO.lat}), 4326))
       RETURNING id`;
     // Parte 12: quem já passou da etapa "Como alugar" tem grupo e unidade.
-    if (step >= 7) await garantirUnidadePadrao(sql, row!.id);
+    if (step >= 7) await prepararAnuncio(sql, row!.id);
     return row!.id;
   };
 

@@ -36,6 +36,12 @@ export async function SiteHeader({
           </Link>
 
           <nav className="flex items-center gap-1 sm:gap-2">
+            <Link
+              href="/mapa"
+              className="hidden sm:inline-flex items-center h-10 px-3 text-[0.875rem] font-medium rounded-[var(--radius-field)] hover:bg-[var(--surface-sunken)]"
+            >
+              Mapa
+            </Link>
             {user ? (
               <>
                 <Link

@@ -30,9 +30,8 @@ import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { slugify, buildSlug } from '../src/lib/spaces/slug';
 import { sniffImageType, buildImagePath, ownerFromPath } from '../src/lib/storage/images';
 import { requiresMeasurement, asksMeasurement, priceHintFor } from '../src/lib/spaces/types';
-import { validateMeasurements, contentStepSchema, locationStepSchema } from '../src/lib/spaces/schemas';
-import { parseRentalConfig } from '../src/lib/rentals/config';
-import { garantirUnidadePadrao, mudarPrecoMensal } from './lib/unidades';
+import { validateMeasurements, contentStepSchema, locationStepSchema, priceStepSchema } from '../src/lib/spaces/schemas';
+import { mudarPreco, prepararAnuncio } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -97,11 +96,19 @@ async function main() {
       else bad('validacao de medida', 'aceitou galpao sem altura');
     }
     expect('titulo curto e recusado', contentStepSchema.safeParse({ title: 'Garagem', description: 'x'.repeat(30) }).success, false);
-    // Parte 12: preço e disponibilidade saíram da etapa antiga e viraram a configuração de aluguel.
-    expect('data de disponibilidade no passado e recusada', parseRentalConfig(
-      { availableFrom: '2020-01-01', groups: [{ unitCount: 1, mode: 'continuous', monthlyPrice: '180,00' }] },
-      { minChargeCents: 3500, today: '2026-01-01' },
-    ).ok, false);
+    // Preço, quantidade e disponibilidade moram na etapa "Como alugar".
+    expect('quantidade zero e recusada', priceStepSchema.safeParse(
+      { priceMonthly: '180,00', quantityOffered: 0, availableFrom: '2026-01-01' },
+    ).success, false);
+    expect('quantidade com fracao e recusada', priceStepSchema.safeParse(
+      { priceMonthly: '180,00', quantityOffered: 1.5, availableFrom: '2026-01-01' },
+    ).success, false);
+    expect('data fora do formato e recusada', priceStepSchema.safeParse(
+      { priceMonthly: '180,00', quantityOffered: 1, availableFrom: '01/01/2026' },
+    ).success, false);
+    expect('preco, quantidade e data validos passam', priceStepSchema.safeParse(
+      { priceMonthly: '180,00', quantityOffered: 80, quantityTotal: '100', availableFrom: '2026-01-01' },
+    ).success, true);
     expect('coordenada fora do Brasil e recusada', locationStepSchema.safeParse({
       state: 'ES', city: 'Colatina', district: 'Centro', street: 'Rua A', number: '1',
       lat: 48.85, lng: 2.35, // Paris
@@ -172,14 +179,10 @@ async function main() {
     }
     ok('3 fotos adicionadas ao rascunho');
 
-    // Parte 12: sem unidade alugável, também não publica.
-    await mustReject(
-      'rascunho sem unidade NAO vira publicado',
-      () => sql`UPDATE spaces SET status='published' WHERE id=${spaceId}`,
-      'spaces_published_requires_units',
-    );
-    await garantirUnidadePadrao(sql, spaceId);
-    ok('unidade padrão criada no rascunho (como a etapa "Como alugar" faz)');
+    // Preço e quantidade gravados como a etapa "Como alugar" faz.
+    await mudarPreco(sql, spaceId, 150000);
+    await prepararAnuncio(sql, spaceId, 1);
+    ok('preco e quantidade gravados no rascunho (como a etapa "Como alugar" faz)');
 
     await mustReject(
       'rascunho incompleto NAO vira publicado',
@@ -199,7 +202,7 @@ async function main() {
       description='Galpao amplo, piso de concreto, portao alto para caminhao truck. Energia trifasica e banheiro.',
       draft_step=6 WHERE id=${spaceId}`;
     // Preço agora vem do grupo de unidades (o anúncio só espelha).
-    await mudarPrecoMensal(sql, spaceId, 180000);
+    await mudarPreco(sql, spaceId, 180000);
     await sql`UPDATE spaces SET available_from=CURRENT_DATE, draft_step=7 WHERE id=${spaceId}`;
     await sql`INSERT INTO space_features (space_id, feature_key) VALUES
       (${spaceId},'acesso_caminhao'),(${spaceId},'energia'),(${spaceId},'banheiro')`;
@@ -207,8 +210,29 @@ async function main() {
     await sql`UPDATE spaces SET status='published', published_at=now(), draft_step=8 WHERE id=${spaceId}`;
     ok('anuncio completo publica');
 
+    // Publicado sem preço mensal não existe: o banco recusa tirar o preço de um anúncio no ar.
+    await mustReject(
+      'anuncio no ar NAO fica sem preco mensal',
+      () => sql`UPDATE spaces SET price_monthly_cents = NULL WHERE id=${spaceId}`,
+      'spaces_published_requires_price',
+    );
+    // Quantidade livre nunca passa do que é oferecido (e nunca fica negativa).
+    await mustReject(
+      'quantidade livre NAO passa da oferecida',
+      () => sql`UPDATE spaces SET quantity_available = quantity_offered + 1 WHERE id=${spaceId}`,
+      'spaces_quantity_available_range',
+    );
+
     console.log('\n\x1b[1m5. Privacidade da localizacao\x1b[0m');
     {
+      // Galpão é tipo comercial: o ponto público é o exato (a regra por tipo é do banco).
+      const [comercial] = await sql<{ iguais: boolean }[]>`
+        SELECT ST_Equals(location, approx_location) AS iguais FROM spaces WHERE id=${spaceId}`;
+      if (comercial!.iguais) ok('tipo comercial (galpao): o ponto publico e o exato, por regra do banco');
+      else bad('privacidade por tipo', 'galpao deveria expor o ponto exato');
+      // Trocar para um tipo residencial volta a deslocar o ponto na hora.
+      await sql`UPDATE spaces SET type='garagem' WHERE id=${spaceId}`;
+
       const [row] = await sql<{ dist: number; iguais: boolean }[]>`
         SELECT ST_Distance(location::geography, approx_location::geography) AS dist,
                ST_Equals(location, approx_location) AS iguais

@@ -72,3 +72,17 @@ export async function ocupadas(sql: Sql, spaceId: string): Promise<number> {
      WHERE space_id = ${spaceId} AND status IN ('approved', 'awaiting_payment', 'active', 'past_due')`;
   return r!.n;
 }
+
+/**
+ * O anúncio passa a oferecer pelo menos `quantidade` unidades — o que a etapa
+ * "Como alugar" grava (preço mensal + quantidade). Nunca diminui: cortar abaixo
+ * do que está ocupado o banco recusa.
+ */
+export async function prepararAnuncio(sql: Sql, spaceId: string, quantidade = 1): Promise<void> {
+  await sql`UPDATE spaces SET quantity_offered = GREATEST(quantity_offered, ${quantidade}) WHERE id = ${spaceId}`;
+}
+
+/** Muda o preço mensal como o proprietário faria: no próprio anúncio. */
+export async function mudarPreco(sql: Sql, spaceId: string, novoPrecoCents: number): Promise<void> {
+  await sql`UPDATE spaces SET price_monthly_cents = ${novoPrecoCents} WHERE id = ${spaceId}`;
+}

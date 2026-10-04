@@ -22,7 +22,7 @@ req.cache[req.resolve('server-only')] = {
 import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { startTestbed, type Testbed } from './testbed/server';
-import { garantirUnidadePadrao } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -113,7 +113,7 @@ async function seed() {
     for (const f of s.features ?? []) {
       await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, ${f})`;
     }
-    await garantirUnidadePadrao(sql, id);
+    await prepararAnuncio(sql, id);
     await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   }
 
@@ -131,7 +131,7 @@ async function seed() {
     await sql`INSERT INTO space_images (space_id, storage_path, position)
       VALUES (${ids.pausado}, ${`${dono}/${ids.pausado}/f${n}.jpg`}, ${n})`;
   }
-  await garantirUnidadePadrao(sql, ids.pausado);
+  await prepararAnuncio(sql, ids.pausado);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${ids.pausado}`;
   await sql`UPDATE spaces SET status='paused' WHERE id=${ids.pausado}`;
 

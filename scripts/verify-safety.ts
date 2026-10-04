@@ -12,7 +12,7 @@ import { config as loadEnv } from 'dotenv';
 loadEnv({ path: ['.env.local', '.env'], quiet: true });
 
 import postgres from 'postgres';
-import { garantirUnidadePadrao, unidadeLivre } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { isValidCpf, isValidCnpj, isBrazilianPhone, maskDocument } from '../src/lib/safety/documents';
 import { detectContactInfo, buildFlagReason } from '../src/lib/safety/contact-detection';
@@ -207,7 +207,7 @@ async function main() {
       await sql`INSERT INTO space_images (space_id, storage_path, position)
                 VALUES (${spaceId}, ${`${ana}/${spaceId}/f${n}.jpg`}, ${n})`;
     }
-    await garantirUnidadePadrao(sql, spaceId);
+    await prepararAnuncio(sql, spaceId);
     await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${spaceId}`;
 
     const [conv] = await sql<{ id: string }[]>`
@@ -483,14 +483,14 @@ async function main() {
       // Desfaz o bloqueio para poder criar a reserva do teste.
       await sql`DELETE FROM user_blocks WHERE blocker_id=${ana} AND blocked_id=${bruno}`;
 
-      // Parte 12: reserva ativa ocupa uma unidade (grupo "Padrão", R$ 250).
-      const unidadeHist = await unidadeLivre(sql, spaceId);
+      // Reserva ativa ocupa uma vaga do anúncio.
+      await prepararAnuncio(sql, spaceId, 5);
       const [bk] = await sql<{ id: string }[]>`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-          owner_fee_cents, total_charged_cents, owner_payout_cents, group_id, unit_id)
+          owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-HIST-${tag.slice(-4)}`}, ${spaceId}, ${bruno}, ${ana}, 'active',
-          CURRENT_DATE, 25000, 300, 300, 750, 750, 25750, 24250, ${unidadeHist.groupId}, ${unidadeHist.unitId})
+          CURRENT_DATE, 25000, 300, 300, 750, 750, 25750, 24250)
         RETURNING id`;
 
       const antesFim = await sql<{ c: number }[]>`

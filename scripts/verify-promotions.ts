@@ -21,7 +21,7 @@ req.cache[req.resolve('server-only')] = {
 import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { startTestbed, type Testbed } from './testbed/server';
-import { garantirUnidadePadrao } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -123,7 +123,7 @@ async function seedEspacoPublicado(ownerId: string, sufixo: string): Promise<str
     await sql`INSERT INTO space_images (space_id, storage_path, position)
       VALUES (${id}, ${`${ownerId}/${id}/f${n}.jpg`}, ${n})`;
   }
-  await garantirUnidadePadrao(sql, id);
+  await prepararAnuncio(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return id;
 }
@@ -284,7 +284,7 @@ async function main() {
   await sql`UPDATE spaces SET status='paused' WHERE id=${espacoC}`;
   const rPausado = await activatePromotionAction(undefined, fd({ spaceId: espacoC, type: 'destaque' }));
   assert('anuncio pausado nao pode ser destacado', !rPausado.ok, rPausado.message ?? '');
-  await garantirUnidadePadrao(sql, espacoC);
+  await prepararAnuncio(sql, espacoC);
   await sql`UPDATE spaces SET status='published' WHERE id=${espacoC}`;
 
   // =========================================================================
@@ -449,7 +449,7 @@ async function main() {
     await sql`INSERT INTO space_images (space_id, storage_path, position)
       VALUES (${espacoRascunho}, ${`${dono1Id}/${espacoRascunho}/f${n}.jpg`}, ${n})`;
   }
-  await garantirUnidadePadrao(sql, espacoRascunho);
+  await prepararAnuncio(sql, espacoRascunho);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${espacoRascunho}`;
 
   const varridas = await expireStalePromotions();
@@ -621,7 +621,7 @@ async function main() {
         VALUES (${id}, ${`${donoCompatId}/${id}/f${n}.jpg`}, ${n})`;
     }
     await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${id}, 'coberto')`;
-    await garantirUnidadePadrao(sql, id);
+    await prepararAnuncio(sql, id);
     await sql`UPDATE spaces SET status='published', published_at = now() + (${publishedAtOffsetMin} || ' minutes')::interval
       WHERE id=${id}`;
     return id;

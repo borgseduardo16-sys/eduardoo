@@ -23,7 +23,7 @@ req.cache[req.resolve('server-only')] = {
 } as never;
 
 import postgres from 'postgres';
-import { garantirUnidadePadrao } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
 const url = process.env.DATABASE_URL;
@@ -91,7 +91,7 @@ async function criarPublicado(ownerId: string, slug: string): Promise<string> {
     await sql`INSERT INTO space_images (space_id, storage_path, position)
       VALUES (${id}, ${`${ownerId}/${id}/f${n}.jpg`}, ${n})`;
   }
-  await garantirUnidadePadrao(sql, id);
+  await prepararAnuncio(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return id;
 }

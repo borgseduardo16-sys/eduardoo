@@ -84,6 +84,41 @@ export function getTileSource(): MapTileSource {
 }
 
 /**
+ * Imagem AEREA (satelite) para o mapa de exploracao.
+ *
+ * Nao existe fonte aerea gratuita e livre para uso comercial sem cadastro, e a
+ * plataforma nao finge ter uma: o modo satelite so existe quando uma destas
+ * configuracoes esta presente. Sem elas, o mapa continua no desenho de ruas e a
+ * interface diz isso (o botao "Satelite" aparece desligado, com o motivo).
+ *
+ *   NEXT_PUBLIC_SATELLITE_TILE_URL  — template `{z}/{x}/{y}` de tiles raster aereos
+ *                                     (um servidor nosso, ou um provedor contratado).
+ *   NEXT_PUBLIC_MAPTILER_KEY        — usa o estilo "hybrid" do MapTiler (imagem de
+ *                                     satelite com nomes de ruas por cima).
+ */
+export function getSatelliteSource(): MapTileSource | null {
+  const proprio = process.env.NEXT_PUBLIC_SATELLITE_TILE_URL;
+  if (proprio) {
+    const attribution = process.env.NEXT_PUBLIC_SATELLITE_TILE_ATTRIBUTION ?? '';
+    return { provider: 'personalizado', attribution, style: rasterStyle(proprio, attribution) };
+  }
+  const key = process.env.NEXT_PUBLIC_MAPTILER_KEY;
+  if (key) {
+    return {
+      style: `https://api.maptiler.com/maps/hybrid/style.json?key=${key}`,
+      attribution: '© MapTiler © OpenStreetMap',
+      provider: 'maptiler',
+    };
+  }
+  return null;
+}
+
+/** true quando existe uma fonte de imagem aerea configurada. */
+export function isSatelliteAvailable(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_SATELLITE_TILE_URL || process.env.NEXT_PUBLIC_MAPTILER_KEY);
+}
+
+/**
  * true quando o mapa esta nos tiles publicos do OpenStreetMap, que a politica
  * de uso deles nao cobre para volume de produto. A pagina de status usa isto
  * para dizer a verdade sobre em que pe o mapa esta.

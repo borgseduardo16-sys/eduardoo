@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Home, Search, Rocket, Building2, CalendarCheck, CircleUser } from 'lucide-react';
+import { Home, Search, Map as MapIcon, Rocket, Building2, CalendarCheck, CircleUser } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -15,10 +15,11 @@ export function MobileBottomNav({ isOwner, rentalsAlert = false }: { isOwner: bo
   const itens = [
     { href: '/', label: 'Início', icon: Home, alerta: false },
     { href: '/espacos', label: 'Buscar', icon: Search, alerta: false },
+    { href: '/mapa', label: 'Mapa', icon: MapIcon, alerta: false },
     isOwner
       ? { href: '/meus-espacos', label: 'Meus espaços', icon: Building2, alerta: false }
       : { href: '/anunciar', label: 'Anunciar', icon: Rocket, alerta: false },
-    // Parte 12: ponto enquanto houver aluguel com pagamento pendente (o "!" fica no aluguel).
+    // Ponto enquanto houver locação com pagamento pendente (o "!" fica na locação).
     { href: '/reservas', label: 'Meus aluguéis', icon: CalendarCheck, alerta: rentalsAlert },
     { href: '/minha-conta', label: 'Conta', icon: CircleUser, alerta: false },
   ];
@@ -29,7 +30,7 @@ export function MobileBottomNav({ isOwner, rentalsAlert = false }: { isOwner: bo
       data-mobile-bottom-nav
       className={cn(
         'sm:hidden fixed bottom-0 inset-x-0 z-40',
-        'grid grid-cols-5 border-t bg-[var(--surface)]/95 backdrop-blur-md',
+        'grid grid-cols-6 border-t bg-[var(--surface)]/95 backdrop-blur-md',
         'pb-[env(safe-area-inset-bottom)]',
       )}
     >

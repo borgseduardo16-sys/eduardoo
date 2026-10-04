@@ -33,7 +33,7 @@ import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
 import { startTestbed, type Testbed } from './testbed/server';
-import { garantirUnidadePadrao, unidadeLivre } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -149,7 +149,7 @@ async function criarPublicado(ownerId: string, sufixo: string, precoCents = 3000
   const id = row!.id;
   await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES
     (${id}, ${`${ownerId}/${id}/f0.jpg`}, 0), (${id}, ${`${ownerId}/${id}/f1.jpg`}, 1), (${id}, ${`${ownerId}/${id}/f2.jpg`}, 2)`;
-  await garantirUnidadePadrao(sql, id);
+  await prepararAnuncio(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return { id, slug };
 }
@@ -158,16 +158,15 @@ async function criarPublicado(ownerId: string, sufixo: string, precoCents = 3000
 async function criarReserva(spaceId: string, ownerId: string, renterId: string, status: string): Promise<string> {
   seq++;
   const a = computeBookingAmounts(30000, fees);
-  // Parte 12: status que ocupa exige grupo e unidade.
-  const u = ['approved', 'awaiting_payment', 'active', 'past_due'].includes(status) ? await unidadeLivre(sql, spaceId) : null;
+  // Status que ocupa vaga precisa de vaga livre: o anúncio passa a oferecer mais uma.
+  if (['approved', 'awaiting_payment', 'active', 'past_due'].includes(status)) await prepararAnuncio(sql, spaceId, 50);
   const [row] = await sql<{ id: string }[]>`
     INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
       monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
-      total_charged_cents, owner_payout_cents, ended_at, group_id, unit_id)
+      total_charged_cents, owner_payout_cents, ended_at)
     VALUES (${`MP-${tag}-${seq}`}, ${spaceId}, ${renterId}, ${ownerId}, ${status}, CURRENT_DATE - 60,
       ${a.monthlyRentCents}, ${a.renterFeeBps}, ${a.ownerFeeBps}, ${a.renterFeeCents}, ${a.ownerFeeCents},
-      ${a.totalChargedCents}, ${a.ownerPayoutCents}, ${status === 'ended' ? sql`now()` : null},
-      ${u?.groupId ?? null}, ${u?.unitId ?? null})
+      ${a.totalChargedCents}, ${a.ownerPayoutCents}, ${status === 'ended' ? sql`now()` : null})
     RETURNING id`;
   return row!.id;
 }
@@ -916,19 +915,17 @@ async function main() {
   async function pedidoResp(renterId: string, status: string, pedidoHaHoras: number, respostaEmMin: number | null, canceladoPor?: string) {
     seq++;
     const a = computeBookingAmounts(30000, fees);
-    const u = ['approved', 'awaiting_payment', 'active', 'past_due'].includes(status) ? await unidadeLivre(sql, espacoResp.id) : null;
+    if (['approved', 'awaiting_payment', 'active', 'past_due'].includes(status)) await prepararAnuncio(sql, espacoResp.id, 50);
     const [row] = await sql<{ id: string }[]>`
       INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
         monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
-        total_charged_cents, owner_payout_cents, requested_at, responded_at, cancelled_by, cancelled_at, ended_at,
-        group_id, unit_id)
+        total_charged_cents, owner_payout_cents, requested_at, responded_at, cancelled_by, cancelled_at, ended_at)
       VALUES (${`MP-${tag}-${seq}`}, ${espacoResp.id}, ${renterId}, ${respId}, ${status}, CURRENT_DATE + 30,
         ${a.monthlyRentCents}, ${a.renterFeeBps}, ${a.ownerFeeBps}, ${a.renterFeeCents}, ${a.ownerFeeCents},
         ${a.totalChargedCents}, ${a.ownerPayoutCents},
         now() - make_interval(hours => ${pedidoHaHoras}::int),
         ${respostaEmMin == null ? null : sql`now() - make_interval(hours => ${pedidoHaHoras}::int) + make_interval(mins => ${respostaEmMin}::int)`},
-        ${canceladoPor ?? null}, ${canceladoPor ? sql`now()` : null}, ${status === 'ended' ? sql`now()` : null},
-        ${u?.groupId ?? null}, ${u?.unitId ?? null})
+        ${canceladoPor ?? null}, ${canceladoPor ? sql`now()` : null}, ${status === 'ended' ? sql`now()` : null})
       RETURNING id`;
     return row!.id;
   }

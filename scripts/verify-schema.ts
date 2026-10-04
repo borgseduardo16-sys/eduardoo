@@ -13,7 +13,7 @@ loadEnv({ path: ['.env.local', '.env'], quiet: true });
 import postgres from 'postgres';
 import { computeBookingAmounts, platformNetCents, formatBRL, parseBRLToCents } from '../src/lib/money';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
-import { garantirUnidadePadrao } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -69,9 +69,9 @@ async function main() {
   const renterId = crypto.randomUUID();
   const strangerId = crypto.randomUUID();
   const confirmedId = crypto.randomUUID();
+  const quartoId = crypto.randomUUID();
   let spaceId = '';
   let bookingId = '';
-  let unidadePrincipal: { groupId: string; unitIds: string[] } = { groupId: '', unitIds: [] };
 
   try {
     console.log('\n\x1b[1m1. Aritmetica de dinheiro (pura, sem banco)\x1b[0m');
@@ -175,9 +175,6 @@ async function main() {
       await sql`INSERT INTO space_images (space_id, storage_path, position)
                 VALUES (${spaceId}, ${`${ownerId}/${spaceId}/f${n}.jpg`}, ${n})`;
     }
-    // Parte 12: publicar exige unidade alugável (trigger spaces_publish_requires_units).
-    const unidade = await garantirUnidadePadrao(sql, spaceId);
-    unidadePrincipal = unidade;
     await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${spaceId}`;
     ok('anuncio publicado com coordenada');
 
@@ -201,7 +198,7 @@ async function main() {
     }
 
     // Com unidade, para que a única coisa faltando seja mesmo a coordenada.
-    await garantirUnidadePadrao(sql, semGeo.id);
+    await prepararAnuncio(sql, semGeo.id);
     await mustReject(
       'publicar sem coordenada e bloqueado',
       () => sql`UPDATE spaces SET status='published' WHERE id=${semGeo.id}`,
@@ -254,11 +251,10 @@ async function main() {
     await mustAccept('reserva com valores coerentes e aceita', async () => {
       const [b] = await sql<{ id: string }[]>`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
-          group_id, unit_id,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}`}, ${spaceId}, ${renterId}, ${ownerId},
-          'active', CURRENT_DATE, ${unidadePrincipal.groupId}, ${unidadePrincipal.unitIds[0]!},
+          'active', CURRENT_DATE,
           ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
           ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
           ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})
@@ -273,7 +269,7 @@ async function main() {
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
-        VALUES (${`MP-FRAUD-${tag.slice(-4)}`}, ${spaceId}, ${renterId}, ${ownerId},
+        VALUES (${`MP-FRAUD-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
           'requested', CURRENT_DATE, 18000, 300, 300, 540, 540, 100, 17460)`,
       'bookings_total_matches',
     );
@@ -289,29 +285,26 @@ async function main() {
       'bookings_distinct_parties',
     );
 
-    // Parte 12: a trava é por UNIDADE (restrição de exclusão), não por espaço.
+    // A trava é por QUANTIDADE: o anúncio oferece 1 vaga e a locação ativa acima já a ocupa.
     await mustReject(
-      'duas locacoes vigentes na mesma unidade e bloqueado',
+      'segunda locacao vigente alem da quantidade oferecida e bloqueada',
       () => sql`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
-          group_id, unit_id,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-DUP-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
-          'active', CURRENT_DATE, ${unidadePrincipal.groupId}, ${unidadePrincipal.unitIds[0]!},
-          18000, 300, 300, 540, 540, 18540, 17460)`,
-      'bookings_unit_no_overlap',
+          'active', CURRENT_DATE, 18000, 300, 300, 540, 540, 18540, 17460)`,
+      'bookings_capacity',
     );
-    await mustReject(
-      'reserva que ocupa sem unidade e bloqueada',
-      () => sql`
+    // Pedido ainda sem resposta NÃO ocupa vaga: pode haver vários ao mesmo tempo.
+    await mustAccept('pedido pendente nao ocupa vaga (vale mesmo com a vaga cheia)', () => sql`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
-        VALUES (${`MP-SEMU-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
-          'approved', CURRENT_DATE + 400, 18000, 300, 300, 540, 540, 18540, 17460)`,
-      'bookings_occupying_has_unit',
-    );
+        VALUES (${`MP-PED-${tag.slice(-4)}`}, ${spaceId}, ${strangerId}, ${ownerId},
+          'requested', CURRENT_DATE, 18000, 300, 300, 540, 540, 18540, 17460)`);
+    // Fecha o pedido de teste: quem pediu não pode ter outro vivo neste anúncio nas seções seguintes.
+    await sql`UPDATE bookings SET status = 'cancelled', cancelled_at = now() WHERE reference = ${`MP-PED-${tag.slice(-4)}`}`;
 
     console.log('\n\x1b[1m5. Avaliacoes\x1b[0m');
     await mustReject(
@@ -765,14 +758,12 @@ async function main() {
                 'Centro', 'Colatina', 'ES', CURRENT_DATE, 20000,
                 ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
         RETURNING id`;
-      const unidadeCaucao = await garantirUnidadePadrao(sql, espacoCaucao.id);
       const [bookingCaucao] = await sql<{ id: string }[]>`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
-          group_id, unit_id,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}D`}, ${espacoCaucao.id}, ${renterId}, ${ownerId},
-          'approved', CURRENT_DATE, ${unidadeCaucao.groupId}, ${unidadeCaucao.unitIds[0]!},
+          'approved', CURRENT_DATE,
           20000, 300, 300, 600, 600, 20600, 19400, 20000)
         RETURNING id`;
       const bookingCaucaoId = bookingCaucao.id;
@@ -846,14 +837,12 @@ async function main() {
                 'Centro', 'Colatina', 'ES', CURRENT_DATE, 20000,
                 ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
         RETURNING id`;
-      const unidadeCaucao2 = await garantirUnidadePadrao(sql, espacoCaucao2.id);
       const [bookingCaucao2] = await sql<{ id: string }[]>`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
-          group_id, unit_id,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents, deposit_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}E`}, ${espacoCaucao2.id}, ${renterId}, ${ownerId},
-          'approved', CURRENT_DATE, ${unidadeCaucao2.groupId}, ${unidadeCaucao2.unitIds[0]!},
+          'approved', CURRENT_DATE,
           20000, 300, 300, 600, 600, 20600, 19400, 20000)
         RETURNING id`;
 
@@ -1176,11 +1165,10 @@ async function main() {
         (await sql<{ status: string }[]>`SELECT status::text AS status FROM spaces WHERE id = ${spaceId}`)[0].status;
       const reserva = (sufixo: string, renter: string, inicioEmDias: number) => sql<{ id: string }[]>`
         INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
-          group_id, unit_id,
           monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
           owner_fee_cents, total_charged_cents, owner_payout_cents)
         VALUES (${`MP-${tag.slice(-6).toUpperCase()}${sufixo}`}, ${spaceId}, ${renter}, ${ownerId},
-          'active', CURRENT_DATE + ${inicioEmDias}::int, ${unidadePrincipal.groupId}, ${unidadePrincipal.unitIds[0]!},
+          'active', CURRENT_DATE + ${inicioEmDias}::int,
           ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
           ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
           ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})
@@ -1206,11 +1194,14 @@ async function main() {
         () => sql`DELETE FROM space_images WHERE space_id = ${spaceId} AND position = 2`,
         'abaixo do minimo',
       );
-      await mustReject(
-        'bloquear datas por cima de reserva vigente é bloqueado',
-        () => bloquear(100, 110),
-        'Ha uma reserva vigente',
-      );
+      // O bloqueio só fecha INÍCIOS de locações novas: não mexe no que já está rodando, então vale por cima de uma locação ativa.
+      let bloqueioSobreLocacao = '';
+      await mustAccept('bloquear datas por cima de locação vigente é aceito (só fecha inícios novos)', async () => {
+        bloqueioSobreLocacao = (await bloquear(100, 110))[0].id;
+      });
+      if (bloqueioSobreLocacao) {
+        await sql`UPDATE space_availability_blocks SET cancelled_at = now() WHERE id = ${bloqueioSobreLocacao}`;
+      }
       await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${ocupacao.id}`;
       expectEqual('aluguel encerrado devolve o anúncio ao ar', await statusDoEspaco(), 'published');
 
@@ -1223,11 +1214,10 @@ async function main() {
         'reserva vigente que termina antes de começar é bloqueada pela regra de datas',
         () => sql`
           INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date, end_date,
-            group_id, unit_id,
             monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
             owner_fee_cents, total_charged_cents, owner_payout_cents)
           VALUES (${`MP-${tag.slice(-6).toUpperCase()}U`}, ${spaceId}, ${strangerId}, ${ownerId},
-            'active', CURRENT_DATE + 10, CURRENT_DATE + 5, ${unidadePrincipal.groupId}, ${unidadePrincipal.unitIds[0]!},
+            'active', CURRENT_DATE + 10, CURRENT_DATE + 5,
             ${amounts.monthlyRentCents}, ${amounts.renterFeeBps},
             ${amounts.ownerFeeBps}, ${amounts.renterFeeCents}, ${amounts.ownerFeeCents},
             ${amounts.totalChargedCents}, ${amounts.ownerPayoutCents})`,
@@ -1238,7 +1228,7 @@ async function main() {
       await mustReject('segundo bloqueio sobre as mesmas datas é bloqueado', () => bloquear(35, 45),
         'Ja existe um bloqueio');
       await mustReject('reserva que começa dentro de um bloqueio é bloqueada', () => reserva('S', strangerId, 32),
-        'O proprietario bloqueou o espaco');
+        'bookings_period_not_blocked');
       await sql`UPDATE space_availability_blocks SET cancelled_at = now() WHERE id = ${bloqueio.id}`;
       let liberada = '';
       await mustAccept('bloqueio desfeito libera as datas para reserva', async () => {
@@ -1247,16 +1237,16 @@ async function main() {
       if (liberada) await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${liberada}`;
 
       // --- Histórico de preço: gravado pelo banco, imutável ---
-      // Parte 12: o proprietário muda o preço no grupo; o anúncio acompanha.
+      // O proprietário muda o preço do anúncio (a pessoa que mudou fica gravada).
       await sql.begin(async (tx) => {
         await tx`SELECT set_config('myplace.actor_id', ${ownerId}, true)`;
-        await tx`UPDATE space_unit_groups SET monthly_price_cents = 17000 WHERE id = ${unidadePrincipal.groupId}`;
+        await tx`UPDATE spaces SET price_monthly_cents = 17000 WHERE id = ${spaceId}`;
       });
       const historico = await sql<{ id: string; old_price_cents: number; new_price_cents: number; changed_by: string | null }[]>`
         SELECT id, old_price_cents, new_price_cents, changed_by FROM space_price_history WHERE space_id = ${spaceId}`;
       expectEqual('mudança de preço de anúncio publicado vira histórico, com autor',
         historico.map((h) => [h.old_price_cents, h.new_price_cents, h.changed_by === ownerId]), [[18000, 17000, true]]);
-      await sql`UPDATE space_unit_groups SET monthly_price_cents = 9000 WHERE space_id = ${semGeo.id}`;
+      await sql`UPDATE spaces SET price_monthly_cents = 9000 WHERE id = ${semGeo.id}`;
       const [{ n: doRascunho }] = await sql<{ n: number }[]>`
         SELECT count(*)::int AS n FROM space_price_history WHERE space_id = ${semGeo.id}`;
       expectEqual('rascunho nunca publicado não gera histórico (preço provisório não é histórico)', doRascunho, 0);
@@ -1392,406 +1382,128 @@ async function main() {
       }
     }
 
-    console.log('\n\x1b[1m16. Unidades, aluguel temporário e prazos de pagamento (Parte 12)\x1b[0m');
+    console.log('\n\x1b[1m16. Modelo mensal por quantidade (migração 0033)\x1b[0m');
     {
-      // Anúncio próprio desta seção: 4 grupos com regras diferentes.
-      const [p12] = await sql<{ id: string }[]>`
-        INSERT INTO spaces (owner_id, slug, type, status, title, description,
-                            district, city, state, available_from, location)
-        VALUES (${ownerId}, ${`estacionamento-${tag}`}, 'garagem', 'draft',
-                'Estacionamento com vagas rápidas e mensais',
-                'Estacionamento coberto com vagas por hora, por dia e mensalistas.',
-                'Centro', 'Colatina', 'ES', CURRENT_DATE,
+      // ---- O que saiu: unidades individuais, grupos e aluguel por tempo não existem mais.
+      const [tabelas] = await sql<{ unidades: string | null; grupos: string | null; pedidos: string | null }[]>`
+        SELECT to_regclass('public.space_units')::text AS unidades,
+               to_regclass('public.space_unit_groups')::text AS grupos,
+               to_regclass('public.booking_end_requests')::text AS pedidos`;
+      expectEqual('tabelas de unidades e de grupos não existem mais', [tabelas!.unidades, tabelas!.grupos], [null, null]);
+      expectEqual('a tabela de pedidos de encerramento existe', tabelas!.pedidos, 'booking_end_requests');
+      const antigas = await sql<{ t: string; c: string }[]>`
+        SELECT table_name AS t, column_name AS c FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND ((table_name = 'bookings' AND column_name IN ('kind', 'group_id', 'unit_id', 'starts_at', 'ends_at', 'occupied_until', 'hold_expires_at', 'duration_units'))
+             OR (table_name = 'spaces' AND column_name LIKE 'temp\_from\_%'))`;
+      expectEqual('colunas do aluguel por tempo saíram de reservas e anúncios', antigas, []);
+
+      // ---- Anúncio de 2 unidades (como "80 na plataforma" de um local com 100, em pequeno).
+      const [q] = await sql<{ id: string }[]>`
+        INSERT INTO spaces (owner_id, slug, type, status, title, description, district, city, state,
+                            available_from, price_monthly_cents, quantity_offered, quantity_total, location)
+        VALUES (${ownerId}, ${`quantidade-${tag}`}, 'estacionamento', 'draft', 'Estacionamento com duas vagas na plataforma',
+                'Estacionamento coberto com vagas mensais para teste da quantidade.',
+                'Centro', 'Colatina', 'ES', CURRENT_DATE, 30000, 2, 5,
                 ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
         RETURNING id`;
-      const p12Id = p12.id;
+      const qId = q!.id;
       for (const n of [0, 1, 2]) {
-        await sql`INSERT INTO space_images (space_id, storage_path, position)
-                  VALUES (${p12Id}, ${`${ownerId}/${p12Id}/f${n}.jpg`}, ${n})`;
+        await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${qId}, ${`${ownerId}/${qId}/f${n}.jpg`}, ${n})`;
       }
-      const statusP12 = async () =>
-        (await sql<{ status: string }[]>`SELECT status::text AS status FROM spaces WHERE id = ${p12Id}`)[0].status;
-      const resumoP12 = async () =>
-        (await sql<{ m: number | null; c: number | null; u: number | null; un: string | null }[]>`
-          SELECT price_monthly_cents AS m, temp_from_cents AS c, temp_from_units AS u, temp_from_unit::text AS un
-            FROM spaces WHERE id = ${p12Id}`)[0];
+      await sql`UPDATE spaces SET status = 'published', published_at = now() WHERE id = ${qId}`;
+      const vagas = async () =>
+        (await sql<{ livres: number; oferecidas: number; total: number | null; status: string }[]>`
+          SELECT quantity_available AS livres, quantity_offered AS oferecidas, quantity_total AS total, status::text AS status
+            FROM spaces WHERE id = ${qId}`)[0]!;
+      expectEqual('anúncio novo: 2 vagas oferecidas, 2 livres, 5 no local', await vagas(),
+        { livres: 2, oferecidas: 2, total: 5, status: 'published' });
+      await mustReject('total do local menor que o oferecido é bloqueado',
+        () => sql`UPDATE spaces SET quantity_total = 1 WHERE id = ${qId}`, 'spaces_quantity_total');
+      await mustReject('quantidade oferecida zero é bloqueada',
+        () => sql`UPDATE spaces SET quantity_offered = 0 WHERE id = ${qId}`, 'spaces_quantity');
 
-      // --- Regras do grupo ---
-      const grupo = (campos: Record<string, unknown>) => sql`
-        INSERT INTO space_unit_groups ${sql({ space_id: p12Id, name: `G-${crypto.randomUUID().slice(0, 6)}`, ...campos })}`;
-      await mustReject('grupo sem nenhum modo é bloqueado',
-        () => grupo({ allows_continuous: false, allows_temporary: false }), 'space_unit_groups_some_mode');
-      await mustReject('grupo mensal sem preço é bloqueado',
-        () => grupo({ allows_continuous: true }), 'space_unit_groups_continuous_price');
-      await mustReject('grupo temporário sem regra de tempo é bloqueado',
-        () => grupo({ allows_continuous: false, allows_temporary: true }), 'space_unit_groups_temporary_rule');
-      await mustReject('proporcional por hora é bloqueado (só dia ou semana)',
-        () => grupo({ allows_continuous: false, allows_temporary: true, temp_pricing_mode: 'per_period',
-          temp_unit: 'hour', temp_price_cents: 5000, temp_max_units: 5, temp_allow_fraction: true }),
-        'space_unit_groups_fraction_rule');
-      await mustReject('horário com abertura depois do fechamento é bloqueado',
-        () => grupo({ monthly_price_cents: 30000, hours_mode: 'daily', opens_at: '21:00', closes_at: '07:00' }),
-        'space_unit_groups_hours');
-      await mustReject('horário de funcionamento com diária é bloqueado (temporário com horário é por hora)',
-        () => grupo({ allows_continuous: false, allows_temporary: true, temp_pricing_mode: 'per_period',
-          temp_unit: 'day', temp_price_cents: 20000, temp_max_units: 3, hours_mode: 'daily', opens_at: '07:00', closes_at: '21:00' }),
-        'space_unit_groups_hours_temporary');
-      const pacotes = (lista: unknown) => grupo({ allows_continuous: false, allows_temporary: true,
-        temp_pricing_mode: 'packages', temp_unit: 'hour', temp_packages: sql.json(lista as never) });
-      await mustReject('pacotes com a mesma duração são bloqueados',
-        () => pacotes([{ units: 1, priceCents: 5000 }, { units: 1, priceCents: 6000 }]), 'space_unit_groups_packages_ordered');
-      await mustReject('pacotes fora de ordem são bloqueados',
-        () => pacotes([{ units: 5, priceCents: 12000 }, { units: 1, priceCents: 5000 }]), 'space_unit_groups_packages_ordered');
-      await mustReject('pacote mais longo mais barato que um mais curto é bloqueado',
-        () => pacotes([{ units: 1, priceCents: 5000 }, { units: 5, priceCents: 4000 }]), 'space_unit_groups_packages_ordered');
-      await mustReject('pacote com duração fracionada é bloqueado',
-        () => pacotes([{ units: 1.5, priceCents: 5000 }]), 'space_unit_groups_packages_valid');
-      await mustReject('pacote sem preço é bloqueado',
-        () => pacotes([{ units: 2 }]), 'space_unit_groups_packages_valid');
-
-      const novoGrupo = async (campos: Record<string, unknown>) =>
-        (await sql<{ id: string }[]>`
-          INSERT INTO space_unit_groups ${sql({ space_id: p12Id, ...campos })} RETURNING id`)[0].id;
-      const novaUnidade = async (groupId: string, label: string) =>
-        (await sql<{ id: string }[]>`
-          INSERT INTO space_units (space_id, group_id, label) VALUES (${p12Id}, ${groupId}, ${label}) RETURNING id`)[0].id;
-
-      const gRapidas = await novoGrupo({ name: 'Vagas rápidas', allows_continuous: false, allows_temporary: true,
-        temp_pricing_mode: 'per_period', temp_unit: 'hour', temp_price_cents: 5000, temp_max_units: 5,
-        hours_mode: 'daily', opens_at: '07:00', closes_at: '21:00' });
-      await mustReject('dois grupos com o mesmo nome no anúncio são bloqueados',
-        () => novoGrupo({ name: 'vagas RÁPIDAS', monthly_price_cents: 30000 }), 'space_unit_groups_space_name_key');
-      const gMensais = await novoGrupo({ name: 'Mensalistas', monthly_price_cents: 30000 });
-      const gDiarias = await novoGrupo({ name: 'Diárias', allows_continuous: false, allows_temporary: true,
-        temp_pricing_mode: 'per_period', temp_unit: 'day', temp_price_cents: 20000, temp_max_units: 3,
-        temp_allow_fraction: true, renewal_allowed: false });
-      const gPacotes = await novoGrupo({ name: 'Pacotes', allows_continuous: false, allows_temporary: true,
-        temp_pricing_mode: 'packages', temp_unit: 'hour',
-        temp_packages: sql.json([{ units: 1, priceCents: 5000 }, { units: 5, priceCents: 12000 }, { units: 10, priceCents: 18000 }]) });
-
-      await mustReject('anúncio sem unidade não vai ao ar',
-        () => sql`UPDATE spaces SET status = 'published', published_at = now() WHERE id = ${p12Id}`,
-        'spaces_published_requires_units');
-      const a1 = await novaUnidade(gRapidas, 'Vaga 1');
-      const a2 = await novaUnidade(gRapidas, 'Vaga 2');
-      const b1 = await novaUnidade(gMensais, 'Vaga 3');
-      const b2 = await novaUnidade(gMensais, 'Vaga 4');
-      const c1 = await novaUnidade(gDiarias, 'Vaga 5');
-      const d1 = await novaUnidade(gPacotes, 'Vaga 6');
-      await mustReject('duas unidades com o mesmo nome no anúncio são bloqueadas',
-        () => novaUnidade(gMensais, 'Vaga 3'), 'space_units_space_label_key');
-      await mustAccept('anúncio com unidades vai ao ar',
-        () => sql`UPDATE spaces SET status = 'published', published_at = now() WHERE id = ${p12Id}`);
-
-      expectEqual('resumo de preço vem dos grupos (mensal mais barato + entrada temporária por hora)',
-        await resumoP12(), { m: 30000, c: 5000, u: 1, un: 'hour' });
-      await mustReject('gravar preço direto no anúncio com grupos é bloqueado (a vitrine não pode mentir)',
-        () => sql`UPDATE spaces SET price_monthly_cents = 100 WHERE id = ${p12Id}`, 'spaces_price_from_units');
-
-      // Unidade de outro anúncio não entra no grupo deste (chave composta).
-      await mustReject('unidade não pode apontar para grupo de outro anúncio',
-        () => sql`INSERT INTO space_units (space_id, group_id, label) VALUES (${spaceId}, ${gRapidas}, 'Intrusa')`,
-        'space_units_group_same_space_fk');
-
-      // --- Preço calculado pelo banco (mesma regra do servidor) ---
-      const cotacao = async (groupId: string, n: number, un: string) =>
-        (await sql<{ v: number | null }[]>`SELECT public.temporary_rent_cents(${groupId}, ${n}, ${un}::rental_time_unit) AS v`)[0].v;
-      expectEqual('por hora: 3 horas a R$ 50 = R$ 150', await cotacao(gRapidas, 3, 'hour'), 15000);
-      expectEqual('por hora: acima do máximo (6 de 5 horas) não tem preço', await cotacao(gRapidas, 6, 'hour'), null);
-      expectEqual('diária proporcional: 6 horas de R$ 200/dia = R$ 50', await cotacao(gDiarias, 6, 'hour'), 5000);
-      expectEqual('diária proporcional: 5 horas de R$ 200/dia = R$ 41,67 (meio para cima, uma vez)', await cotacao(gDiarias, 5, 'hour'), 4167);
-      expectEqual('diária: 2 dias = R$ 400', await cotacao(gDiarias, 2, 'day'), 40000);
-      expectEqual('diária: 73 horas passa do máximo de 3 dias', await cotacao(gDiarias, 73, 'hour'), null);
-      expectEqual('pacote: "até 5 horas" = R$ 120', await cotacao(gPacotes, 5, 'hour'), 12000);
-      expectEqual('pacote: duração que não é pacote não tem preço', await cotacao(gPacotes, 3, 'hour'), null);
-      expectEqual('grupo só mensal não tem preço temporário', await cotacao(gMensais, 1, 'hour'), null);
-
-      // --- Reservas ---
-      const [{ amanha10 }] = await sql<{ amanha10: Date }[]>`
-        SELECT ((CURRENT_DATE + 1)::timestamp + time '10:00') AT TIME ZONE 'America/Sao_Paulo' AS amanha10`;
-      const horas = (h: number) => new Date(amanha10.getTime() + h * 3_600_000);
-      let seq = 0;
-      const temporaria = (o: {
-        unitId: string; groupId: string; renter?: string; inicio: Date; n: number; un?: string;
-        rent: number; status?: string; hold?: Date | null; fim?: Date; renewedFrom?: string; chave?: string;
-      }) => {
-        const v = computeBookingAmounts(o.rent, { renterFeeBps: 300, ownerFeeBps: 300 });
-        const un = o.un ?? 'hour';
-        const passo = un === 'hour' ? 3_600_000 : un === 'day' ? 86_400_000 : 604_800_000;
-        const fim = o.fim ?? new Date(o.inicio.getTime() + o.n * passo);
-        const status = o.status ?? 'awaiting_payment';
-        const hold = o.hold === undefined ? (status === 'awaiting_payment' ? new Date(Date.now() + 10 * 60_000) : null) : o.hold;
-        seq++;
-        return sql<{ id: string }[]>`
-          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, kind, group_id, unit_id,
-            starts_at, ends_at, duration_units, duration_unit, hold_expires_at, renewed_from_id, idempotency_key,
-            start_date, monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-            owner_fee_cents, total_charged_cents, owner_payout_cents)
-          VALUES (${`MP-T${seq}${tag.slice(-5).toUpperCase()}`}, ${p12Id}, ${o.renter ?? renterId}, ${ownerId},
-            ${status}, 'temporary', ${o.groupId}, ${o.unitId},
-            ${o.inicio}, ${fim}, ${o.n}, ${un}::rental_time_unit, ${hold}, ${o.renewedFrom ?? null}, ${o.chave ?? null},
-            CURRENT_DATE, ${v.monthlyRentCents}, 300, 300, ${v.renterFeeCents},
-            ${v.ownerFeeCents}, ${v.totalChargedCents}, ${v.ownerPayoutCents})
-          RETURNING id`;
-      };
-
-      await mustReject('valor diferente do calculado pelas regras é bloqueado (navegador nunca manda preço)',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(0), n: 2, rent: 5000 }), 'bookings_rent_matches_group');
-      await mustReject('duração acima do máximo é bloqueada',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(0), n: 6, rent: 30000 }), 'bookings_temporary_rules');
-      await mustReject('fim diferente de início + duração é bloqueado',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(0), n: 2, rent: 10000, fim: horas(3) }), 'bookings_temporary_rules');
-      await mustReject('aluguel abaixo do mínimo por cobrança (R$ 35) é bloqueado',
-        () => temporaria({ unitId: c1, groupId: gDiarias, inicio: horas(0), n: 1, rent: 833 }), 'bookings_temporary_minimum');
-      await mustReject('reserva que termina depois do fechamento é bloqueada com o horário',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(8), n: 4, rent: 20000 }), 'fecha as 21:00');
-      await mustReject('reserva que começa antes da abertura é bloqueada com o horário',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(-4), n: 2, rent: 10000 }), 'abre as 07:00');
-      await mustReject('reserva temporária que começou há horas é bloqueada',
-        () => temporaria({ unitId: c1, groupId: gDiarias, inicio: new Date(Date.now() - 3 * 3_600_000), n: 1, un: 'day', rent: 20000 }),
-        'bookings_temporary_window');
-      await mustReject('reserva temporária a mais de 30 dias é bloqueada',
-        () => temporaria({ unitId: c1, groupId: gDiarias, inicio: horas(24 * 40), n: 1, un: 'day', rent: 20000 }),
-        'bookings_temporary_window');
-      await mustReject('prazo para pagar maior que o configurado é bloqueado',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(0), n: 2, rent: 10000, hold: new Date(Date.now() + 3 * 3_600_000) }),
-        'bookings_temporary_hold');
-
-      const [t1] = await temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(0), n: 2, rent: 10000, chave: `k-${tag}` });
-      ok('reserva temporária válida é aceita', '2 horas na Vaga 1, R$ 100');
-      const [t1Linha] = await sql<{ sd: string; ed: string; ou: Date; ra: boolean }[]>`
-        SELECT start_date::text AS sd, end_date::text AS ed, occupied_until AS ou, renewal_allowed AS ra FROM bookings WHERE id = ${t1.id}`;
-      expectEqual('banco deriva os dias tocados e a proteção de 7 min para renovar',
-        [t1Linha.sd < t1Linha.ed, t1Linha.ou.getTime() - horas(2).getTime(), t1Linha.ra], [true, 7 * 60_000, true]);
-      await mustReject('mesmo envio repetido (mesma chave) não cria segunda reserva',
-        () => temporaria({ unitId: a2, groupId: gRapidas, inicio: horas(0), n: 2, rent: 10000, chave: `k-${tag}` }),
-        'bookings_renter_idempotency_key');
-      await mustReject('outra pessoa na mesma vaga e no mesmo horário é bloqueada',
-        () => temporaria({ unitId: a1, groupId: gRapidas, renter: strangerId, inicio: horas(1), n: 2, rent: 10000 }),
-        'bookings_unit_no_overlap');
-      await mustReject('outra pessoa na janela de 7 min de renovação é bloqueada (a vaga fica protegida)',
-        () => temporaria({ unitId: a1, groupId: gRapidas, renter: strangerId, inicio: horas(2), n: 1, rent: 5000 }),
-        'bookings_unit_no_overlap');
-      let depoisDaJanela = '';
-      await mustAccept('logo depois da janela de renovação a vaga aceita outra pessoa', async () => {
-        depoisDaJanela = (await temporaria({ unitId: a1, groupId: gRapidas, renter: strangerId,
-          inicio: new Date(horas(2).getTime() + 7 * 60_000), n: 1, rent: 5000 }))[0].id;
-      });
-      await mustAccept('outra vaga do mesmo grupo no mesmo horário é aceita',
-        () => temporaria({ unitId: a2, groupId: gRapidas, renter: strangerId, inicio: horas(0), n: 2, rent: 10000 }));
-      await mustReject('vaga de outro grupo não entra numa reserva deste grupo',
-        () => temporaria({ unitId: b1, groupId: gRapidas, inicio: horas(0), n: 2, rent: 10000 }), 'bookings_unit_same_group_fk');
-      await mustReject('reserva temporária não muda de horário depois de criada',
-        () => sql`UPDATE bookings SET ends_at = ends_at + interval '1 hour' WHERE id = ${t1.id}`, 'bookings_temporary_frozen');
-      await mustReject('a proteção depois do fim não pode crescer',
-        () => sql`UPDATE bookings SET occupied_until = occupied_until + interval '1 minute' WHERE id = ${t1.id}`, 'bookings_temporary_frozen');
-
-      // Diária sem renovação: sem janela de 7 min.
-      const [tc] = await temporaria({ unitId: c1, groupId: gDiarias, inicio: horas(0), n: 6, un: 'hour', rent: 5000 });
-      const [tcLinha] = await sql<{ igual: boolean; ra: boolean }[]>`
-        SELECT occupied_until = ends_at AS igual, renewal_allowed AS ra FROM bookings WHERE id = ${tc.id}`;
-      expectEqual('grupo sem renovação não protege depois do fim', [tcLinha.igual, tcLinha.ra], [true, false]);
-
-      // Contínuo e temporário na mesma vaga: o mensal ocupa do início em diante.
-      const mensal = (sufixo: string, unitId: string, status: string, rent = 30000, renter = renterId, inicio = 'CURRENT_DATE') => {
-        const v = computeBookingAmounts(rent, { renterFeeBps: 300, ownerFeeBps: 300 });
-        return sql<{ id: string }[]>`
-          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, kind, group_id, unit_id,
-            start_date, monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-            owner_fee_cents, total_charged_cents, owner_payout_cents)
-          VALUES (${`MP-M${sufixo}${tag.slice(-5).toUpperCase()}`}, ${p12Id}, ${renter}, ${ownerId},
-            ${status}, 'continuous', ${gMensais}, ${unitId}, ${sql.unsafe(inicio)}, ${v.monthlyRentCents}, 300, 300,
-            ${v.renterFeeCents}, ${v.ownerFeeCents}, ${v.totalChargedCents}, ${v.ownerPayoutCents})
-          RETURNING id`;
-      };
-      await mustReject('mensalidade diferente do preço do grupo é bloqueada',
-        () => mensal('X', b1, 'requested', 25000), 'bookings_rent_matches_group');
-      const [m1] = await mensal('A', b1, 'active');
-      expectEqual('com 1 de 2 vagas mensais alugada, o anúncio continua no ar', await statusP12(), 'published');
-      const [m2] = await mensal('B', b2, 'active', 30000, strangerId);
-      expectEqual('com as vagas de grupo só por hora livres, o anúncio continua no ar', await statusP12(), 'published');
-      await mustReject('mensalista ocupa a vaga do início em diante (sem fim)',
-        () => mensal('C', b1, 'approved', 30000, strangerId, 'CURRENT_DATE + 200'), 'bookings_unit_no_overlap');
-      await mustReject('desativar vaga com aluguel em andamento é bloqueado',
-        () => sql`UPDATE space_units SET active = false WHERE id = ${b1}`, 'space_units_keep_live_rental');
-      await mustReject('apagar vaga com histórico de reserva é bloqueado',
-        () => sql`DELETE FROM space_units WHERE id = ${b1}`, 'bookings_unit_same_group_fk');
-      await mustAccept('desativar vaga livre é aceito', () => sql`UPDATE space_units SET active = false WHERE id = ${d1}`);
-      expectEqual('grupo sem vaga ativa sai do resumo de preço', (await resumoP12()).c, 5000);
-      await sql`UPDATE space_units SET active = true WHERE id = ${d1}`;
-
-      // Todas as vagas de um anúncio só mensal alugadas = alugado.
-      const [soMensal] = await sql<{ id: string }[]>`
-        INSERT INTO spaces (owner_id, slug, type, status, title, description, district, city, state, available_from, location)
-        VALUES (${ownerId}, ${`mensal-${tag}`}, 'garagem', 'draft', 'Garagem com duas vagas mensais',
-                'Duas vagas cobertas para mensalistas, com portão automático.', 'Centro', 'Colatina', 'ES', CURRENT_DATE,
-                ST_SetSRID(ST_MakePoint(-40.6295, -19.5386), 4326))
+      const com = (sufixo: string, renter: string, status: string) => sql<{ id: string }[]>`
+        INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+          monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+          owner_fee_cents, total_charged_cents, owner_payout_cents)
+        VALUES (${`MP-Q${tag.slice(-5).toUpperCase()}${sufixo}`}, ${qId}, ${renter}, ${ownerId}, ${status}, CURRENT_DATE,
+          30000, 300, 300, 900, 900, 30900, 29100)
         RETURNING id`;
-      for (const n of [0, 1, 2]) {
-        await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${soMensal.id}, ${`${ownerId}/${soMensal.id}/f${n}.jpg`}, ${n})`;
-      }
-      const [gSo] = await sql<{ id: string }[]>`
-        INSERT INTO space_unit_groups (space_id, name, monthly_price_cents) VALUES (${soMensal.id}, 'Padrão', 20000) RETURNING id`;
-      const [u1] = await sql<{ id: string }[]>`INSERT INTO space_units (space_id, group_id, label) VALUES (${soMensal.id}, ${gSo.id}, 'Vaga A') RETURNING id`;
-      const [u2] = await sql<{ id: string }[]>`INSERT INTO space_units (space_id, group_id, label) VALUES (${soMensal.id}, ${gSo.id}, 'Vaga B') RETURNING id`;
-      await sql`UPDATE spaces SET status = 'published', published_at = now() WHERE id = ${soMensal.id}`;
-      const statusSo = async () => (await sql<{ s: string }[]>`SELECT status::text AS s FROM spaces WHERE id = ${soMensal.id}`)[0].s;
-      const mensalSo = (sufixo: string, unitId: string, renter: string) => {
-        const v = computeBookingAmounts(20000, { renterFeeBps: 300, ownerFeeBps: 300 });
-        return sql<{ id: string }[]>`
-          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, group_id, unit_id, start_date,
-            monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents, total_charged_cents, owner_payout_cents)
-          VALUES (${`MP-S${sufixo}${tag.slice(-5).toUpperCase()}`}, ${soMensal.id}, ${renter}, ${ownerId}, 'active', ${gSo.id}, ${unitId},
-            CURRENT_DATE, 20000, 300, 300, ${v.renterFeeCents}, ${v.ownerFeeCents}, ${v.totalChargedCents}, ${v.ownerPayoutCents})
-          RETURNING id`;
-      };
-      const [sA] = await mensalSo('A', u1.id, renterId);
-      expectEqual('1 de 2 vagas alugadas: continua no ar', await statusSo(), 'published');
-      await mensalSo('B', u2.id, strangerId);
-      expectEqual('2 de 2 vagas alugadas: anúncio alugado', await statusSo(), 'rented');
-      await mustReject('anúncio no ar não fica sem nenhuma vaga ativa',
-        () => sql`UPDATE space_unit_groups SET active = false WHERE id = ${gSo.id}`, 'space_units_keep_live_rental');
-      await sql`UPDATE bookings SET status = 'ended', ended_at = now(), end_reason = 'cancelled_by_renter' WHERE id = ${sA.id}`;
-      expectEqual('uma vaga liberada: anúncio volta ao ar', await statusSo(), 'published');
+      const [ped] = await com('P', renterId, 'requested');
+      expectEqual('pedido pendente não ocupa vaga', (await vagas()).livres, 2);
+      const [prazo] = await sql<{ horas: number }[]>`
+        SELECT round(extract(epoch FROM response_deadline_at - requested_at) / 3600)::int AS horas FROM bookings WHERE id = ${ped!.id}`;
+      expectEqual('o banco dá 24 horas para o proprietário responder', prazo!.horas, 24);
 
-      // --- Pagamento pendente: janela fixa de 40 min + 1 h ---
-      await mustReject('pagamento pendente sem prazo é bloqueado',
-        () => sql`UPDATE bookings SET status = 'past_due' WHERE id = ${m1.id}`, 'bookings_payment_window');
-      await mustReject('pagamento pendente com prazo diferente de 40 min + 1 h é bloqueado',
+      // Quem pede já tem a sua vaga garantida só depois do aceite; para encher o anúncio usamos outras contas.
+      await sql`INSERT INTO auth.users (id, email) VALUES (${quartoId}, ${`quarto-${tag}@example.com`})`;
+      const [a1] = await com('A', strangerId, 'active');
+      expectEqual('uma locação ativa tira uma vaga livre', (await vagas()).livres, 1);
+      const [a2] = await com('B', confirmedId, 'active');
+      expectEqual('a segunda ocupa a última: 0 livres e o anúncio sai do ar sozinho', await vagas(),
+        { livres: 0, oferecidas: 2, total: 5, status: 'rented' });
+      await mustReject('uma terceira locação além da quantidade é bloqueada', () => com('C', quartoId, 'active'), 'bookings_capacity');
+      await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${a1!.id}`;
+      expectEqual('terminar uma locação devolve a vaga e o anúncio volta ao ar', await vagas(),
+        { livres: 1, oferecidas: 2, total: 5, status: 'published' });
+      await mustReject('diminuir a quantidade abaixo do ocupado é bloqueado',
+        () => sql`UPDATE spaces SET quantity_offered = 0 WHERE id = ${qId}`, 'spaces_quantity');
+      await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${a2!.id}`;
+      expectEqual('sem locações, todas as vagas voltam', (await vagas()).livres, 2);
+
+      // ---- Aceite exige instruções de acesso (texto ou áudio) e abre o prazo de pagamento.
+      await mustReject('aceitar sem instruções de acesso é bloqueado',
+        () => sql`UPDATE bookings SET status = 'approved', responded_at = now() WHERE id = ${ped!.id}`, 'bookings_access_required');
+      await mustReject('instruções curtas demais não valem',
+        () => sql`UPDATE bookings SET status = 'approved', responded_at = now(), access_instructions = 'portao' WHERE id = ${ped!.id}`,
+        'bookings_access_required');
+      await sql`UPDATE bookings SET status = 'approved', responded_at = now(),
+                  access_instructions = 'Portão azul ao lado da padaria; a vaga fica atrás da pilastra.' WHERE id = ${ped!.id}`;
+      const [apr] = await sql<{ horas: number; instr: boolean }[]>`
+        SELECT round(extract(epoch FROM first_payment_deadline_at - now()) / 3600)::int AS horas,
+               access_instructions_at IS NOT NULL AS instr FROM bookings WHERE id = ${ped!.id}`;
+      expectEqual('o aceite grava o momento das instruções e dá 24 horas para pagar', [apr!.horas, apr!.instr], [24, true]);
+      expectEqual('a locação aceita ocupa a vaga', (await vagas()).livres, 1);
+
+      // ---- Pagamento pendente: a janela é TOTAL e vale exatamente 2 horas.
+      await sql`UPDATE bookings SET status = 'active', activated_at = now() WHERE id = ${ped!.id}`;
+      await mustReject('janela de pagamento pendente diferente de 2 horas é bloqueada',
         () => sql`UPDATE bookings SET status = 'past_due', payment_issue_started_at = now(),
-                  payment_issue_deadline_at = now() + interval '3 hours' WHERE id = ${m1.id}`, 'bookings_payment_window');
-      await mustAccept('pagamento pendente com o prazo fixo é aceito',
+                    payment_issue_deadline_at = now() + interval '3 hours' WHERE id = ${ped!.id}`, 'bookings_payment_window');
+      await mustAccept('janela de exatamente 2 horas é aceita',
         () => sql`UPDATE bookings SET status = 'past_due', payment_issue_started_at = now(),
-                  payment_issue_deadline_at = now() + interval '100 minutes' WHERE id = ${m1.id}`);
-      await mustReject('voltar a ativo sem limpar o prazo é bloqueado',
-        () => sql`UPDATE bookings SET status = 'active' WHERE id = ${m1.id}`, 'bookings_payment_window');
-      await mustAccept('pagamento confirmado na janela: volta a ativo e o prazo some',
-        () => sql`UPDATE bookings SET status = 'active', payment_issue_started_at = NULL, payment_issue_deadline_at = NULL WHERE id = ${m1.id}`);
-      await mustReject('temporário não entra em pagamento pendente (só a recorrência)',
-        () => sql`UPDATE bookings SET status = 'past_due', payment_issue_started_at = now(),
-                  payment_issue_deadline_at = now() + interval '100 minutes' WHERE id = ${t1.id}`, 'bookings_payment_window');
-      await mustReject('motivo de encerramento em reserva ativa é bloqueado',
-        () => sql`UPDATE bookings SET end_reason = 'completed' WHERE id = ${m2.id}`, 'bookings_end_reason_matches');
+                    payment_issue_deadline_at = now() + interval '120 minutes' WHERE id = ${ped!.id}`);
+      await sql`UPDATE bookings SET status = 'ended', ended_at = now(), end_reason = 'payment_not_received' WHERE id = ${ped!.id}`;
 
-      // --- Renovação ---
-      await sql`UPDATE bookings SET status = 'active', hold_expires_at = NULL WHERE id = ${t1.id}`;
-      await mustReject('renovação que não começa no fim da anterior é bloqueada',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(3), n: 1, rent: 5000, renewedFrom: t1.id }),
-        'bookings_renewal_rules');
-      await mustReject('renovação em outra vaga é bloqueada',
-        () => temporaria({ unitId: a2, groupId: gRapidas, inicio: horas(2), n: 1, rent: 5000, renewedFrom: t1.id }),
-        'bookings_renewal_rules');
-      // A vaga depois da janela já foi alugada por outra pessoa: a renovação
-      // não pode passar por cima (o banco recusa, não o código).
-      await sql`UPDATE bookings SET occupied_until = ends_at WHERE id = ${t1.id}`;
-      await mustReject('renovação que invade a reserva seguinte de outra pessoa é bloqueada',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(2), n: 1, rent: 5000, renewedFrom: t1.id }),
-        'bookings_unit_no_overlap');
-      await sql`UPDATE bookings SET status = 'cancelled', hold_expires_at = NULL WHERE id = ${depoisDaJanela}`;
-      let renovacao = '';
-      await mustAccept('renovação começando onde a anterior termina é aceita', async () => {
-        renovacao = (await temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(2), n: 1, rent: 5000, renewedFrom: t1.id }))[0].id;
-      });
-      await mustReject('segunda renovação da mesma reserva é bloqueada (duas abas)',
-        () => temporaria({ unitId: a1, groupId: gRapidas, inicio: horas(2), n: 1, rent: 5000, renewedFrom: t1.id, renter: renterId }),
-        'bookings_one_live_renewal');
+      // ---- Pedido de encerramento do proprietário: um por vez, com data válida.
+      const [ativa] = await com('E', strangerId, 'active');
+      await sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date, reason)
+                VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 30, 'Preciso do espaço')`;
+      await mustReject('segundo pedido de encerramento em aberto é bloqueado',
+        () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
+                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 40)`, 'booking_end_requests_one_pending');
+      await sql`UPDATE booking_end_requests SET status = 'withdrawn', resolved_at = now() WHERE booking_id = ${ativa!.id}`;
+      await mustReject('data de encerramento no passado é bloqueada',
+        () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
+                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE - 1)`, 'booking_end_requests_min_notice');
+      await mustReject('data de encerramento a mais de um ano é bloqueada',
+        () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
+                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 400)`, 'booking_end_requests_horizon');
+      await mustReject('quem aluga não pode pedir o encerramento',
+        () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
+                  VALUES (${ativa!.id}, ${renterId}, CURRENT_DATE + 10)`, 'booking_end_requests_by_owner');
+      await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${ativa!.id}`;
+      await mustReject('locação já encerrada não recebe pedido de encerramento',
+        () => sql`INSERT INTO booking_end_requests (booking_id, requested_by, requested_end_date)
+                  VALUES (${ativa!.id}, ${ownerId}, CURRENT_DATE + 10)`, 'booking_end_requests_live_booking');
 
-      // --- O que venceu é encerrado pelo relógio do banco ---
-      // Viagem no tempo só no teste: a trigger que recusa início no passado
-      // fica desligada dentro desta transação, para criar o cenário "já passou".
-      const noPassado = async (fn: (tx: postgres.TransactionSql) => Promise<unknown>) => {
-        await sql.begin(async (tx) => {
-          await tx`ALTER TABLE bookings DISABLE TRIGGER bookings_derive_rental_shape`;
-          await fn(tx);
-          await tx`ALTER TABLE bookings ENABLE TRIGGER bookings_derive_rental_shape`;
-        });
-      };
-      // (a) reserva temporária não paga no prazo
-      const vHold = computeBookingAmounts(5000, { renterFeeBps: 300, ownerFeeBps: 300 });
-      let holdVencido = '';
-      await noPassado(async (tx) => {
-        const [r] = await tx<{ id: string }[]>`
-          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, kind, group_id, unit_id,
-            starts_at, ends_at, occupied_until, duration_units, duration_unit, hold_expires_at,
-            start_date, end_date, monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-            owner_fee_cents, total_charged_cents, owner_payout_cents)
-          VALUES (${`MP-H${tag.slice(-6).toUpperCase()}`}, ${p12Id}, ${strangerId}, ${ownerId}, 'awaiting_payment', 'temporary',
-            ${gPacotes}, ${d1}, now() + interval '1 hour', now() + interval '2 hours', now() + interval '2 hours 7 minutes',
-            1, 'hour', now() - interval '1 minute', CURRENT_DATE, CURRENT_DATE + 1, 5000, 300, 300,
-            ${vHold.renterFeeCents}, ${vHold.ownerFeeCents}, ${vHold.totalChargedCents}, ${vHold.ownerPayoutCents})
-          RETURNING id`;
-        holdVencido = r.id;
-        await tx`INSERT INTO payments (booking_id, provider, provider_payment_id, status, method, amount_cents, due_date)
-                 VALUES (${r.id}, 'asaas', ${`pay_hold_${tag}`}, 'pending', 'pix', ${vHold.totalChargedCents}, CURRENT_DATE)`;
-      });
-      // (b) temporário que acabou e passou a janela de renovação
-      let acabou = '';
-      await noPassado(async (tx) => {
-        const [r] = await tx<{ id: string }[]>`
-          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, kind, group_id, unit_id,
-            starts_at, ends_at, occupied_until, duration_units, duration_unit,
-            start_date, end_date, monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
-            owner_fee_cents, total_charged_cents, owner_payout_cents, activated_at)
-          VALUES (${`MP-E${tag.slice(-6).toUpperCase()}`}, ${p12Id}, ${strangerId}, ${ownerId}, 'active', 'temporary',
-            ${gPacotes}, ${d1}, now() - interval '3 hours', now() - interval '2 hours', now() - interval '1 hour 53 minutes',
-            1, 'hour', CURRENT_DATE, CURRENT_DATE + 1, 5000, 300, 300,
-            ${vHold.renterFeeCents}, ${vHold.ownerFeeCents}, ${vHold.totalChargedCents}, ${vHold.ownerPayoutCents}, now() - interval '3 hours')
-          RETURNING id`;
-        acabou = r.id;
-      });
-      // (c) pagamento pendente que passou do prazo
-      await sql`UPDATE bookings SET status = 'past_due', payment_issue_started_at = now() - interval '2 hours',
-                payment_issue_deadline_at = now() - interval '2 hours' + interval '100 minutes' WHERE id = ${m2.id}`;
-      const [assinaturaM2] = await sql<{ id: string }[]>`
-        INSERT INTO subscriptions (booking_id, provider, provider_subscription_id, status, method, amount_cents, billing_day)
-        VALUES (${m2.id}, 'asaas', ${`sub_${tag}`}, 'past_due', 'credit_card', 30900, 5) RETURNING id`;
-
-      await mustReject('o navegador não chama a função que encerra aluguéis',
-        () => sql.begin(async (tx) => {
-          await tx`SET LOCAL ROLE authenticated`;
-          await tx`SELECT public.release_expired_rentals(NULL)`;
-        }), 'permission denied');
-      const [{ n: liberadas }] = await sql<{ n: number }[]>`SELECT public.release_expired_rentals(${p12Id}) AS n`;
-      expectEqual('encerramento por prazo pegou os 3 casos', liberadas, 3);
-      const estado = async (id: string) =>
-        (await sql<{ s: string; r: string | null }[]>`SELECT status::text AS s, end_reason::text AS r FROM bookings WHERE id = ${id}`)[0];
-      expectEqual('reserva não paga no prazo: expirada', await estado(holdVencido), { s: 'expired', r: 'hold_expired' });
-      const [cobrancaVencida] = await sql<{ marcada: boolean }[]>`
-        SELECT delete_requested_at IS NOT NULL AS marcada FROM payments WHERE booking_id = ${holdVencido}`;
-      expectEqual('a cobrança que não pode mais ser paga fica marcada para excluir no gateway', cobrancaVencida?.marcada, true);
-      expectEqual('temporário que acabou: encerrado como concluído', await estado(acabou), { s: 'ended', r: 'completed' });
-      expectEqual('pagamento pendente sem pagamento no prazo: encerrado', await estado(m2.id), { s: 'ended', r: 'payment_not_received' });
-      const [assin] = await sql<{ s: string; p: Date | null }[]>`
-        SELECT status::text AS s, provider_cancelled_at AS p FROM subscriptions WHERE id = ${assinaturaM2.id}`;
-      expectEqual('recorrência marcada como cancelada, aguardando confirmação do gateway', [assin.s, assin.p], ['cancelled', null]);
-      expectEqual('rodar de novo não encerra nada a mais', (await sql<{ n: number }[]>`SELECT public.release_expired_rentals(${p12Id}) AS n`)[0].n, 0);
-      if (renovacao) await sql`UPDATE bookings SET status = 'cancelled', hold_expires_at = NULL WHERE id = ${renovacao}`;
-
-      // --- Tabelas e funções fora do alcance do navegador ---
-      const novasP12 = ['space_unit_groups', 'space_units'];
-      const abertas: string[] = [];
-      for (const t of novasP12) {
-        try {
-          await sql.begin(async (tx) => {
-            await tx`SET LOCAL ROLE authenticated`;
-            await tx`SELECT 1 FROM ${sql(t)} LIMIT 1`;
-          });
-          abertas.push(t);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (!msg.includes('permission denied')) abertas.push(`${t} (${msg.slice(0, 80)})`);
-        }
-      }
-      const semRlsP12 = await sql<{ relname: string }[]>`
-        SELECT relname FROM pg_class WHERE relnamespace = 'public'::regnamespace AND relname IN ${sql(novasP12)} AND NOT relrowsecurity`;
-      if (abertas.length === 0 && semRlsP12.length === 0) ok('grupos e unidades não são alcançáveis pelo navegador', 'sem GRANT e com RLS');
-      else bad('tabelas da Parte 12 expostas', JSON.stringify({ abertas, semRlsP12 }));
-
-      const confP12 = new Map((await sql<{ key: string; value: unknown }[]>`
-        SELECT key, value FROM platform_settings WHERE key IN ('rental.hold_minutes', 'rental.max_advance_days', 'booking.min_rent_cents')`)
-        .map((r) => [r.key, r.value]));
-      expectEqual('prazos configuráveis: 15 min para pagar, 30 dias de antecedência, mínimo de R$ 35 por cobrança',
-        [confP12.get('rental.hold_minutes'), confP12.get('rental.max_advance_days'), confP12.get('booking.min_rent_cents')], [15, 30, 3500]);
+      // ---- Privacidade por tipo: comercial mostra o ponto exato, residencial é deslocado.
+      const [ponto] = await sql<{ iguais: boolean }[]>`SELECT ST_Equals(location, approx_location) AS iguais FROM spaces WHERE id = ${qId}`;
+      expectEqual('estacionamento (tipo comercial) expõe o ponto exato', ponto!.iguais, true);
+      await sql`UPDATE spaces SET type = 'garagem' WHERE id = ${qId}`;
+      const [desloc] = await sql<{ iguais: boolean }[]>`SELECT ST_Equals(location, approx_location) AS iguais FROM spaces WHERE id = ${qId}`;
+      expectEqual('trocar para garagem (residencial) volta a deslocar o ponto', desloc!.iguais, false);
     }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
@@ -1819,10 +1531,13 @@ async function main() {
     // booking_deposits.booking_id e RESTRICT — precisa sair antes de bookings (Fase 20).
     await sql`DELETE FROM booking_deposits WHERE booking_id IN (
                 SELECT id FROM bookings WHERE owner_id = ${ownerId})`;
+    // Pedidos de encerramento (booking_id é RESTRICT) saem antes das locações.
+    await sql`DELETE FROM booking_end_requests WHERE booking_id IN (
+                SELECT id FROM bookings WHERE owner_id = ${ownerId})`;
     await sql`DELETE FROM bookings WHERE owner_id = ${ownerId}`;
     await sql`DELETE FROM spaces WHERE owner_id = ${ownerId}`;
     await sql`DELETE FROM webhook_events WHERE provider_event_id LIKE ${`evt_verify-%`}`;
-    await sql`DELETE FROM auth.users WHERE id IN (${ownerId}, ${renterId}, ${strangerId}, ${confirmedId})`;
+    await sql`DELETE FROM auth.users WHERE id IN (${ownerId}, ${renterId}, ${strangerId}, ${confirmedId}, ${quartoId})`;
   }
 
   console.log(

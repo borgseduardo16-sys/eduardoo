@@ -17,7 +17,7 @@ req.cache[req.resolve('server-only')] = {
 } as never;
 
 import postgres from 'postgres';
-import { garantirUnidadePadrao } from './lib/unidades';
+import { prepararAnuncio } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
 
@@ -97,7 +97,7 @@ async function criarPublicado(slug: string, precoCents: number): Promise<string>
       VALUES (${id}, ${`${donoId}/${id}/f${n}.jpg`}, ${n})`;
   }
   // Parte 12: uma unidade (grupo "Padrão", mensal) — o banco não publica sem.
-  await garantirUnidadePadrao(sql, id);
+  await prepararAnuncio(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return id;
 }

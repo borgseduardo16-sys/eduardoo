@@ -18,7 +18,7 @@ req.cache[req.resolve('server-only')] = {
 } as never;
 
 import postgres from 'postgres';
-import { configPrecoMensal, garantirUnidadePadrao, mudarPrecoMensal, unidadeLivre } from './lib/unidades';
+import { mudarPreco, prepararAnuncio } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
 const url = process.env.DATABASE_URL;
@@ -117,7 +117,7 @@ async function criarPublicado(opts?: { precoCents?: number; tipo?: string; bairr
   for (let n = 0; n < (opts?.fotos ?? 3); n++) {
     await sql`INSERT INTO space_images (space_id, storage_path, position) VALUES (${id}, ${`${dono}/${id}/f${n}.jpg`}, ${n})`;
   }
-  await garantirUnidadePadrao(sql, id);
+  await prepararAnuncio(sql, id);
   await sql`UPDATE spaces SET status='published', published_at=now() WHERE id=${id}`;
   return { id, slug };
 }
@@ -1225,7 +1225,7 @@ async function main() {
     }
     for (const f of caracteristicasRasc) await sql`INSERT INTO space_features (space_id, feature_key) VALUES (${row!.id}, ${f})`;
     // Parte 12: o rascunho "pronto" já passou pela etapa "Como alugar".
-    await garantirUnidadePadrao(sql, row!.id);
+    await prepararAnuncio(sql, row!.id);
     return row!.id;
   }
   async function publicar(spaceId: string) {
@@ -1922,16 +1922,15 @@ async function main() {
     SELECT (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.renter_fee_bps') AS r,
            (SELECT (value #>> '{}')::int FROM platform_settings WHERE key='fees.owner_fee_bps') AS o`)[0]!;
   const v12 = computeBookingAmounts(30000, { renterFeeBps: Number(fees12.r ?? 300), ownerFeeBps: Number(fees12.o ?? 300) });
-  await mudarPrecoMensal(sql, espacoRenov.id, 30000);
-  const u12 = await unidadeLivre(sql, espacoRenov.id);
+  await mudarPreco(sql, espacoRenov.id, 30000);
+  await prepararAnuncio(sql, espacoRenov.id, 5);
   const [reserva12] = await sql<{ id: string }[]>`
     INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
       monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents, owner_fee_cents,
-      total_charged_cents, owner_payout_cents, requested_at, activated_at, group_id, unit_id)
+      total_charged_cents, owner_payout_cents, requested_at, activated_at)
     VALUES (${`MP-${tag}-renov`}, ${espacoRenov.id}, ${locatarioRenovId}, ${donoRenovId}, 'active', ${primeiroVenc}::date,
       ${v12.monthlyRentCents}, ${v12.renterFeeBps}, ${v12.ownerFeeBps}, ${v12.renterFeeCents}, ${v12.ownerFeeCents},
-      ${v12.totalChargedCents}, ${v12.ownerPayoutCents}, now() - interval '40 days', now() - interval '35 days',
-      ${u12.groupId}, ${u12.unitId})
+      ${v12.totalChargedCents}, ${v12.ownerPayoutCents}, now() - interval '40 days', now() - interval '35 days')
     RETURNING id`;
   const idAssinatura = `sub_${tag}`;
   const [assin12] = await sql<{ id: string }[]>`
