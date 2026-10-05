@@ -5,14 +5,14 @@ import { Loader2 } from 'lucide-react';
 
 const button = cva(
   'inline-flex items-center justify-center gap-2 font-medium whitespace-nowrap ' +
-    'transition-[background-color,border-color,color,opacity,transform] duration-150 ' +
+    'transition-[background-color,border-color,color,opacity,transform,box-shadow] duration-200 ease-[var(--ease-out-soft)] ' +
     'disabled:pointer-events-none disabled:opacity-50 ' +
-    'active:scale-[0.985] [&_svg]:shrink-0',
+    'hover:-translate-y-px active:translate-y-0 active:scale-[0.97] [&_svg]:shrink-0 motion-reduce:transform-none',
   {
     variants: {
       variant: {
         primary:
-          'bg-[var(--accent)] text-[var(--accent-content)] hover:bg-[var(--accent-hover)] shadow-[var(--shadow-subtle)]',
+          'bg-[var(--accent)] text-[var(--accent-content)] hover:bg-[var(--accent-hover)] shadow-[var(--shadow-subtle)] hover:shadow-[var(--shadow-raised)]',
         secondary:
           'bg-[var(--surface-raised)] text-[var(--content)] border border-[var(--border-strong)] hover:bg-[var(--surface-sunken)]',
         ghost: 'text-[var(--content)] hover:bg-[var(--surface-sunken)]',

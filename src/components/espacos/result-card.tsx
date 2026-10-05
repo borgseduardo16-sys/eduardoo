@@ -52,7 +52,7 @@ export function ResultCard({
             <Image
               src={coverUrl} alt="" fill
               sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-              className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+              className="object-cover transition-transform duration-700 ease-[var(--ease-out-soft)] group-hover:scale-[1.05] motion-reduce:transform-none"
               unoptimized
             />
           ) : (

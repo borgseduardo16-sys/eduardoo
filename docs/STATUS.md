@@ -2088,3 +2088,29 @@ reais e linhas no banco.
 O `verify-safety.ts` também cobre os **falsos positivos** do detector de
 contato: "R$ 1.500,00", "CEP 29700-000" e "posso pagar por Pix aqui pelo
 aplicativo?" não podem ser sinalizados.
+
+## Movimento e 3D na página inicial ✅ *(fora da numeração de fases)*
+
+Camada visual de movimento, sem mudar texto, conteúdo ou identidade:
+
+- **Lenis** (`smooth-scroll.tsx`): rolagem suave só em `/`, `/como-funciona`,
+  `/taxas`, `/protecao` e `/premium`. Mapa, chat, formulários e painéis ficam
+  com a rolagem nativa; `<dialog>` e `[data-lenis-prevent]` rolam sozinhos.
+- **Motion** (`motion/react`, via `LazyMotion`): entradas ao rolar (`Reveal`,
+  `RevealGroup`), título do hero palavra por palavra (`SplitHeading`) e botão
+  magnético (`Magnetic`, só com mouse).
+- **GSAP + ScrollTrigger**: parallax sutil (`Parallax`, só ≥1024 px) e o giro da
+  cena 3D ligado à rolagem. Compartilha o relógio com o Lenis.
+- **Three.js** (`hero-scene*.tsx`): "estacionamento" isométrico de vagas na base
+  do hero. Carregado sob demanda (`next/dynamic`), só em tela ≥1024 px com mouse,
+  sem `prefers-reduced-motion` nem `saveData`; ~60 malhas, sem sombras, pixel
+  ratio ≤1,5, laço de render pausado fora da tela ou com a aba oculta, recursos
+  liberados ao desmontar. No celular o hero não carrega 3D.
+- **Lucide**: já era a biblioteca de ícones do projeto; nada a instalar.
+- Acessibilidade: `prefers-reduced-motion` desliga tudo (conteúdo final, sem
+  transição, sem Lenis, sem 3D). O 3D é `aria-hidden` e não captura cliques.
+- Verificado: `typecheck`, `lint`, `build` e capturas no Chromium (desktop claro e
+  escuro, celular 390 px) sem erro de console nem rolagem horizontal. **Não
+  rodados**: `verify`/`verify:integracoes` (exigem banco e credenciais reais que
+  este ambiente não tem); a home foi inspecionada com variáveis de ambiente
+  fictícias e sem dados do banco.
