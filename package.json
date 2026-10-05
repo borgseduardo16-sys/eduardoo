@@ -20,7 +20,8 @@
     "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts && tsx scripts/verify-images.ts && tsx scripts/verify-busca.ts && tsx scripts/verify-bookings.ts && tsx scripts/verify-payments.ts && tsx scripts/verify-messaging.ts && tsx scripts/verify-admin.ts && tsx scripts/verify-rate-limit.ts && tsx scripts/verify-promotions.ts && tsx scripts/verify-notifications.ts && tsx scripts/verify-confianca.ts && tsx scripts/verify-descoberta.ts && tsx scripts/verify-reservas.ts && tsx scripts/verify-audio.ts && tsx scripts/verify-mapa.ts && tsx scripts/verify-paridade.ts",
     "verify:integracoes": "tsx scripts/verify-integracoes.ts",
     "verify:tudo": "pnpm verify && pnpm verify:integracoes",
-    "check:producao": "tsx scripts/verify-producao.ts"
+    "check:producao": "tsx scripts/verify-producao.ts",
+    "build:vendas": "node scripts/build-vendas-standalone.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
@@ -57,9 +58,11 @@
     "@types/web-push": "^3.6.4",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "playwright": "^1.63.0",
+    "postcss": "^8.5.29",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5"

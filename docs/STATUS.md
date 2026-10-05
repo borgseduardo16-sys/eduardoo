@@ -2145,3 +2145,13 @@ MyPlace** (anúncio → página → checkout da Kiwify). Tema escuro próprio, i
   rolagem completa), sem erro de console e sem rolagem horizontal; links dos 5 botões
   conferidos no DOM. Não rodados: `verify`/`verify:integracoes` (exigem banco/credenciais
   reais). Link da Kiwify não foi aberto (rede do ambiente restrita).
+
+### HTML único da página de vendas
+`pnpm build:vendas` gera `standalone/pagina-de-vendas.html`: a mesma página, num arquivo só
+(HTML pré-renderizado + CSS Tailwind + JS + fonte em base64 + cena 3D embutida), sem nenhuma
+requisição externa. Todas as animações (Lenis, Motion, GSAP, Three) foram mantidas. A cena 3D
+vai num `<script type="text/plain">` e só é interpretada (via Blob) quando o hero a liga.
+**O arquivo é gerado**: mudou algo em `src/app/whatsapp-business` ou `src/components/vendas`
+(inclusive o `CHECKOUT_URL`)? Rode `pnpm build:vendas` de novo. Testado abrindo por `file://`
+no Chromium (1366 px e 390 px): sem erro de console, mesma altura da versão Next, 5 botões com o
+link de compra, preço R$ 29,90.

@@ -1,0 +1,37 @@
+@import "tailwindcss" source(none);
+@source "../src/app/whatsapp-business/page.tsx";
+@source "../src/components/vendas";
+@source "../src/components/motion";
+@source "./template.html";
+@import "../src/app/whatsapp-business/vendas.css";
+
+@theme {
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Base equivalente à de src/app/globals.css, só no que a página usa. */
+@layer base {
+  html { -webkit-text-size-adjust: 100%; background: #04060b; }
+  body {
+    margin: 0;
+    background: #04060b;
+    color: #f3f6fb;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  :focus-visible { outline: 2px solid #7aa7ff; outline-offset: 2px; border-radius: 0.625rem; }
+  h1, h2, h3, h4 { letter-spacing: -0.021em; text-wrap: balance; }
+  p { text-wrap: pretty; }
+  @media (pointer: coarse) { button, a[role="button"] { min-height: 44px; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

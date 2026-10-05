@@ -16,6 +16,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Artefatos do HTML unico (bundle minificado e arquivos temporarios).
+    "standalone/.build/**",
+    "standalone/pagina-de-vendas.html",
   ]),
 ]);
 

@@ -51,3 +51,4 @@ next-env.d.ts
 # dados locais
 /.docker-data/
 .next-teste
+standalone/.build/
