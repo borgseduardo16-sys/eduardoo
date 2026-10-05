@@ -2114,3 +2114,34 @@ Camada visual de movimento, sem mudar texto, conteúdo ou identidade:
   rodados**: `verify`/`verify:integracoes` (exigem banco e credenciais reais que
   este ambiente não tem); a home foi inspecionada com variáveis de ambiente
   fictícias e sem dados do banco.
+
+## Página de vendas "WhatsApp Business Profissional" ✅ *(fora da numeração de fases)*
+
+Rota `/whatsapp-business` — página de vendas de um produto digital **à parte do
+MyPlace** (anúncio → página → checkout da Kiwify). Tema escuro próprio, isolado em
+`.vendas` (`src/app/whatsapp-business/vendas.css`); não altera os tokens do MyPlace.
+
+- **Link de compra:** uma única constante, `CHECKOUT_URL` em
+  `src/components/vendas/config.ts`. Todo botão (`BuyButton`) lê `checkoutHref` dali;
+  se a constante ficar vazia ou com `COLE_AQUI_SEU_LINK_DA_KIWIFY`, o botão rola até a
+  oferta em vez de abrir um link quebrado.
+- **Preço:** `PRECO_CENTAVOS = 2990`, texto formatado por `src/lib/money.ts`.
+- **Conteúdo:** só o que consta no briefing. Sem depoimentos, números de resultado,
+  garantia, prazo de acesso, suporte humano, bônus ou módulos inventados. Tudo que é
+  composição visual (conversas, gráfico, chat da IA, antes/depois) leva o selo
+  "Exemplo ilustrativo"; o gráfico é conceitual, sem eixo numérico.
+- **Movimento (nada novo instalado):** Lenis (rota na lista de `smooth-scroll.tsx`),
+  Motion (reveals, título, botão magnético), GSAP/ScrollTrigger (antes/depois e linha do
+  tempo ligados à rolagem, parallax), Three.js (campo de partículas, só ≥768 px, sem
+  `prefers-reduced-motion`/`saveData`, laço pausado fora da tela). Smartphone do hero em
+  CSS 3D com a interface em HTML. Mobile: sem Three, sem 3D sobre o texto.
+- **Conversão:** CTAs no hero, após "O que você vai aprender", na oferta e no
+  fechamento, mais barra fixa que só aparece depois do hero e some quando a oferta ou o
+  fechamento estão na tela.
+- **Pendente (não é código):** páginas de Política de Privacidade e Termos de Uso do
+  produto (anúncios da Meta costumam exigir); a página herda `robots: noindex` do layout
+  raiz — adequada a tráfego pago, mas troque se quiser aparecer no Google.
+- Verificado: `typecheck`, `lint`, `build`; capturas no Chromium (1366 px e 390 px, com
+  rolagem completa), sem erro de console e sem rolagem horizontal; links dos 5 botões
+  conferidos no DOM. Não rodados: `verify`/`verify:integracoes` (exigem banco/credenciais
+  reais). Link da Kiwify não foi aberto (rede do ambiente restrita).

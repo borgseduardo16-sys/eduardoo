@@ -11,7 +11,7 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
  * mapa de tela cheia, chat, formulários e painéis — mantêm a rolagem nativa,
  * onde o scroll interno de listas e mapas precisa continuar previsível.
  */
-const ROTAS_SUAVES = new Set(['/', '/como-funciona', '/taxas', '/protecao', '/premium']);
+const ROTAS_SUAVES = new Set(['/', '/whatsapp-business', '/como-funciona', '/taxas', '/protecao', '/premium']);
 
 export function SmoothScroll() {
   const pathname = usePathname();
@@ -25,6 +25,8 @@ export function SmoothScroll() {
 
     const lenis = new Lenis({
       lerp: 0.1,
+      // Links de âncora (#oferta, #produto…) rolam com a mesma suavidade.
+      anchors: true,
       // Toque continua com a rolagem nativa do aparelho (inércia do iOS/Android).
       syncTouch: false,
       // Modais (<dialog>) e áreas marcadas rolam sozinhos, sem arrastar a página.

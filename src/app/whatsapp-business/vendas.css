@@ -1,0 +1,122 @@
+/*
+ * Página de vendas "WhatsApp Business Profissional".
+ * Tema escuro PRÓPRIO, isolado em `.vendas` — não altera os tokens do MyPlace.
+ * Preto + azul profundo; o verde do WhatsApp só aparece como acento pontual.
+ */
+.vendas {
+  --v-bg: #04060b;
+  --v-bg-2: #071024;
+  --v-deep: #0a2a6b;
+  --v-blue: #2f7bff;
+  --v-blue-soft: #7aa7ff;
+  --v-green: #25d366;
+  --v-text: #f3f6fb;
+  --v-muted: #9ba9c4;
+  --v-line: rgb(255 255 255 / 0.09);
+  --ring: #7aa7ff;
+
+  background: var(--v-bg);
+  color: var(--v-text);
+  position: relative;
+  overflow-x: clip;
+}
+.vendas * { border-color: var(--v-line); }
+.vendas ::selection { background: rgb(47 123 255 / 0.45); color: #fff; }
+
+/* Evita o "respingo" branco do overscroll no iOS/Android. */
+html:has(.vendas) { background: #04060b; }
+body:has(.vendas) { background: #04060b; }
+
+/* Grão fino: tira o aspecto "chapado" dos fundos escuros. */
+.v-grain::after {
+  content: "";
+  position: absolute; inset: 0; pointer-events: none; opacity: 0.05; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* Linhas de grade com máscara: profundidade sem ruído. */
+.v-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 20%, transparent 75%);
+}
+
+/* Brilho que atravessa o botão no hover. */
+.v-shine::before {
+  content: "";
+  position: absolute; inset: 0; z-index: 0;
+  background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.28) 50%, transparent 70%);
+  transform: translateX(-120%);
+}
+.v-shine:hover::before { transform: translateX(120%); transition: transform 0.9s var(--ease-out-soft); }
+
+/* Halo discreto no botão principal (respira devagar). */
+@keyframes v-halo {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(47 123 255 / 0.35); }
+  50% { box-shadow: 0 0 0 10px rgb(47 123 255 / 0); }
+}
+.v-halo { animation: v-halo 3.2s ease-out infinite; }
+
+@keyframes v-float {
+  0%, 100% { transform: translate3d(0, 0, var(--z, 0px)); }
+  50% { transform: translate3d(0, -10px, var(--z, 0px)); }
+}
+.v-float { animation: v-float var(--dur, 6s) ease-in-out infinite; animation-delay: var(--delay, 0s); }
+
+@keyframes v-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+.v-pop { animation: v-pop 0.5s var(--ease-out-soft) both; }
+
+@keyframes v-caret { 50% { opacity: 0; } }
+.v-caret::after {
+  content: ""; display: inline-block; width: 2px; height: 1em; margin-left: 2px;
+  vertical-align: -0.12em; background: var(--v-blue-soft); animation: v-caret 1s steps(1) infinite;
+}
+
+@keyframes v-dot { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 1; transform: translateY(-3px); } }
+.v-dot { animation: v-dot 1.2s ease-in-out infinite; }
+
+@keyframes v-ping { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.6); opacity: 0; } }
+.v-ping { animation: v-ping 2.2s ease-out infinite; }
+
+@keyframes v-scroll-hint {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(300%); }
+}
+.v-scroll-hint { animation: v-scroll-hint 1.8s var(--ease-out-soft) infinite; }
+
+/* Cartão inclinável (TiltCard). */
+.v-tilt {
+  --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 0%;
+  transform: rotateX(var(--rx)) rotateY(var(--ry));
+  transition: transform 0.35s var(--ease-out-soft);
+  transform-style: preserve-3d;
+  position: relative;
+}
+.v-tilt::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(500px circle at var(--mx) var(--my), rgb(122 167 255 / 0.16), transparent 45%);
+  transition: opacity 0.3s;
+}
+@media (hover: hover) { .v-tilt:hover::before { opacity: 1; } }
+
+/* Halo que segue o cursor (Spotlight). */
+.v-spot { position: relative; --mx: 50%; --my: 50%; }
+.v-spot::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(360px circle at var(--mx) var(--my), rgb(122 167 255 / 0.14), transparent 60%);
+  transition: opacity 0.3s;
+}
+@media (hover: hover) { .v-spot:hover::before { opacity: 1; } }
+
+/* FAQ: abre/fecha com altura animada, sem JavaScript. */
+.v-faq summary { list-style: none; }
+.v-faq summary::-webkit-details-marker { display: none; }
+.v-faq .v-faq-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.4s var(--ease-out-soft); }
+.v-faq[open] .v-faq-body { grid-template-rows: 1fr; }
+.v-faq .v-faq-body > div { overflow: hidden; }
+.v-faq[open] .v-chev { transform: rotate(180deg); }
