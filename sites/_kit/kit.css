@@ -1,0 +1,43 @@
+/* Base do kit de sites cinematográficos. Cada site importa este arquivo e define suas cores. */
+:root {
+  --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces", Georgia, serif;
+  --font-body: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; font-family: var(--font-body); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: clip; }
+h1, h2, h3, h4 { text-wrap: balance; }
+p { text-wrap: pretty; }
+:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
+/* Texto vazado: só o contorno (o stroke acompanha currentColor). */
+.k-outline { color: transparent; -webkit-text-stroke: 1.5px currentColor; }
+@media (max-width: 640px) { .k-outline { -webkit-text-stroke-width: 1px; } }
+
+@keyframes k-marquee-fwd { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes k-marquee-rev { from { transform: translateX(-50%); } to { transform: translateX(0); } }
+.k-marquee-fwd { animation: k-marquee-fwd 38s linear infinite; }
+.k-marquee-rev { animation: k-marquee-rev 46s linear infinite; }
+
+@keyframes k-scroll-hint { 0% { transform: translateY(-100%); } 100% { transform: translateY(300%); } }
+.k-scroll-hint { animation: k-scroll-hint 1.8s var(--ease-out-soft) infinite; }
+
+/* Grão de filme por cima do fundo: tira o aspecto "chapado". */
+.k-grain::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.05; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* Botão com brilho que atravessa no hover. */
+.k-shine { position: relative; overflow: hidden; }
+.k-shine::before {
+  content: ""; position: absolute; inset: 0; z-index: 0; transform: translateX(-120%);
+  background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.35) 50%, transparent 70%);
+}
+.k-shine:hover::before { transform: translateX(120%); transition: transform 0.9s var(--ease-out-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

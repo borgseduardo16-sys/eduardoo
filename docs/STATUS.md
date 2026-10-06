@@ -2155,3 +2155,19 @@ vai num `<script type="text/plain">` e só é interpretada (via Blob) quando o h
 (inclusive o `CHECKOUT_URL`)? Rode `pnpm build:vendas` de novo. Testado abrindo por `file://`
 no Chromium (1366 px e 390 px): sem erro de console, mesma altura da versão Next, 5 botões com o
 link de compra, preço R$ 29,90.
+
+## Kit de sites cinematográficos (`sites/_kit`) ✅ *(fora da numeração de fases)*
+
+Kit para gerar sob demanda **sites de HTML único** com 3D guiado pelo scroll, nos estilos dos vídeos de
+referência do produto (relojoaria 3D que se desmonta, vitrine com letreiro gigante, "voando pelo scroll").
+Independente do MyPlace. Guia completo em `.claude/skills/site-cinematico/SKILL.md`.
+
+- `pnpm site <nome>` → `sites/<nome>/dist/<nome>.html` (JS + CSS + fontes + cena 3D embutidos, zero requisição
+  externa, HTML pré-renderizado). `pnpm site:shots <html> <pasta>` → telas desktop/celular de todas as seções e
+  checagem de console, overflow horizontal e requisições externas.
+- Demonstração: `sites/meridian` (relojoaria fictícia: nuvens → relógio que se desmonta em 6 camadas → engrenagens
+  em seção escura). Todos os objetos 3D são procedurais (sem modelos nem fotos).
+- Limite conhecido: o estilo "fotográfico" (nuvens/prédio/jato reais) é simulado por código; com fotos/vídeos do
+  cliente embutidos fica mais fiel.
+- Verificado: `typecheck`, `lint`; capturas 1366 px e 390 px do Meridian sem erro de console, sem overflow e sem
+  requisições externas.

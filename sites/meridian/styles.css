@@ -1,0 +1,23 @@
+@import "tailwindcss" source(none);
+@source "./App.tsx";
+@source "../_kit";
+@source "../../src/components/motion";
+@import "../_kit/kit.css";
+
+@theme {
+  --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Meridian — claro (céu) → escuro (horologia). Cores do texto por seção. */
+.mer { --ink: #0b1220; --paper: #f3f6fc; --gold: #b98a3e; color: var(--ink); background: #dfe8f4; }
+.mer .dark { color: #eef2f8; --ink: #eef2f8; }
+
+/* Legendas do "desmontar": a ativa (data-step) acende, as outras apagam. */
+.mer .step { opacity: 0; transform: translateY(8px); transition: opacity .5s var(--ease-out-soft), transform .5s var(--ease-out-soft); }
+.mer [data-step="0"] .s0, .mer [data-step="1"] .s1, .mer [data-step="2"] .s2,
+.mer [data-step="3"] .s3, .mer [data-step="4"] .s4, .mer [data-step="5"] .s5 { opacity: 1; transform: none; }
+.mer .bar { transform-origin: top; transform: scaleY(var(--p, 0)); }
+.mer .bar-h { transform-origin: left; transform: scaleX(var(--p, 0)); }

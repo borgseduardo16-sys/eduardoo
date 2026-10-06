@@ -52,3 +52,4 @@ next-env.d.ts
 /.docker-data/
 .next-teste
 standalone/.build/
+sites/*/.build/

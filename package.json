@@ -21,7 +21,9 @@
     "verify:integracoes": "tsx scripts/verify-integracoes.ts",
     "verify:tudo": "pnpm verify && pnpm verify:integracoes",
     "check:producao": "tsx scripts/verify-producao.ts",
-    "build:vendas": "node scripts/build-vendas-standalone.mjs"
+    "build:vendas": "node scripts/build-vendas-standalone.mjs",
+    "site": "node scripts/build-site.mjs",
+    "site:shots": "node scripts/shot-site.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
