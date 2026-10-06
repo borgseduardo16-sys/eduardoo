@@ -1,0 +1,6 @@
+# gerados (refaça com: node gerar-malhas.mjs && npx esbuild cena.ts --bundle --format=iife --minify --outfile=cena.js)
+malhas/
+cena.js
+quadros/
+stills/
+*.mp4

@@ -1,0 +1,141 @@
+{
+ "duracao": 27.0,
+ "trilhas": {
+  "camera": [
+   {
+    "t": 0,
+    "ang": 28,
+    "dist": 4.6,
+    "alt": 1.05,
+    "alvoY": 0.92,
+    "fov": 26
+   },
+   {
+    "t": 8.5,
+    "ang": 12,
+    "dist": 4.1,
+    "alt": 1.0,
+    "alvoY": 0.95
+   },
+   {
+    "t": 9.2,
+    "ang": 160,
+    "dist": 1.9,
+    "alt": 1.12,
+    "alvoY": 1.08
+   },
+   {
+    "t": 15.1,
+    "ang": 196,
+    "dist": 1.55,
+    "alt": 1.05,
+    "alvoY": 1.02
+   },
+   {
+    "t": 15.5,
+    "ang": 210,
+    "dist": 3.6,
+    "alt": 1.0,
+    "alvoY": 0.95
+   },
+   {
+    "t": 23.0,
+    "ang": 330,
+    "dist": 3.9,
+    "alt": 1.0,
+    "alvoY": 0.95
+   },
+   {
+    "t": 27.0,
+    "ang": 350,
+    "dist": 4.4,
+    "alt": 1.0,
+    "alvoY": 0.98
+   }
+  ],
+  "corpo": [
+   {
+    "t": 0,
+    "opac": 0,
+    "dor": 0,
+    "calma": 0,
+    "dorT": 0.86,
+    "dorL": 0.12,
+    "varredura": -1,
+    "bloom": 0.8
+   },
+   {
+    "t": 2.0,
+    "opac": 1
+   },
+   {
+    "t": 4.4,
+    "dor": 0
+   },
+   {
+    "t": 7.0,
+    "dor": 1
+   },
+   {
+    "t": 15.1,
+    "dor": 1,
+    "dorL": 0.16
+   },
+   {
+    "t": 16.5,
+    "dor": 0.0,
+    "calma": 0.0,
+    "varredura": -0.1
+   },
+   {
+    "t": 19.0,
+    "calma": 0.7,
+    "varredura": 1.9
+   },
+   {
+    "t": 23.0,
+    "calma": 0.5
+   },
+   {
+    "t": 25.5,
+    "opac": 1
+   },
+   {
+    "t": 27.0,
+    "opac": 0.25
+   }
+  ]
+ },
+ "textos": [
+  {
+   "ini": 0.6,
+   "fim": 8.4,
+   "texto": "TEXTO DE TESTE\nA *dor* nas costas",
+   "estilo": "titulo",
+   "pos": "topo",
+   "tom": "dor"
+  },
+  {
+   "ini": 9.3,
+   "fim": 15.0,
+   "texto": "Legenda de apoio em duas linhas\npara testar a leitura",
+   "estilo": "apoio",
+   "pos": "baixo"
+  },
+  {
+   "ini": 16.0,
+   "fim": 19.0,
+   "texto": "Sinta o *alívio*",
+   "estilo": "titulo",
+   "pos": "topo",
+   "tom": "alivio"
+  },
+  {
+   "ini": 23.7,
+   "fim": 27.0,
+   "texto": "NOME DO PRODUTO",
+   "estilo": "marca",
+   "pos": "centro"
+  }
+ ]
+}

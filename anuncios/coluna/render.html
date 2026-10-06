@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:"Fraunces";font-style:normal;font-weight:300 700;src:url(fontes/fraunces-normal-latin.woff2) format("woff2")}
+@font-face{font-family:"Fraunces";font-style:italic;font-weight:300 700;src:url(fontes/fraunces-italic-latin.woff2) format("woff2")}
+@font-face{font-family:"Jakarta";font-weight:200 800;src:url(fontes/plus-jakarta-sans-latin.woff2) format("woff2")}
+@font-face{font-family:"Unbounded";font-weight:300 900;src:url(fontes/unbounded-normal-latin.woff2) format("woff2")}
+html,body{margin:0;background:#000;width:1080px;height:1920px;overflow:hidden}
+canvas{position:absolute;inset:0;display:block;width:1080px;height:1920px}
+/* véus para leitura do texto (topo e base) */
+.veu{position:absolute;left:0;right:0;pointer-events:none}
+.veu.t{top:0;height:640px;background:linear-gradient(#02050acc,#02050a00)}
+.veu.b{bottom:0;height:760px;background:linear-gradient(#02050a00,#02050ae0)}
+#textos{position:absolute;inset:0;color:#eef4fa;font-family:"Jakarta",sans-serif}
+.bloco{position:absolute;left:84px;right:84px;text-align:center}
+.bloco.topo{top:250px}.bloco.centro{top:50%;transform:translateY(-50%)}.bloco.baixo{bottom:430px}
+.p{display:inline-block;white-space:pre;will-change:transform,opacity,filter}
+.titulo{font-family:"Fraunces",serif;font-weight:300;font-size:92px;line-height:1.04;letter-spacing:-.02em;text-shadow:0 6px 40px #000c}
+.apoio{font-weight:500;font-size:38px;line-height:1.35;color:#b8cadb;text-shadow:0 4px 24px #000}
+.selo{font-weight:600;font-size:24px;letter-spacing:.34em;text-transform:uppercase;color:#9fc6e8}
+.marca{font-family:"Unbounded",sans-serif;font-weight:700;font-size:78px;letter-spacing:.04em;line-height:1.05}
+.cta{font-weight:600;font-size:40px}
+.cta .p{background:none}
+.destaque{font-family:"Fraunces",serif;font-style:italic;font-weight:400}
+.destaque.dor{color:#ff4a32;text-shadow:0 0 36px #ff2a1466,0 6px 40px #000c}
+.destaque.alivio{color:#9fd6ff;text-shadow:0 0 36px #6fbaff55,0 6px 40px #000c}
+.destaque.ouro{color:#f3c98b}
+</style></head>
+<body><canvas id="gl" width="1080" height="1920"></canvas><div class="veu t"></div><div class="veu b"></div><div id="textos"></div><script src="cena.js"></script></body></html>
