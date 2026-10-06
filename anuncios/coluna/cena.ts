@@ -29,6 +29,8 @@ export type Texto = {
   /** cor do destaque: dor (vermelho) ou alivio (azul-gelo) */
   tom?: 'dor' | 'alivio' | 'ouro';
   atraso?: number;
+  /** posição vertical exata (px do topo) — sobrepõe `pos` */
+  y?: number;
 };
 
 export type Roteiro = {
@@ -100,7 +102,7 @@ const fragPele = /* glsl */ `
     c = mix(c, vec3(1.0, 0.1, 0.04) * (0.25 + rim * 1.4), clamp(zona, 0.0, 1.0));
     // varredura de luz (alívio)
     float fy = (vW.y - uVarredura) / 0.035; float faixa = exp(-fy * fy);
-    c += vec3(0.75, 0.9, 1.0) * faixa * rim * 1.6;
+    c += vec3(0.65, 0.85, 1.0) * faixa * (0.08 + rim * 0.75);
     gl_FragColor = vec4(c * uOpac, 1.0);
   }`;
 
@@ -126,7 +128,7 @@ const fragColuna = /* glsl */ `
     float pulso = 0.86 + 0.14 * sin(uTempo * 4.2 - vT * 9.0);
     float dt = (vT - uDorT) / uDorL; float d = uDor * exp(-dt * dt) * pulso;
     c = mix(c, vec3(0.95, 0.045, 0.02) * (0.45 + 0.75 * pow(f, 1.1) + 0.25 * max(dot(n, normalize(vec3(0.3, 0.6, 0.7))), 0.0)), clamp(d * 1.3, 0.0, 1.0));
-    c += vec3(0.55, 0.85, 1.0) * uCalma * (0.35 + pow(f, 1.4)) * 0.9; // alívio: frio e calmo
+    c += vec3(0.5, 0.8, 1.0) * uCalma * (0.25 + pow(f, 1.4)) * 0.65; // alívio: frio e calmo
     gl_FragColor = vec4(c * uOpac, 1.0);
   }`;
 
@@ -285,15 +287,22 @@ async function montar() {
 
   // ---------- tipografia (DOM por cima do canvas; animação 100% em função de t)
   const camada = document.getElementById('textos')!;
+  const escuro = document.getElementById('escuro')!;
   const blocos = window.ROTEIRO.textos.map((tx) => {
     const el = document.createElement('div');
-    el.className = `bloco ${tx.estilo} ${tx.pos}`;
+    el.className = `bloco ${tx.estilo} ${tx.y === undefined ? tx.pos : ''}`;
+    if (tx.y !== undefined) el.style.top = `${tx.y}px`;
     const palavras: HTMLSpanElement[] = [];
+    let dentro = false; // destaque pode abranger várias palavras: *alguns minutos*
     tx.texto.split('\n').forEach((linha, li) => {
       if (li) el.appendChild(document.createElement('br'));
       linha.split(' ').forEach((w) => {
         const sp = document.createElement('span');
-        const destaque = /^\*.*\*[.,!?]?$/.test(w);
+        const abre = w.startsWith('*');
+        const fecha = /\*[.,!?…]?$/.test(w);
+        const destaque = dentro || abre;
+        if (abre && !fecha) dentro = true;
+        if (fecha) dentro = false;
         sp.textContent = w.replace(/\*/g, '') + ' ';
         sp.className = destaque ? `p destaque ${tx.tom ?? 'alivio'}` : 'p';
         el.appendChild(sp);
@@ -362,6 +371,7 @@ async function montar() {
     bloom.strength = valor(C, 'bloom', t, 0.6);
     composer.render();
     textos(t);
+    escuro.style.opacity = String(valor(C, 'escuro', t, 0));
   };
 }
 
