@@ -24,7 +24,10 @@ export type Texto = {
   fim: number;
   /** palavras entre *asteriscos* ganham destaque (serifa itálica colorida) */
   texto: string;
-  estilo: 'titulo' | 'apoio' | 'selo' | 'marca' | 'cta';
+  estilo: 'titulo' | 'apoio' | 'selo' | 'marca' | 'cta' | 'gigante' | 'contador' | 'pontos' | 'assinatura';
+  /** instante (s) em que cada palavra é falada — a palavra aparece exatamente aí */
+  tempos?: number[];
+  de?: number; ate?: number; dur?: number; n?: number;
   pos: 'topo' | 'centro' | 'baixo';
   /** cor do destaque: dor (vermelho) ou alivio (azul-gelo) */
   tom?: 'dor' | 'alivio' | 'ouro';
@@ -33,8 +36,10 @@ export type Texto = {
   y?: number;
 };
 
+export type Cena = { ini: number; fim: number; tipo: 'boneco' | 'tipo' };
 export type Roteiro = {
   duracao: number;
+  cenas: Cena[];
   textos: Texto[];
   /** trilhas animadas por chaves (interpolação suave entre elas) */
   trilhas: Record<string, Chave[]>;
@@ -94,7 +99,7 @@ const fragPele = /* glsl */ `
     vec3 n = normalize(vN); vec3 v = normalize(vV);
     float f = 1.0 - abs(dot(n, v));
     float rim = pow(f, 2.6);
-    vec3 c = uCore * 0.035 + uRim * rim * 0.72;
+    vec3 c = uCore * 0.03 + uRim * rim * 0.6;
     // linhas finas de "scanner", muito sutis
     c *= 0.94 + 0.06 * sin(vW.y * 900.0);
     // dor: aura vermelha na lombar (atrás)
@@ -281,54 +286,84 @@ async function montar() {
   composer.setPixelRatio(1);
   composer.setSize(W, H);
   composer.addPass(new RenderPass(scene, camera));
-  const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.6, 0.5, 0.26);
+  const bloom = new UnrealBloomPass(new THREE.Vector2(W, H), 0.42, 0.45, 0.32);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
 
   // ---------- tipografia (DOM por cima do canvas; animação 100% em função de t)
   const camada = document.getElementById('textos')!;
   const escuro = document.getElementById('escuro')!;
+  const canvasEl = document.getElementById('gl') as HTMLCanvasElement;
+  const fundoTipo = document.getElementById('fundo-tipo')!;
   const blocos = window.ROTEIRO.textos.map((tx) => {
     const el = document.createElement('div');
-    el.className = `bloco ${tx.estilo} ${tx.y === undefined ? tx.pos : ''}`;
-    if (tx.y !== undefined) el.style.top = `${tx.y}px`;
+    el.className = `bloco ${tx.estilo}`;
+    el.style.top = `${tx.y ?? 800}px`;
     const palavras: HTMLSpanElement[] = [];
-    let dentro = false; // destaque pode abranger várias palavras: *alguns minutos*
-    tx.texto.split('\n').forEach((linha, li) => {
-      if (li) el.appendChild(document.createElement('br'));
-      linha.split(' ').forEach((w) => {
-        const sp = document.createElement('span');
-        const abre = w.startsWith('*');
-        const fecha = /\*[.,!?…]?$/.test(w);
-        const destaque = dentro || abre;
-        if (abre && !fecha) dentro = true;
-        if (fecha) dentro = false;
-        sp.textContent = w.replace(/\*/g, '') + ' ';
-        sp.className = destaque ? `p destaque ${tx.tom ?? 'alivio'}` : 'p';
-        el.appendChild(sp);
-        palavras.push(sp);
+    if (tx.estilo === 'pontos') {
+      for (let i = 0; i < (tx.n ?? 31); i++) {
+        const d = document.createElement('span');
+        d.className = 'ponto';
+        el.appendChild(d);
+        palavras.push(d);
+      }
+    } else {
+      let dentro = false; // destaque pode abranger várias palavras: *alguns minutos*
+      tx.texto.split('\n').forEach((linha, li) => {
+        if (li) el.appendChild(document.createElement('br'));
+        linha.split(' ').forEach((w) => {
+          const sp = document.createElement('span');
+          const abre = w.startsWith('*');
+          const fecha = /\*[.,!?…]?$/.test(w);
+          const destaque = dentro || abre;
+          if (abre && !fecha) dentro = true;
+          if (fecha) dentro = false;
+          sp.textContent = w.replace(/\*/g, '') + ' ';
+          sp.className = destaque ? `p destaque ${tx.tom ?? 'alivio'}` : 'p';
+          el.appendChild(sp);
+          palavras.push(sp);
+        });
       });
-    });
+    }
     camada.appendChild(el);
     return { tx, el, palavras };
   });
   const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+  const sai = (x: number) => 1 - Math.pow(1 - x, 3);
   const textos = (t: number) => {
     for (const { tx, el, palavras } of blocos) {
-      const ativo = t >= tx.ini - 0.05 && t <= tx.fim + 0.05;
+      const ativo = t >= tx.ini - 0.05 && t <= tx.fim;
       el.style.display = ativo ? '' : 'none';
       if (!ativo) continue;
-      const saida = clamp01((tx.fim - t) / 0.45);
-      const ritmo = tx.estilo === 'titulo' ? 0.085 : 0.05;
+      const saida = clamp01((tx.fim - t) / 0.18); // saída rápida (corte limpo)
+      if (tx.estilo === 'pontos') {
+        const prog = clamp01((t - tx.ini) / ((tx.ate ?? tx.fim) - tx.ini));
+        palavras.forEach((d, i) => {
+          const on = clamp01(prog * palavras.length - i);
+          d.style.opacity = ((0.18 + 0.82 * on) * saida).toFixed(3);
+          d.style.transform = `scale(${(0.7 + 0.3 * sai(on)).toFixed(3)})`;
+          d.classList.toggle('on', on > 0.5);
+        });
+        continue;
+      }
+      if (tx.estilo === 'contador') {
+        const e = clamp01((t - tx.ini) / (tx.dur ?? 1));
+        palavras[0].textContent = String(Math.round((tx.de ?? 1) + ((tx.ate ?? 31) - (tx.de ?? 1)) * sai(e)));
+        palavras[0].style.opacity = (clamp01((t - tx.ini) / 0.2) * saida).toFixed(3);
+        palavras[0].style.transform = `scale(${(0.86 + 0.14 * sai(e)).toFixed(3)})`;
+        continue;
+      }
       palavras.forEach((sp, i) => {
-        const e = suave(clamp01((t - tx.ini - (tx.atraso ?? 0) - i * ritmo) / 0.7));
-        const o = e * saida;
-        sp.style.opacity = o.toFixed(3);
-        sp.style.filter = `blur(${((1 - e) * 14 + (1 - saida) * 10).toFixed(2)}px)`;
-        sp.style.transform = `translateY(${((1 - e) * 26).toFixed(1)}px)`;
+        const t0 = tx.tempos?.[Math.min(i, (tx.tempos?.length ?? 1) - 1)] ?? tx.ini + i * 0.06;
+        const e = sai(clamp01((t - t0) / 0.32));
+        sp.style.opacity = (e * saida).toFixed(3);
+        sp.style.filter = `blur(${((1 - e) * 8).toFixed(2)}px)`;
+        sp.style.transform = `translateY(${((1 - e) * 34).toFixed(1)}px) scale(${(0.94 + 0.06 * e).toFixed(3)})`;
       });
     }
   };
+  // cenas: qual está ativa e o "empurrão" de câmera das cenas tipográficas
+  const cenaEm = (t: number) => window.ROTEIRO.cenas.find((c) => t >= c.ini && t < c.fim) ?? window.ROTEIRO.cenas[window.ROTEIRO.cenas.length - 1];
 
   const alvo = new THREE.Vector3();
   window.quadro = (t: number) => {
@@ -368,8 +403,17 @@ async function montar() {
     figura.rotation.y = THREE.MathUtils.degToRad(valor(C, 'giro', t, 0));
     matP.uniforms.uT.value = t;
     matP.uniforms.uOpac.value = opac;
-    bloom.strength = valor(C, 'bloom', t, 0.6);
-    composer.render();
+    bloom.strength = valor(C, 'bloom', t, 0.42);
+    const cena = cenaEm(t);
+    const bordaIn = clamp01((t - cena.ini) / 0.12);
+    const boneco = cena.tipo === 'boneco';
+    canvasEl.style.opacity = boneco ? bordaIn.toFixed(3) : '0';
+    fundoTipo.style.opacity = boneco ? '0' : '1';
+    // cena tipográfica: leve aproximação contínua (dá vida sem efeito exagerado)
+    const k = clamp01((t - cena.ini) / Math.max(0.5, cena.fim - cena.ini));
+    camada.style.transform = boneco ? 'none' : `scale(${(1.035 - 0.035 * sai(k)).toFixed(4)})`;
+    fundoTipo.style.backgroundPosition = `50% ${(40 + 20 * k).toFixed(2)}%`;
+    if (boneco) composer.render();
     textos(t);
     escuro.style.opacity = String(valor(C, 'escuro', t, 0));
   };

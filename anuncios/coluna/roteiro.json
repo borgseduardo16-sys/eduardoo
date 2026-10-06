@@ -1,51 +1,451 @@
 {
-  "duracao": 27.8,
-  "trilhas": {
-    "camera": [
-      { "t": 0.0, "ang": 26, "dist": 5.2, "alt": 1.0, "alvoY": 1.16, "fov": 26 },
-      { "t": 3.9, "ang": 12, "dist": 4.5, "alt": 1.02, "alvoY": 1.13 },
-      { "t": 4.6, "ang": 12, "dist": 4.5 },
-      { "t": 8.7, "ang": 168, "dist": 1.75, "alt": 1.16, "alvoY": 1.2 },
-      { "t": 9.3, "ang": 176, "dist": 1.95 },
-      { "t": 11.5, "ang": 200, "dist": 4.0, "alt": 1.0, "alvoY": 1.02 },
-      { "t": 15.3, "ang": 250, "dist": 3.5, "alvoY": 1.08 },
-      { "t": 19.2, "ang": 312, "dist": 3.3, "alt": 1.05, "alvoY": 1.1 },
-      { "t": 23.2, "ang": 352, "dist": 3.0, "alt": 1.05, "alvoY": 1.16 },
-      { "t": 27.8, "ang": 372, "dist": 4.9, "alt": 1.0, "alvoY": 1.05 }
-    ],
-    "corpo": [
-      { "t": 0.0, "opac": 0, "dor": 0, "calma": 0, "dorT": 0.86, "dorL": 0.12, "varredura": -1, "bloom": 0.6, "escuro": 1, "osso": 1 },
-      { "t": 1.4, "opac": 1, "escuro": 0 },
-      { "t": 1.6, "dor": 0 },
-      { "t": 3.4, "dor": 1 },
-      { "t": 7.6, "dor": 1, "dorL": 0.15 },
-      { "t": 9.6, "dor": 0, "varredura": -0.1, "opac": 1 },
-      { "t": 10.1, "opac": 0.5 },
-      { "t": 11.4, "opac": 0.5, "calma": 0.25 },
-      { "t": 12.2, "opac": 1, "varredura": 1.9 },
-      { "t": 15.6, "calma": 0.75, "varredura": -0.1 },
-      { "t": 18.6, "varredura": 1.9 },
-      { "t": 22.8, "calma": 0.9 },
-      { "t": 23.6, "opac": 1 },
-      { "t": 24.6, "opac": 0.32, "calma": 0.6 },
-      { "t": 27.8, "opac": 0.32, "escuro": 0 }
-    ]
+ "duracao": 27.9,
+ "cenas": [
+  {
+   "ini": 0,
+   "fim": 4.2,
+   "tipo": "boneco"
   },
-  "textos": [
-    { "ini": 0.15, "fim": 3.85, "texto": "Cansado de sentir\n*dor* na coluna?", "estilo": "titulo", "pos": "topo", "y": 230, "tom": "dor" },
-    { "ini": 1.9, "fim": 3.85, "texto": "E sem saber mais o que fazer?", "estilo": "apoio", "pos": "topo", "y": 470 },
-    { "ini": 4.45, "fim": 8.65, "texto": "E se *alguns minutos*\npor dia…", "estilo": "titulo", "pos": "topo", "y": 230, "tom": "alivio" },
-    { "ini": 6.3, "fim": 8.65, "texto": "pudessem ajudar a aliviar\nesse desconforto?", "estilo": "apoio", "pos": "topo", "y": 470 },
-    { "ini": 9.25, "fim": 11.55, "texto": "Apresentamos", "estilo": "selo", "pos": "centro", "y": 760 },
-    { "ini": 9.45, "fim": 11.55, "texto": "DESAFIO\n31 DIAS", "estilo": "marca", "pos": "centro", "y": 820 },
-    { "ini": 11.8, "fim": 15.3, "texto": "Uma rotina de\n*exercícios guiados*", "estilo": "titulo", "pos": "topo", "y": 230, "tom": "alivio" },
-    { "ini": 13.2, "fim": 15.3, "texto": "com acompanhamento profissional", "estilo": "apoio", "pos": "topo", "y": 490 },
-    { "ini": 15.5, "fim": 19.15, "texto": "Para você se *movimentar*\ne cuidar melhor\nda sua coluna", "estilo": "titulo", "pos": "topo", "y": 230, "tom": "alivio" },
-    { "ini": 19.6, "fim": 21.9, "texto": "Poucos *minutos*\npor dia", "estilo": "titulo", "pos": "topo", "y": 230, "tom": "alivio" },
-    { "ini": 21.95, "fim": 23.4, "texto": "durante", "estilo": "selo", "pos": "topo", "y": 250 },
-    { "ini": 22.0, "fim": 23.4, "texto": "31 DIAS", "estilo": "marca", "pos": "topo", "y": 300 },
-    { "ini": 23.6, "fim": 27.95, "texto": "Coluna em Movimento", "estilo": "selo", "pos": "centro", "y": 700 },
-    { "ini": 23.8, "fim": 27.95, "texto": "DESAFIO\n31 DIAS", "estilo": "marca", "pos": "centro", "y": 760 },
-    { "ini": 24.9, "fim": 27.95, "texto": "Conheça pelo *link do perfil*", "estilo": "cta", "pos": "centro", "y": 1010, "tom": "alivio" }
+  {
+   "ini": 4.2,
+   "fim": 5.85,
+   "tipo": "tipo"
+  },
+  {
+   "ini": 5.85,
+   "fim": 9.1,
+   "tipo": "boneco"
+  },
+  {
+   "ini": 9.1,
+   "fim": 11.6,
+   "tipo": "tipo"
+  },
+  {
+   "ini": 11.6,
+   "fim": 15.4,
+   "tipo": "tipo"
+  },
+  {
+   "ini": 15.4,
+   "fim": 17.25,
+   "tipo": "tipo"
+  },
+  {
+   "ini": 17.25,
+   "fim": 19.5,
+   "tipo": "boneco"
+  },
+  {
+   "ini": 19.5,
+   "fim": 23.4,
+   "tipo": "tipo"
+  },
+  {
+   "ini": 23.4,
+   "fim": 27.9,
+   "tipo": "tipo"
+  }
+ ],
+ "trilhas": {
+  "camera": [
+   {
+    "t": 0,
+    "ang": 18,
+    "dist": 5,
+    "alt": 1,
+    "alvoY": 1.12,
+    "fov": 26
+   },
+   {
+    "t": 4.2,
+    "ang": 6,
+    "dist": 4.1,
+    "alt": 1.02,
+    "alvoY": 1.1
+   },
+   {
+    "t": 5.85,
+    "ang": 172,
+    "dist": 1.9,
+    "alt": 1.08,
+    "alvoY": 0.98
+   },
+   {
+    "t": 9.1,
+    "ang": 184,
+    "dist": 1.6,
+    "alt": 1.05,
+    "alvoY": 0.96
+   },
+   {
+    "t": 17.25,
+    "ang": 262,
+    "dist": 2.6,
+    "alt": 1.15,
+    "alvoY": 1
+   },
+   {
+    "t": 19.5,
+    "ang": 280,
+    "dist": 2.35,
+    "alt": 1.15,
+    "alvoY": 1
+   }
+  ],
+  "corpo": [
+   {
+    "t": 0,
+    "opac": 0,
+    "dor": 0,
+    "calma": 0,
+    "dorT": 0.86,
+    "dorL": 0.13,
+    "varredura": -1,
+    "bloom": 0.42,
+    "escuro": 1
+   },
+   {
+    "t": 0.9,
+    "opac": 1,
+    "escuro": 0
+   },
+   {
+    "t": 1,
+    "dor": 0
+   },
+   {
+    "t": 2.4,
+    "dor": 1
+   },
+   {
+    "t": 5.85,
+    "dor": 1,
+    "calma": 0
+   },
+   {
+    "t": 7.022,
+    "dor": 1
+   },
+   {
+    "t": 8.7,
+    "dor": 0,
+    "calma": 0.35
+   },
+   {
+    "t": 17.5,
+    "calma": 0.45,
+    "dor": 0
+   },
+   {
+    "t": 27.9,
+    "calma": 0.45
+   }
   ]
+ },
+ "textos": [
+  {
+   "texto": "Está cansado de sentir *dor* na coluna",
+   "estilo": "titulo",
+   "pos": "centro",
+   "tempos": [
+    -0.039999999999999994,
+    0.293,
+    0.792,
+    0.958,
+    1.291,
+    1.4569999999999999,
+    1.6239999999999999
+   ],
+   "ini": -0.039999999999999994,
+   "y": 220,
+   "fim": 4.1,
+   "tom": "dor"
+  },
+  {
+   "texto": "e não sabe mais o que fazer?",
+   "estilo": "apoio",
+   "pos": "centro",
+   "tempos": [
+    2.1229999999999998,
+    2.289,
+    2.456,
+    2.788,
+    2.955,
+    3.121,
+    3.287
+   ],
+   "ini": 2.1229999999999998,
+   "y": 480,
+   "fim": 4.1
+  },
+  {
+   "texto": "E se",
+   "estilo": "selo",
+   "pos": "centro",
+   "tempos": [
+    4.3500000000000005,
+    4.513000000000001
+   ],
+   "ini": 4.3500000000000005,
+   "y": 640,
+   "fim": 5.95
+  },
+  {
+   "texto": "alguns\n*minutos*\npor dia",
+   "estilo": "gigante",
+   "pos": "centro",
+   "tempos": [
+    4.6770000000000005,
+    5.003,
+    5.493,
+    5.656000000000001
+   ],
+   "ini": 4.6770000000000005,
+   "y": 720,
+   "fim": 5.95,
+   "tom": "alivio"
+  },
+  {
+   "texto": "pudessem ajudar a *aliviar*\nesse desconforto?",
+   "estilo": "titulo",
+   "pos": "centro",
+   "tempos": [
+    5.82,
+    6.309,
+    6.799,
+    6.962000000000001,
+    7.452,
+    7.779000000000001
+   ],
+   "ini": 5.82,
+   "y": 1240,
+   "fim": 9.05,
+   "tom": "alivio"
+  },
+  {
+   "texto": "Criamos o",
+   "estilo": "selo",
+   "pos": "centro",
+   "tempos": [
+    9.16,
+    9.541
+   ],
+   "ini": 9.16,
+   "y": 700,
+   "fim": 11.55
+  },
+  {
+   "texto": "DESAFIO\n31 DIAS",
+   "estilo": "marca",
+   "pos": "centro",
+   "tempos": [
+    9.732,
+    10.302999999999999,
+    11.065
+   ],
+   "ini": 9.732,
+   "y": 770,
+   "fim": 11.55
+  },
+  {
+   "texto": "uma rotina de",
+   "estilo": "apoio",
+   "pos": "centro",
+   "tempos": [
+    11.7,
+    11.985999999999999,
+    12.414
+   ],
+   "ini": 11.7,
+   "y": 600,
+   "fim": 15.35
+  },
+  {
+   "texto": "*exercícios guiados*",
+   "estilo": "titulo",
+   "pos": "centro",
+   "tempos": [
+    12.557,
+    13.128
+   ],
+   "ini": 12.557,
+   "y": 680,
+   "fim": 15.35,
+   "tom": "alivio"
+  },
+  {
+   "texto": "com acompanhamento\nprofissional",
+   "estilo": "titulo",
+   "pos": "centro",
+   "tempos": [
+    13.414,
+    13.556,
+    14.413
+   ],
+   "ini": 13.414,
+   "y": 900,
+   "fim": 15.35
+  },
+  {
+   "texto": "feita para você se",
+   "estilo": "apoio",
+   "pos": "centro",
+   "tempos": [
+    15.44,
+    15.77,
+    16.099,
+    16.429000000000002
+   ],
+   "ini": 15.44,
+   "y": 740,
+   "fim": 17.3
+  },
+  {
+   "texto": "*movimentar*",
+   "estilo": "gigante",
+   "pos": "centro",
+   "tempos": [
+    16.594
+   ],
+   "ini": 16.594,
+   "y": 820,
+   "fim": 17.3,
+   "tom": "alivio"
+  },
+  {
+   "texto": "e cuidar melhor da sua *coluna*",
+   "estilo": "titulo",
+   "pos": "centro",
+   "tempos": [
+    17.253,
+    17.418000000000003,
+    17.747,
+    18.077,
+    18.242,
+    18.407
+   ],
+   "ini": 17.253,
+   "y": 1300,
+   "fim": 19.45,
+   "tom": "alivio"
+  },
+  {
+   "texto": "São poucos minutos por dia",
+   "estilo": "titulo",
+   "pos": "centro",
+   "tempos": [
+    19.540000000000003,
+    19.798000000000002,
+    20.314,
+    21.089000000000002,
+    21.347
+   ],
+   "ini": 19.540000000000003,
+   "y": 420,
+   "fim": 23.35
+  },
+  {
+   "texto": "durante",
+   "estilo": "selo",
+   "pos": "centro",
+   "tempos": [
+    21.970000000000002
+   ],
+   "ini": 21.970000000000002,
+   "y": 700,
+   "fim": 23.35
+  },
+  {
+   "texto": "31",
+   "estilo": "contador",
+   "pos": "centro",
+   "y": 750,
+   "ini": 21.429000000000002,
+   "fim": 23.35,
+   "tempos": [
+    21.429000000000002
+   ],
+   "de": 1,
+   "ate": 31,
+   "dur": 1
+  },
+  {
+   "texto": "DIAS",
+   "estilo": "selo",
+   "pos": "centro",
+   "y": 1060,
+   "ini": 22.808,
+   "fim": 23.35,
+   "tempos": [
+    22.808
+   ]
+  },
+  {
+   "texto": "",
+   "estilo": "pontos",
+   "pos": "centro",
+   "y": 1160,
+   "ini": 19.6,
+   "fim": 23.35,
+   "tempos": [
+    19.6
+   ],
+   "n": 31,
+   "ate": 23
+  },
+  {
+   "texto": "Conheça o",
+   "estilo": "selo",
+   "pos": "centro",
+   "tempos": [
+    23.51,
+    24.002000000000002
+   ],
+   "ini": 23.51,
+   "y": 660,
+   "fim": 27.9
+  },
+  {
+   "texto": "DESAFIO\n31 DIAS",
+   "estilo": "marca",
+   "pos": "centro",
+   "tempos": [
+    24.166,
+    24.658,
+    25.314
+   ],
+   "ini": 24.166,
+   "y": 730,
+   "fim": 27.9
+  },
+  {
+   "texto": "pelo *link do perfil*",
+   "estilo": "cta",
+   "pos": "centro",
+   "tempos": [
+    25.478,
+    25.806,
+    25.970000000000002,
+    26.134
+   ],
+   "ini": 25.478,
+   "y": 990,
+   "fim": 27.9,
+   "tom": "alivio"
+  },
+  {
+   "texto": "Coluna em Movimento",
+   "estilo": "assinatura",
+   "pos": "centro",
+   "y": 1420,
+   "ini": 24.4,
+   "fim": 27.9,
+   "tempos": [
+    24.4,
+    24.5,
+    24.6
+   ]
+  }
+ ]
 }
