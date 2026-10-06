@@ -2171,3 +2171,10 @@ Independente do MyPlace. Guia completo em `.claude/skills/site-cinematico/SKILL.
   cliente embutidos fica mais fiel.
 - Verificado: `typecheck`, `lint`; capturas 1366 px e 390 px do Meridian sem erro de console, sem overflow e sem
   requisições externas.
+
+### Vídeo real no kit
+`sites/_kit/video.tsx` (`LoopVideo`, `ScrubVideo` — rolagem controla o vídeo quadro a quadro) e o `pnpm site`
+convertendo vídeos com ffmpeg. Site `sites/meridian-filme` pronto para receber 4 vídeos reais (`ceu`, `relogio`,
+`movimento`, `pulso`); **sem eles o build para e lista o que falta**. Motor testado com clipes sintéticos (já
+apagados) em VP9, porque o Chromium do ambiente não tem H.264; a entrega usa H.264. Bancos de vídeo gratuitos estão
+bloqueados pela rede do ambiente.

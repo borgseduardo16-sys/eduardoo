@@ -30,6 +30,22 @@ com **todas** as animações e o 3D (nunca simplificar para "caber"). Misture os
 - `_kit/kit.css` — fontes (`--font-display` Unbounded, `--font-serif` Fraunces, `--font-body` Plus Jakarta), `.k-outline`, `.k-marquee-*`, `.k-shine`, `.k-grain`. Fontes disponíveis para embutir: `fraunces`, `unbounded` (em `_kit/fonts`, via `meta.json → fonts`); mais fontes: baixe o `latin` woff2 do Google Fonts e registre em `FONTES` no `scripts/build-site.mjs`.
 - Reuso do app: `@/components/motion/{reveal,split-heading,magnetic,parallax}` (Motion/GSAP) funcionam nos sites.
 
+## Vídeo REAL (quando o usuário não quer nada gerado por código)
+
+- `_kit/video.tsx`: `<LoopVideo id/>` (vídeo de fundo em loop, toca só visível, pôster no HTML) e
+  `<ScrubVideo id altura steps posicao/>` (a rolagem controla o vídeo quadro a quadro, canvas sticky).
+- `meta.json → videos: { id: { modo: "loop"|"scrub", descricao, quadros?, inicio?, duracao?, largura? } }`;
+  arquivos em `sites/<nome>/videos/<id>.mp4|mov|webm` (fora do git). O build converte com ffmpeg
+  (loop → MP4 H.264 ≤ 12 s; scrub → ~120 WebP) e **para com a lista do que falta** se algum vídeo não existir.
+- **Não há acesso a bancos de vídeo daqui** (Pexels/Pixabay/Mixkit/Wikimedia bloqueados pela rede do ambiente):
+  os vídeos vêm do usuário (upload no chat → copie para `sites/<nome>/videos/`) ou de um domínio liberado na rede.
+  Nunca usar vídeos de terceiros (ex.: TikTok de outros criadores) num site a ser publicado.
+- Testar aqui: o Chromium deste ambiente não toca H.264 → gere com `KIT_VIDEO_CODEC=vp9 pnpm site <nome>` só para
+  validar; a entrega final é H.264 (padrão). Clipes sintéticos (`ffmpeg -f lavfi -i testsrc2…`) servem só para
+  testar o motor — apague-os e o HTML gerado com eles antes de entregar/commitar.
+- Tamanho: ~1 MB por 10 s de loop real em 1600 px; scrub 120 quadros ≈ 3–6 MB. Um site com 4 vídeos fica ~10–20 MB.
+- Ex.: `sites/meridian-filme` (abertura em vídeo, relógio abrindo pela rolagem, macro do mecanismo, pulso).
+
 ## Regras de qualidade (aprendidas no Meridian)
 
 - **Texto nunca atrás do 3D no celular**: a cena lê `ctx.aspect` e reposiciona (`wide = aspect > 1.15`); no celular, objeto embaixo, texto em cima, pulseira/peças longas escondidas.

@@ -1,0 +1,25 @@
+{
+  "title": "Meridian — Alta Relojoaria (site de demonstração)",
+  "description": "Site imersivo com vídeos reais: o relógio se abre conforme você rola. Marca fictícia de demonstração.",
+  "themeColor": "#050608",
+  "fonts": ["fraunces", "unbounded"],
+  "videos": {
+    "ceu": {
+      "modo": "loop",
+      "descricao": "Abertura em tela cheia: céu/nuvens em movimento, amanhecer ou paisagem aérea (5–12 s)."
+    },
+    "relogio": {
+      "modo": "scrub",
+      "quadros": 120,
+      "descricao": "O relógio abrindo/desmontando. Câmera PARADA, fundo liso. A rolagem controla este vídeo."
+    },
+    "movimento": {
+      "modo": "loop",
+      "descricao": "Close macro do mecanismo funcionando: engrenagens, balanço, rubis (5–12 s)."
+    },
+    "pulso": {
+      "modo": "loop",
+      "descricao": "Fechamento: relógio no pulso / estilo de vida (5–12 s)."
+    }
+  }
+}

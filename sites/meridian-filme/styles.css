@@ -1,0 +1,25 @@
+@import "tailwindcss" source(none);
+@source "./App.tsx";
+@source "../_kit";
+@source "../../src/components/motion";
+@import "../_kit/kit.css";
+
+@theme {
+  --font-display: "Unbounded", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Fraunces", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.film { background: #050608; color: #f2f0eb; }
+
+/* Legendas por passo (data-step) — inativas somem por completo. */
+.film .step { opacity: 0; transform: translateY(14px); transition: opacity .6s var(--ease-out-soft), transform .6s var(--ease-out-soft); }
+.film [data-step="0"] .s0, .film [data-step="1"] .s1, .film [data-step="2"] .s2, .film [data-step="3"] .s3 { opacity: 1; transform: none; }
+.film .bar-h { transform-origin: left; transform: scaleX(var(--p, 0)); }
+
+/* Véus para leitura do texto sobre vídeo real. */
+.film .veu-baixo { background: linear-gradient(to top, rgb(5 6 8 / 0.85) 0%, rgb(5 6 8 / 0.35) 40%, transparent 70%); }
+.film .veu-esq { background: linear-gradient(to right, rgb(5 6 8 / 0.75) 0%, rgb(5 6 8 / 0.25) 45%, transparent 70%); }
+.film .veu-total { background: rgb(5 6 8 / 0.45); }
+@media (max-width: 767px) { .film .veu-esq { background: linear-gradient(to top, rgb(5 6 8 / 0.85) 0%, rgb(5 6 8 / 0.3) 50%, transparent 75%); } }

@@ -53,3 +53,4 @@ next-env.d.ts
 .next-teste
 standalone/.build/
 sites/*/.build/
+sites/*/videos/
