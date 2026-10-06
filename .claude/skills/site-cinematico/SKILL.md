@@ -18,7 +18,8 @@ com **todas** as animações e o 3D (nunca simplificar para "caber"). Misture os
 2. Crie `sites/<nome>/` com `App.tsx`, `scene.ts`, `styles.css`, `meta.json` (copie `sites/meridian` como ponto de partida).
 3. `pnpm site <nome>` → gera `sites/<nome>/dist/<nome>.html` (único arquivo, sem requisição externa).
 4. `pnpm site:shots sites/<nome>/dist/<nome>.html <pasta>` → telas desktop+celular de todas as seções e checagem de console/overflow/externas. **Olhe as imagens** (Read) e corrija sobreposição de texto, 3D cobrindo texto no celular, etc.
-5. `pnpm typecheck && pnpm lint`; entregue o HTML com `SendUserFile` (display: attach) e commit/push na branch designada.
+5. O build também gera `dist/site/index.html` e `dist/<nome>-netlify.zip` — **entregue o .zip/index.html** para hospedagem (Netlify Drop e afins só abrem `index.html` na raiz; `<nome>.html` dá "Not Found").
+6. `pnpm typecheck && pnpm lint`; entregue o HTML com `SendUserFile` (display: attach) e commit/push na branch designada.
 
 ## O kit
 

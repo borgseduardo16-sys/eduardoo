@@ -196,6 +196,12 @@ const seguro = (js, n) => {
   if (/<\/script/i.test(js)) throw new Error(`${n} contém "</script".`);
   return js;
 };
+// Ícone da aba embutido (evita o 404 de /favicon.ico): inicial do site sobre a cor do tema.
+const corIcone = meta.faviconCor ?? '#f0a43a';
+const letra = (meta.faviconLetra ?? meta.title ?? '?').trim()[0].toUpperCase();
+const favicon = 'data:image/svg+xml,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${meta.themeColor ?? '#000'}"/><text x="32" y="44" text-anchor="middle" font-family="Georgia,serif" font-size="38" fill="${corIcone}">${letra}</text></svg>`,
+);
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const saida = `<!doctype html>
 <html lang="pt-BR">
@@ -205,6 +211,7 @@ const saida = `<!doctype html>
 <title>${esc(meta.title)}</title>
 <meta name="description" content="${esc(meta.description)}">
 <meta name="theme-color" content="${esc(meta.themeColor ?? '#000000')}">
+<link rel="icon" href="${favicon}">
 <meta property="og:title" content="${esc(meta.title)}">
 <meta property="og:description" content="${esc(meta.description)}">
 <meta property="og:type" content="website">${meta.noindex ? '\n<meta name="robots" content="noindex,nofollow">' : ''}
@@ -219,5 +226,13 @@ ${midiaTags}${cena ? `<script id="k-cena" type="text/plain">${seguro(cena.output
 `;
 const destino = path.join(dir, 'dist', `${nome}.html`);
 await writeFile(destino, saida);
+// Cópia como index.html: hospedagens (Netlify Drop, Vercel, Hostinger) abrem o index.html na raiz do site.
+await mkdir(path.join(dir, 'dist', 'site'), { recursive: true });
+await writeFile(path.join(dir, 'dist', 'site', 'index.html'), saida);
+try {
+  execFileSync('zip', ['-j', '-q', '-o', path.join(dir, 'dist', `${nome}-netlify.zip`), path.join(dir, 'dist', 'site', 'index.html')]);
+} catch {
+  /* sem zip no sistema: a pasta dist/site já serve para arrastar no Netlify Drop */
+}
 const kb = (n) => `${(n / 1024).toFixed(0)} kB`;
 console.log(`✔ ${path.relative(raiz, destino)} — ${kb(Buffer.byteLength(saida))} (JS ${kb(principal.outputFiles[0].text.length)}, 3D ${cena ? kb(cena.outputFiles[0].text.length) : '—'}, CSS ${kb(css.length)}, fontes ${kb(faces.length)})`);
