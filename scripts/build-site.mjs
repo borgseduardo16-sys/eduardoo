@@ -212,6 +212,7 @@ const saida = `<!doctype html>
 <meta name="description" content="${esc(meta.description)}">
 <meta name="theme-color" content="${esc(meta.themeColor ?? '#000000')}">
 <link rel="icon" href="${favicon}">
+<script>(function(d){var c=d.documentElement.classList;c.add('js');try{if(matchMedia('(max-width:767px)').matches)c.add('lite')}catch(e){}})(document)</script>
 <meta property="og:title" content="${esc(meta.title)}">
 <meta property="og:description" content="${esc(meta.description)}">
 <meta property="og:type" content="website">${meta.noindex ? '\n<meta name="robots" content="noindex,nofollow">' : ''}

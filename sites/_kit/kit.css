@@ -41,3 +41,38 @@ p { text-wrap: pretty; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
+
+/* ==========================================================================
+   Sem JavaScript (arquivo aberto em visualizador do celular) e MODO LEVE (html.lite = telas ≤ 767 px):
+   nada pode ficar escondido à espera de animação, e as seções "grudadas" viram blocos normais.
+   O script do <head> (scripts/build-site.mjs) põe .js em <html> e, em tela pequena, .lite.
+   ========================================================================== */
+html:not(.js) [style*="opacity:0"], html:not(.js) [style*="opacity: 0"],
+html.lite [style*="opacity:0"], html.lite [style*="opacity: 0"] { opacity: 1 !important; }
+html:not(.js) [style*="translateY("], html:not(.js) [style*="translateX("], html:not(.js) [style*="--p"],
+html.lite [style*="translateY("], html.lite [style*="translateX("], html.lite [style*="--p"] { transform: none !important; }
+html:not(.js) .palavra, html.lite .palavra { opacity: 1 !important; }
+html:not(.js) .step, html.lite .step { opacity: 1 !important; transform: none !important; }
+html:not(.js) .fio, html:not(.js) .fio-v, html:not(.js) .bar-h, html:not(.js) .bar,
+html.lite .fio, html.lite .fio-v, html.lite .bar-h, html.lite .bar { transform: none !important; }
+html:not(.js) .zoom-foto, html.lite .zoom-foto { transform: none !important; border-radius: 0 !important; }
+html:not(.js) .zoom-texto, html.lite .zoom-texto { opacity: 1 !important; transform: none !important; }
+html:not(.js) .revela, html.lite .revela { clip-path: none !important; }
+html:not(.js) .revela > *, html.lite .revela > * { transform: none !important; }
+html.lite .cortina { display: none !important; }
+html.lite .aproximar, html.lite .led-on { animation: none !important; }
+html.lite .moldura rect, html.lite .marca path { animation: none !important; stroke-dashoffset: 0 !important; }
+html.lite .k-marquee-fwd, html.lite .k-marquee-rev { animation-duration: 60s; }
+html.lite .k-grain::after { display: none; }
+/* seções altas com conteúdo grudado → blocos de altura normal */
+html.lite [data-progress="stick"] { height: auto !important; }
+html.lite [data-progress="stick"] > div { position: relative !important; height: auto !important; min-height: 72svh; }
+html.lite [data-progress="stick"] > div > .h-full { height: auto; min-height: 72svh; }
+html.lite .trilho { transform: none !important; }
+
+@media (max-width: 767px) {
+  html:not(.js) [data-progress="stick"] { height: auto !important; }
+  html:not(.js) [data-progress="stick"] > div { position: relative !important; height: auto !important; min-height: 72svh; }
+  html:not(.js) [data-progress="stick"] > div > .h-full { height: auto; min-height: 72svh; }
+}
+html:not(.js) .cortina { display: none !important; }

@@ -2195,3 +2195,10 @@ uma cliente no Google).
 Testado de ponta a ponta (validação, máscara de telefone, link). Pendências com o cliente: confirmar o número do botão
 WhatsApp do perfil (assumido = telefone (27) 99806-2254), @ do Instagram, nota do Google (não aparecia no print),
 as 4 etapas de "Como funciona" e as descrições dos projetos.
+
+### Modo leve para celular (kit de sites)
+Pedido: os sites precisam rodar no celular, com animações dinâmicas só no computador. Causa reproduzida: sem JavaScript
+(visualizador de arquivos do celular) 72 trechos ficavam invisíveis (opacity 0 das animações de entrada). Correção no kit:
+`<html class="js lite">` definido no `<head>` (`scripts/build-site.mjs`); `html.lite` (≤ 767 px) = rolagem nativa, sem Lenis/GSAP,
+sem animação de entrada, seções sticky achatadas; `html:not(.js)` = tudo visível. Verificado em Lignum e Andrade: 0 trechos
+escondidos com e sem JS; página do Lignum no celular 15.624 → 12.788 px. O computador não mudou.

@@ -18,7 +18,8 @@ function subscribe(cb: () => void) {
 export function useMotionOk(): boolean {
   return useSyncExternalStore(
     subscribe,
-    () => !window.matchMedia(QUERY).matches,
+    // modo leve (celular, ver sites/_kit/kit.css): sem animação de entrada
+    () => !window.matchMedia(QUERY).matches && !document.documentElement.classList.contains('lite'),
     () => true,
   );
 }

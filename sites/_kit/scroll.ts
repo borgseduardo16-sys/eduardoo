@@ -12,6 +12,8 @@ import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
 export function initScroll(): () => void {
+  // Celular (html.lite): rolagem 100% nativa e sem animações ligadas à rolagem — leve e à prova de falhas.
+  if (document.documentElement.classList.contains('lite')) return () => {};
   gsap.registerPlugin(ScrollTrigger);
   const reduz = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 

@@ -47,6 +47,15 @@ com **todas** as animações e o 3D (nunca simplificar para "caber"). Misture os
 - Tamanho: ~1 MB por 10 s de loop real em 1600 px; scrub 120 quadros ≈ 3–6 MB. Um site com 4 vídeos fica ~10–20 MB.
 - Ex.: `sites/meridian-filme` (abertura em vídeo, relógio abrindo pela rolagem, macro do mecanismo, pulso).
 
+## Celular (modo leve) — regra do kit
+
+O build injeta no `<head>` um script que põe `.js` e (≤ 767 px) `.lite` em `<html>`. Em `.lite`: sem Lenis/ScrollTrigger, sem
+animações de entrada (`useMotionOk` → false), seções sticky viram blocos normais, cortina/zoom/revela desligados (ver fim de
+`_kit/kit.css`). **Sem JavaScript** (visualizador de arquivos do celular, WhatsApp) nada fica escondido (`html:not(.js)`).
+Ao criar efeitos novos que escondem conteúdo (opacity 0, clip-path, transform), acrescente a regra `html.lite`/`html:not(.js)`
+correspondente em `kit.css` e rode `node /…/mobtest` (ou `pnpm site:shots`) para conferir que nada fica invisível.
+Entregue sempre o **.zip/index.html** para hospedar; abrir o .html por um visualizador do celular pode rodar sem JS.
+
 ## Regras de qualidade (aprendidas no Meridian)
 
 - **Texto nunca atrás do 3D no celular**: a cena lê `ctx.aspect` e reposiciona (`wide = aspect > 1.15`); no celular, objeto embaixo, texto em cima, pulseira/peças longas escondidas.
