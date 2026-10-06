@@ -1,0 +1,13 @@
+{
+  "title": "Andrade Móveis Planejados — São Mateus, ES",
+  "description": "Móveis planejados sob medida em São Mateus – ES: cozinhas, painéis de TV, home theaters e bancadas com acabamento impecável. 5,0 no Google. Peça seu orçamento pelo WhatsApp.",
+  "themeColor": "#0d0c0b",
+  "fonts": ["fraunces", "unbounded"],
+  "imagens": {
+    "home": { "arquivo": "img/home-nichos.jpg", "largura": 1800 },
+    "cozinha-vidro": { "arquivo": "img/cozinha-vidro.jpg" },
+    "painel": { "arquivo": "img/painel-ripado.jpg" },
+    "cozinha-madeira": { "arquivo": "img/cozinha-madeira.jpg" },
+    "bancada": { "arquivo": "img/bancada-led.jpg" }
+  }
+}

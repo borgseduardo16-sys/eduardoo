@@ -12,6 +12,9 @@
  *   loop  → MP4 H.264 sem áudio (≤ 12 s, ≤ 1600 px)      → <LoopVideo id="…"/>
  *   scrub → N quadros WebP (padrão 120, ≤ 1440 px)        → <ScrubVideo id="…"/> (rolagem controla o vídeo)
  * Se faltar algum vídeo listado em meta.videos, o build PARA e diz o que falta (nada de site "fingindo").
+ *
+ * Fotos REAIS: meta.imagens = { <id>: { arquivo: "img/x.jpg", largura?: 1600, qualidade?: 74 } } → WebP embutido
+ * uma única vez no CSS; use <Foto id="…" alt="…"/> (sites/_kit/ui.tsx) quantas vezes quiser.
  */
 import { build } from 'esbuild';
 import postcss from 'postcss';
@@ -164,8 +167,28 @@ for (const [id, cfg] of Object.entries(videosMeta)) {
   midiaTags += `<script type="text/plain" id="k-midia-${id}" data-modo="${cfg.modo}" data-mime="${mime}">${corpo}</script>\n`;
   console.log(`  · ${id} (${cfg.modo}) — ${(corpo.length / 1024 / 1024).toFixed(1)} MB`);
 }
+
+// ----------------------------------------------------------------- fotos reais
+let fotosCss = '';
+for (const [id, cfg] of Object.entries(meta.imagens ?? {})) {
+  const entrada = path.join(dir, cfg.arquivo);
+  if (!(await existe(entrada))) {
+    faltando.push(`  - ${cfg.arquivo}  (foto "${id}")`);
+    continue;
+  }
+  const st = await stat(entrada);
+  const chave = createHash('sha1').update(JSON.stringify([cfg, st.size, st.mtimeMs])).digest('hex').slice(0, 12);
+  const saidaImg = path.join(tmp, 'fotos', `${id}-${chave}.webp`);
+  if (!(await existe(saidaImg))) {
+    await mkdir(path.join(tmp, 'fotos'), { recursive: true });
+    ff(['-i', entrada, '-vf', `scale='min(${cfg.largura ?? 1600},iw)':-2:flags=lanczos`, '-c:v', 'libwebp', '-quality', String(cfg.qualidade ?? 74), saidaImg]);
+  }
+  const b64 = (await readFile(saidaImg)).toString('base64');
+  fotosCss += `[data-img="${id}"]{background-image:url(data:image/webp;base64,${b64})}`;
+  console.log(`  · foto ${id} — ${(b64.length / 1024).toFixed(0)} kB`);
+}
 if (faltando.length) {
-  console.error(`\n✖ Faltam vídeos reais em sites/${nome}/videos/ — o site não é gerado sem eles:\n${faltando.join('\n')}\n`);
+  console.error(`\n✖ Faltam arquivos de mídia real em sites/${nome}/ — o site não é gerado sem eles:\n${faltando.join('\n')}\n`);
   process.exit(2);
 }
 
@@ -185,7 +208,7 @@ const saida = `<!doctype html>
 <meta property="og:title" content="${esc(meta.title)}">
 <meta property="og:description" content="${esc(meta.description)}">
 <meta property="og:type" content="website">${meta.noindex ? '\n<meta name="robots" content="noindex,nofollow">' : ''}
-<style>${faces}${posters}${css}</style>
+<style>${faces}${posters}${fotosCss}${css}</style>
 </head>
 <body>
 <a href="#conteudo" style="position:absolute;left:-9999px" onfocus="this.style.left='12px';this.style.top='12px';this.style.zIndex=99;this.style.background='#fff';this.style.color='#000';this.style.padding='8px 14px'">Pular para o conteúdo</a>

@@ -87,3 +87,18 @@ export function ScrollHint({ href, label = 'Role' }: { href: string; label?: str
     </a>
   );
 }
+
+/**
+ * Foto real embutida pelo build (meta.imagens). Renderiza como fundo "cover" — o
+ * WebP fica UMA vez no CSS, mesmo usado várias vezes. `alt` vazio = decorativa.
+ */
+export function Foto({ id, alt, className = '', posicao = 'center', style }: { id: string; alt: string; className?: string; posicao?: string; style?: CSSProperties }) {
+  return (
+    <div
+      data-img={id}
+      {...(alt ? { role: 'img', 'aria-label': alt } : { 'aria-hidden': true })}
+      className={`bg-cover bg-no-repeat ${className}`}
+      style={{ backgroundPosition: posicao, ...style }}
+    />
+  );
+}

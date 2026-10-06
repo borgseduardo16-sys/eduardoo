@@ -2178,3 +2178,11 @@ convertendo vídeos com ffmpeg. Site `sites/meridian-filme` pronto para receber 
 `movimento`, `pulso`); **sem eles o build para e lista o que falta**. Motor testado com clipes sintéticos (já
 apagados) em VP9, porque o Chromium do ambiente não tem H.264; a entrega usa H.264. Bancos de vídeo gratuitos estão
 bloqueados pela rede do ambiente.
+
+### Site do cliente: Andrade Móveis Planejados (`sites/andrade`)
+HTML único (`pnpm site andrade` → `sites/andrade/dist/andrade.html`, ~1,2 MB) com as fotos reais enviadas e os dados
+do perfil do Google/WhatsApp Business (`sites/andrade/dados.ts`). Motivos visuais: fita de LED âmbar e ripado.
+Fotos embutidas via `meta.imagens` (novo no build: WebP no CSS, `<Foto/>` no kit). Testado em 1366 px e 390 px: sem
+erros, sem overflow, sem requisições externas. Pendências com o cliente: logo em arquivo, Instagram, confirmar as
+etapas de "Como funciona" e as descrições dos projetos, e autorização da foto da cozinha de madeira (publicada por
+uma cliente no Google).
