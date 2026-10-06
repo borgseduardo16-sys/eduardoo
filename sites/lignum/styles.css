@@ -1,0 +1,78 @@
+@import "tailwindcss" source(none);
+@source "./App.tsx";
+@source "./partes.tsx";
+@source "./orcamento.tsx";
+@source "../_kit";
+@source "../../src/components/motion";
+@import "../_kit/kit.css";
+
+@theme {
+  --font-serif: "Fraunces", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --color-ink: #1d1b19;
+  --color-grafite: #2a2724;
+  --color-paper: #f4f0e8;
+  --color-areia: #e7dfd0;
+  --color-ouro: #e8c867;
+  --color-ouro-esc: #8a6a14;
+  --color-pedra: #8d867b;
+}
+
+.lig { background: var(--color-paper); color: var(--color-ink); }
+.lig ::selection { background: rgb(232 200 103 / 0.55); }
+html:has(.lig) { background: #1d1b19; }
+
+/* Hero: a "cortina" de ripas se abre revelando a foto (alusão ao ripado). */
+@keyframes abre { to { transform: translateY(-101%); } }
+.cortina i { position: absolute; top: 0; bottom: 0; background: #1d1b19; transform: translateY(0); animation: abre 1.15s cubic-bezier(.76,0,.24,1) both; }
+@keyframes aproximar { from { transform: scale(1.16); } to { transform: scale(1); } }
+.aproximar { animation: aproximar 3s var(--ease-out-soft) 0.2s both; }
+
+/* Marca (dois chevrons) se desenhando. */
+@keyframes tracar { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.marca path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: tracar 1.4s cubic-bezier(.65,0,.35,1) 0.9s forwards; }
+.marca path + path { animation-delay: 1.15s; }
+
+/* Manifesto: palavras acendem com a rolagem. */
+.palavra { opacity: clamp(0.13, calc((var(--p, 0) * 1.35 - var(--i) / var(--n)) * 9), 1); transition: opacity .2s linear; }
+
+/* Galeria horizontal: 5 cartões de 62vw (ver cálculo em App.tsx). */
+.trilho { transform: translate3d(calc(var(--p, 0) * -242vw), 0, 0); will-change: transform; }
+
+/* Detalhe: a foto cresce até a tela inteira. */
+.zoom-foto { transform: scale(calc(0.45 + 0.55 * min(1, var(--p, 0) * 1.6))); border-radius: calc((1 - min(1, var(--p, 0) * 1.6)) * 28px); }
+.zoom-texto { opacity: clamp(0, calc((var(--p, 0) - 0.6) * 5), 1); transform: translateY(calc((1 - clamp(0, calc((var(--p, 0) - 0.6) * 5), 1)) * 24px)); }
+@media (min-width: 768px) { .zoom-foto { transform: scale(calc(0.45 + 0.42 * min(1, var(--p, 0) * 1.6))); border-radius: 24px; } }
+
+/* Revela foto no celular (clip + escala). */
+.revela { clip-path: inset(calc((1 - min(1, var(--p, 0) * 2.2)) * 14%) round 18px); }
+.revela > * { transform: scale(calc(1.18 - 0.18 * min(1, var(--p, 0) * 2.2))); }
+
+/* Ripado decorativo. */
+.ripado { background-image: repeating-linear-gradient(90deg, rgb(138 106 20 / 0.10) 0 9px, transparent 9px 14px); }
+.ripado-esc { background-image: repeating-linear-gradient(90deg, rgb(232 200 103 / 0.07) 0 9px, transparent 9px 14px); }
+
+/* Processo: linha que se enche. */
+.fio { transform-origin: left; transform: scaleX(var(--p, 0)); }
+.fio-v { transform-origin: top; transform: scaleY(var(--p, 0)); }
+
+/* Orçamento: etapas entram deslizando. */
+@keyframes entra { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+.etapa { animation: entra .5s var(--ease-out-soft) both; }
+@keyframes entra-v { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+.etapa.volta { animation-name: entra-v; }
+
+/* FAQ sem JS. */
+.faq summary { list-style: none; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq .corpo { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s var(--ease-out-soft); }
+.faq[open] .corpo { grid-template-rows: 1fr; }
+.faq .corpo > div { overflow: hidden; }
+.faq[open] .seta { transform: rotate(45deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .palavra { opacity: 1; }
+  .marca path { stroke-dashoffset: 0; }
+  .cortina { display: none; }
+}

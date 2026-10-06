@@ -18,6 +18,10 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Artefatos do HTML unico (bundle minificado e arquivos temporarios).
     "standalone/.build/**",
+    // Anuncio em video: bundle gerado, malhas e quadros renderizados.
+    "anuncios/**/cena.js",
+    "anuncios/**/quadros/**",
+    "anuncios/**/malhas/**",
     "sites/*/.build/**",
     "sites/*/dist/**",
     "standalone/pagina-de-vendas.html",

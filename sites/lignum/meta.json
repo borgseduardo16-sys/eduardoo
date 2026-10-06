@@ -1,0 +1,16 @@
+{
+  "title": "Lignum Móveis Planejados — Linhares, ES",
+  "description": "Móveis planejados de alto padrão em Linhares – ES: cozinhas, painéis de TV, racks, lavatórios e muito mais, com acabamento impecável. Monte seu orçamento online e envie pelo WhatsApp.",
+  "themeColor": "#1d1b19",
+  "faviconCor": "#e8c867",
+  "faviconLetra": "L",
+  "fonts": ["fraunces"],
+  "imagens": {
+    "cozinha": { "arquivo": "img/cozinha-branca.jpg", "largura": 1500 },
+    "nogueira": { "arquivo": "img/lavatorio-nogueira.jpg" },
+    "painel": { "arquivo": "img/painel-ripado-prateleiras.jpg" },
+    "rack": { "arquivo": "img/rack-ripado.jpg", "largura": 1500 },
+    "verde": { "arquivo": "img/lavatorio-verde.jpg" },
+    "logo": { "arquivo": "img/logo.png", "largura": 420, "qualidade": 86 }
+  }
+}

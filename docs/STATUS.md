@@ -2186,3 +2186,12 @@ Fotos embutidas via `meta.imagens` (novo no build: WebP no CSS, `<Foto/>` no kit
 erros, sem overflow, sem requisições externas. Pendências com o cliente: logo em arquivo, Instagram, confirmar as
 etapas de "Como funciona" e as descrições dos projetos, e autorização da foto da cozinha de madeira (publicada por
 uma cliente no Google).
+
+### Site do cliente: Lignum Móveis Planejados (`sites/lignum`)
+`pnpm site lignum` → `sites/lignum/dist/{lignum.html, site/index.html, lignum-netlify.zip}` (~1,2 MB). Fotos reais do cliente
+(`meta.imagens`), logo recortada do perfil, motivos: marca de dois chevrons, ripado e luz do dia (papel + madeira).
+**Orçamento online** (`orcamento.tsx`): 5 etapas (ambiente, tamanho, acabamento/extras, prazo/local, contato) + resumo;
+100% no navegador, sem preço calculado, rascunho em localStorage, envia pelo WhatsApp (wa.me) ou copia o resumo.
+Testado de ponta a ponta (validação, máscara de telefone, link). Pendências com o cliente: confirmar o número do botão
+WhatsApp do perfil (assumido = telefone (27) 99806-2254), @ do Instagram, nota do Google (não aparecia no print),
+as 4 etapas de "Como funciona" e as descrições dos projetos.
