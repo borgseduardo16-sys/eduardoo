@@ -1,0 +1,67 @@
+@import "tailwindcss" source(none);
+@source "./App.tsx";
+@source "./partes.tsx";
+@source "./orcamento.tsx";
+@source "../_kit";
+@source "../../src/components/motion";
+@import "../_kit/kit.css";
+
+@theme {
+  --font-serif: "Fraunces", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --color-noite: #0f1512;
+  --color-floresta: #1d3329;
+  --color-marfim: #f6f1e7;
+  --color-areia: #ebe2d1;
+  --color-ouro: #dcc08a;
+  --color-ouro-esc: #8f6d33;
+  --color-pedra: #7a766b;
+}
+
+.olion { background: var(--color-marfim); color: #17221c; }
+.olion ::selection { background: rgb(220 192 138 / 0.6); }
+html:has(.olion) { background: #0f1512; }
+
+/* Hero: arco que se desenha + aproximação lenta da foto. */
+@keyframes tracar { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.marca path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: tracar 2.2s cubic-bezier(.65,0,.35,1) .5s forwards; }
+@keyframes aproximar { from { transform: scale(1.14); } to { transform: scale(1); } }
+.aproximar { animation: aproximar 3.2s var(--ease-out-soft) both; }
+
+/* Manifesto: palavras acendem com a rolagem. */
+.palavra { opacity: clamp(0.14, calc((var(--p, 0) * 1.35 - var(--i) / var(--n)) * 9), 1); transition: opacity .2s linear; }
+
+/* Dia → noite: a foto da noite cobre a do dia conforme a rolagem. */
+.noite-cobre { opacity: clamp(0, calc((var(--p, 0) - 0.3) * 3.2), 1); }
+.dia-texto { opacity: clamp(0, calc(1 - (var(--p, 0) - 0.18) * 5), 1); }
+.noite-texto { opacity: clamp(0, calc((var(--p, 0) - 0.55) * 4), 1); transform: translateY(calc((1 - clamp(0, calc((var(--p, 0) - 0.55) * 4), 1)) * 22px)); }
+
+/* Galeria horizontal (desktop): 6 cartões de 56vw, vão de 4vw, margens de 8vw → desloca 292vw. */
+.trilho { transform: translate3d(calc(var(--p, 0) * -292vw), 0, 0); will-change: transform; }
+
+/* Revela foto (celular) e arco decorativo. */
+.revela { clip-path: inset(calc((1 - min(1, var(--p, 0) * 2.2)) * 14%) round 18px); }
+.revela > * { transform: scale(calc(1.18 - 0.18 * min(1, var(--p, 0) * 2.2))); }
+.arco { border-radius: 999px 999px 0 0; }
+.arco-s { border-radius: 24px 24px 0 0; }
+
+.fio { transform-origin: left; transform: scaleX(var(--p, 0)); }
+
+/* Orçamento: etapas entram deslizando. */
+@keyframes entra { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+.etapa { animation: entra .5s var(--ease-out-soft) both; }
+@keyframes entra-v { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+.etapa.volta { animation-name: entra-v; }
+
+.faq summary { list-style: none; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq .corpo { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s var(--ease-out-soft); }
+.faq[open] .corpo { grid-template-rows: 1fr; }
+.faq .corpo > div { overflow: hidden; }
+.faq[open] .seta { transform: rotate(45deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .palavra { opacity: 1; }
+  .marca path { stroke-dashoffset: 0; }
+}

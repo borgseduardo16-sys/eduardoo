@@ -1,0 +1,18 @@
+{
+  "title": "Casa Olion — Espaço para eventos em Sorriso, MT",
+  "description": "Casa Olion: salão envidraçado, piscina e jardim para casamentos, aniversários e festas em Sorriso – MT. Simule o seu evento online e envie o pedido pelo WhatsApp.",
+  "themeColor": "#0f1512",
+  "faviconCor": "#dcc08a",
+  "faviconLetra": "O",
+  "fonts": ["fraunces"],
+  "imagens": {
+    "salao": { "arquivo": "img/salao-piscina.jpg", "largura": 1600 },
+    "jardim": { "arquivo": "img/jardim.jpg" },
+    "deck": { "arquivo": "img/deck.jpg" },
+    "gramado": { "arquivo": "img/gramado.jpg", "qualidade": 68 },
+    "piscina": { "arquivo": "img/piscina-mesas.jpg" },
+    "mesa": { "arquivo": "img/mesa-posta.jpg" },
+    "arcos": { "arquivo": "img/arcos.jpg" },
+    "noite": { "arquivo": "img/noite.jpg", "largura": 1600 }
+  }
+}

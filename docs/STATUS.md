@@ -2202,3 +2202,12 @@ Pedido: os sites precisam rodar no celular, com animações dinâmicas só no co
 `<html class="js lite">` definido no `<head>` (`scripts/build-site.mjs`); `html.lite` (≤ 767 px) = rolagem nativa, sem Lenis/GSAP,
 sem animação de entrada, seções sticky achatadas; `html:not(.js)` = tudo visível. Verificado em Lignum e Andrade: 0 trechos
 escondidos com e sem JS; página do Lignum no celular 15.624 → 12.788 px. O computador não mudou.
+
+### Site do cliente: Casa Olion (`sites/olion`)
+Espaço para eventos em Sorriso – MT (dados do print do Google em 06/10/2026: endereço, telefone (66) 99239-3320, seg–sáb 08:00–17:00,
+dom 08:00–12:00, fuso America/Cuiaba). `pnpm site olion` → `sites/olion/dist/{olion.html, site/index.html, olion-netlify.zip}` (~2,2 MB).
+Fotos reais (8), motivo do arco, ritmo escuro/claro, dia→noite guiado pela rolagem, galeria horizontal (desktop), modo leve no celular.
+**Simulador de evento** (`orcamento.tsx`): 6 etapas (celebração, data com validação de passado, convidados, espaços, serviços, contato)
+→ WhatsApp; sem preço, sem capacidade. Listas de tipos/serviços são o PADRÃO de cerimoniais — ajustar quando o cliente mandar os serviços.
+Pendências: serviços/capacidade/política de reserva, número de WhatsApp (assumido = telefone), logo, Instagram, nota do Google (não visível no
+print) e a licença das 2 fotos com marca d'água do fotógrafo Welliton Barbosa (créditos exibidos na galeria).

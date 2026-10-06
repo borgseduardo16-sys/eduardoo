@@ -76,3 +76,7 @@ html.lite .trilho { transform: none !important; }
   html:not(.js) [data-progress="stick"] > div > .h-full { height: auto; min-height: 72svh; }
 }
 html:not(.js) .cortina { display: none !important; }
+
+/* Sites com dia→noite (olion): no modo leve/sem JS a foto da noite aparece sempre e os textos ficam visíveis. */
+html:not(.js) .noite-cobre, html.lite .noite-cobre { opacity: 1 !important; }
+html:not(.js) .dia-texto, html.lite .dia-texto, html:not(.js) .noite-texto, html.lite .noite-texto { opacity: 1 !important; transform: none !important; }
