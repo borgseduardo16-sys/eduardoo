@@ -10,7 +10,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Alert } from '@/components/ui/alert';
 import { PromoteSpaceDialog } from '@/components/promotions/promote-space-dialog';
-import type { ActivePromotion, BenefitUsage } from '@/lib/promotions/queries';
+import type { ActivePromotion } from '@/lib/promotions/queries';
+import type { BenefitUsage } from '@/lib/premium/queries';
 
 function IconSubmit({
   icon: Icon, label, variant = 'ghost',

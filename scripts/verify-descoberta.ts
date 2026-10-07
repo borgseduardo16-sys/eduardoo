@@ -18,7 +18,7 @@ req.cache[req.resolve('server-only')] = {
 } as never;
 
 import postgres from 'postgres';
-import { formPreco, mudarPreco as mudarPrecoDireto, prepararAnuncio } from './lib/fixtures';
+import { formPreco, mudarPreco as mudarPrecoDireto, prepararAnuncio, darPremium, limparPremium } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
 const url = process.env.DATABASE_URL;
@@ -146,7 +146,7 @@ async function seed() {
 async function limpar() {
   await sql`DELETE FROM notifications WHERE user_id IN ${sql(todos)}`;
   await sql`DELETE FROM saved_searches WHERE user_id IN ${sql(todos)}`;
-  await sql`DELETE FROM premium_memberships WHERE user_id IN ${sql(todos)}`;
+  await limparPremium(sql, todos);
   await sql`DELETE FROM waitlist_entries WHERE user_id IN ${sql(todos)}`;
   await sql`DELETE FROM favorites WHERE user_id IN ${sql(todos)}`;
   await sql`DELETE FROM user_blocks WHERE blocker_id IN ${sql(todos)} OR blocked_id IN ${sql(todos)}`;
@@ -1220,7 +1220,7 @@ async function main() {
     tentativas.filter((t) => t.status === 'fulfilled').length, 2);
   await sql`DELETE FROM saved_searches WHERE user_id=${alertaBId}`;
 
-  await sql`INSERT INTO premium_memberships (user_id) VALUES (${alertaPremiumId})`;
+  await darPremium(sql, alertaPremiumId, { pago: true });
   const planoPremium = await alertPlanFor(alertaPremiumId);
   expect('Premium: até 20 alertas e aviso a cada hora — o plano que já existe, sem cobrança nova',
     [planoPremium.premium, planoPremium.limit, planoPremium.cooldownHours], [true, 20, 1]);

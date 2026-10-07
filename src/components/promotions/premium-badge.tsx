@@ -79,9 +79,10 @@ export function PremiumBadge({ className }: { className?: string }) {
             que a pessoa é mais confiável — para isso, veja as verificações e as avaliações.
           </p>
           <ul className="space-y-2 text-[0.875rem] text-[var(--content-muted)]">
-            <li>• 2 Destaques gratuitos por mês</li>
-            <li>• 1 Turbo gratuito por mês</li>
-            <li>• Benefícios renovados mensalmente</li>
+            <li>• 2 Destaques por ciclo pago</li>
+            <li>• 1 Turbo por ciclo pago</li>
+            <li>• Alcance ampliado no mapa</li>
+            <li>• Benefícios renovados a cada ciclo pago</li>
             <li>• Não acumulativos</li>
           </ul>
           <Link

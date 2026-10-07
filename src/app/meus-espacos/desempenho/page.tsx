@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Fragment } from 'react';
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth/dal';
-import { isPremium } from '@/lib/promotions/queries';
+import { isPremium } from '@/lib/premium/queries';
 import {
   getOwnerPerformance,
   getOwnerPromotionComparisons,

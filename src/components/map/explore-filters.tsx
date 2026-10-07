@@ -61,7 +61,7 @@ function Chip({
  */
 export function ExploreFiltersPanel({
   filters, onChange, onClear, referenceLabel, usingGps, onLocate, locating, geoMessage,
-  total, outsideShown, onClose, listHref,
+  total, outsideShown, reachShown = 0, onClose, listHref,
 }: {
   filters: ExploreFilters;
   onChange: (next: ExploreFilters) => void;
@@ -74,6 +74,8 @@ export function ExploreFiltersPanel({
   geoMessage: string | null;
   total: number | null;
   outsideShown: number;
+  /** Anúncios mostrados fora do raio pelo alcance ampliado (sem rótulo na tela). */
+  reachShown?: number;
   onClose?: () => void;
   /** "Ver em lista": a mesma busca, na página de resultados. */
   listHref: string;
@@ -121,10 +123,11 @@ export function ExploreFiltersPanel({
           <p className="text-[0.8125rem] text-[var(--content-muted)]" role="status" aria-live="polite" data-testid="contagem-mapa">
             {total == null
               ? 'Carregando…'
-              : total === 0 && outsideShown === 0
+              : total === 0 && outsideShown === 0 && reachShown === 0
                 ? 'Nenhum espaço com esses filtros nesta área'
                 : `${total} ${total === 1 ? 'espaço' : 'espaços'}${filters.radius ? ` a até ${filters.radius / 1000} km` : ' nesta área'}` +
-                  (outsideShown > 0 ? ` · ${outsideShown} ${outsideShown === 1 ? 'destaque ou bem avaliado' : 'destaques ou bem avaliados'} mais longe` : '')}
+                  (outsideShown > 0 ? ` · ${outsideShown} ${outsideShown === 1 ? 'destaque ou bem avaliado' : 'destaques ou bem avaliados'} mais longe` : '') +
+                  (reachShown > 0 ? ` · ${reachShown} ${reachShown === 1 ? 'anúncio' : 'anúncios'} um pouco mais longe` : '')}
           </p>
         </div>
         {onClose && (

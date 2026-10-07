@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { onlyDigits, isValidCpf, isValidCnpj, isBrazilianPhone } from '@/lib/safety/documents';
 
-function cpfCnpjSchema(campo: string) {
+export function cpfCnpjSchema(campo: string) {
   return z
     .string()
     .transform(onlyDigits)

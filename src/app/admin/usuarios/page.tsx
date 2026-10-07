@@ -76,7 +76,11 @@ export default async function AdminUsuariosPage({
                     <Badge tone={(STATUS_INFO[c.status] ?? STATUS_INFO.active).tone}>
                       {(STATUS_INFO[c.status] ?? STATUS_INFO.active).label}
                     </Badge>
-                    {c.isPremium && <Badge tone="accent">✦ Premium</Badge>}
+                    {c.isPremium && (
+                      <Badge tone="accent">
+                        ✦ Premium{c.premiumSource === 'admin_grant' ? ' (teste)' : ''}
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -85,7 +89,7 @@ export default async function AdminUsuariosPage({
                 )}
 
                 <AccountStatusForm userId={c.id} currentStatus={c.status} currentReason={c.statusReason} />
-                <PremiumMembershipForm userId={c.id} isPremium={c.isPremium} />
+                <PremiumMembershipForm userId={c.id} isPremium={c.isPremium} source={c.premiumSource} />
               </li>
             ))}
           </ul>

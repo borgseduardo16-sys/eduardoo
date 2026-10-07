@@ -4,7 +4,7 @@
  *
  * Chama as Server Actions de verdade (`activatePromotionAction`,
  * `cancelPromotionAction`), nao so o schema — prova que a regra de negocio
- * (autorizacao, cota mensal, Premium, concorrencia) esta realmente
+ * (autorizacao, cota por ciclo pago, Premium, concorrencia) esta realmente
  * aplicada no codigo, nao so no banco.
  *
  *   pnpm tsx scripts/verify-promotions.ts
@@ -21,7 +21,7 @@ req.cache[req.resolve('server-only')] = {
 import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { startTestbed, type Testbed } from './testbed/server';
-import { prepararAnuncio } from './lib/fixtures';
+import { prepararAnuncio, darPremium, limparPremium } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -91,8 +91,7 @@ async function seedPerfis() {
   await sql`UPDATE profiles SET role='owner', full_name='Dono Premium' WHERE id=${dono1Id}`;
   await sql`UPDATE profiles SET role='owner', full_name='Dono Sem Premium' WHERE id=${dono2Id}`;
   await sql`UPDATE profiles SET role='owner', full_name='Outro Dono' WHERE id=${outroId}`;
-  await sql`INSERT INTO premium_memberships (user_id, status, source, granted_by)
-    VALUES (${dono1Id}, 'active', 'admin_grant', ${dono1Id})`;
+  await darPremium(sql, dono1Id);
 }
 
 /*
@@ -155,7 +154,7 @@ async function seedEspacoRascunho(ownerId: string, sufixo: string): Promise<stri
  * `verify-integracoes.ts`: fica como residuo inerte, o teste nao trava.
  */
 async function limpar(ids: string[]) {
-  await sql`DELETE FROM premium_memberships WHERE user_id = ANY(${ids})`;
+  await limparPremium(sql, ids);
   await sql`DELETE FROM spaces WHERE owner_id = ANY(${ids})`;
   try {
     await sql`DELETE FROM profiles WHERE id = ANY(${ids})`;
@@ -212,8 +211,9 @@ async function main() {
 
   const { activatePromotionAction, cancelPromotionAction, purchasePromotionAction } =
     await import('../src/lib/promotions/actions');
-  const { getMonthlyBenefitUsage, getActivePromotionForSpace, listFeaturedSpaces, expireStalePromotions, listOwnerPromotions } =
+  const { getActivePromotionForSpace, listFeaturedSpaces, expireStalePromotions, listOwnerPromotions } =
     await import('../src/lib/promotions/queries');
+  const { getBenefitUsage } = await import('../src/lib/premium/queries');
   const { processAsaasWebhook } = await import('../src/lib/payments/webhook');
 
   function fd(campos: Record<string, string>): FormData {
@@ -252,9 +252,11 @@ async function main() {
   expect('tipo gravado e destaque', ativa?.type, 'destaque');
   assert('expiresAt e depois de startedAt', (ativa?.expiresAt.getTime() ?? 0) > (ativa?.startedAt.getTime() ?? 0));
 
-  const uso1 = await getMonthlyBenefitUsage(dono1Id);
-  expect('uso mensal reflete 1 destaque usado', uso1.destaque.used, 1);
-  expect('uso mensal mostra premium=true', uso1.premium, true);
+  const uso1 = await getBenefitUsage(dono1Id);
+  expect('o uso do ciclo reflete 1 destaque usado', uso1.destaque.used, 1);
+  expect('o saldo mostra premium=true e o ciclo vigente', [uso1.premium, uso1.cycle !== null], [true, true]);
+  const [promoCiclo] = await sql<{ premium_cycle_id: string | null }[]>`SELECT premium_cycle_id FROM promotions WHERE space_id=${espacoA}`;
+  expect('o beneficio fica ligado ao ciclo pago que o financiou', promoCiclo?.premium_cycle_id, uso1.cycle?.id);
 
   // =========================================================================
   secao('2. Autorizacao — so o dono promove o proprio anuncio');
@@ -297,30 +299,30 @@ async function main() {
   assert('mensagem menciona Premium', (rSemPremium.message ?? '').toLowerCase().includes('premium'));
 
   // =========================================================================
-  secao('5. Cota mensal — 2 Destaques, nao acumula, nao inventa saldo');
+  secao('5. Cota por CICLO — 2 Destaques, nao acumula, nao inventa saldo');
   // =========================================================================
 
   entrarComo(dono1Id, 'owner', 'Dono Premium');
   const rSegundoDestaque = await activatePromotionAction(undefined, fd({ spaceId: espacoB, type: 'destaque' }));
-  assert('2o Destaque do mes (espaco diferente) e aceito', rSegundoDestaque.ok, rSegundoDestaque.message ?? '');
+  assert('2o Destaque do ciclo (espaco diferente) e aceito', rSegundoDestaque.ok, rSegundoDestaque.message ?? '');
 
   const rTerceiroDestaque = await activatePromotionAction(undefined, fd({ spaceId: espacoC, type: 'destaque' }));
-  assert('3o Destaque do mes e recusado — cota e 2', !rTerceiroDestaque.ok, rTerceiroDestaque.message ?? '');
+  assert('3o Destaque do ciclo e recusado — cota e 2', !rTerceiroDestaque.ok, rTerceiroDestaque.message ?? '');
 
-  const uso2 = await getMonthlyBenefitUsage(dono1Id);
-  expect('uso mensal trava em 2, nao sobe com a tentativa recusada', uso2.destaque.used, 2);
-  expect('restante do mes e zero', uso2.destaque.remaining, 0);
+  const uso2 = await getBenefitUsage(dono1Id);
+  expect('o uso do ciclo trava em 2, nao sobe com a tentativa recusada', uso2.destaque.used, 2);
+  expect('o restante do ciclo e zero', uso2.destaque.remaining, 0);
 
   // =========================================================================
   secao('6. Turbo — cota de 1, hierarquia propria');
   // =========================================================================
 
   const rTurbo = await activatePromotionAction(undefined, fd({ spaceId: espacoC, type: 'turbo' }));
-  assert('1o Turbo do mes e aceito (espaco C ainda sem promocao)', rTurbo.ok, rTurbo.message ?? '');
+  assert('1o Turbo do ciclo e aceito (espaco C ainda sem promocao)', rTurbo.ok, rTurbo.message ?? '');
 
   const espacoExtra = await seedEspacoPublicado(dono1Id, 'extra-turbo');
   const rSegundoTurbo = await activatePromotionAction(undefined, fd({ spaceId: espacoExtra, type: 'turbo' }));
-  assert('2o Turbo do mes e recusado — cota e 1', !rSegundoTurbo.ok, rSegundoTurbo.message ?? '');
+  assert('2o Turbo do ciclo e recusado — cota e 1', !rSegundoTurbo.ok, rSegundoTurbo.message ?? '');
 
   // =========================================================================
   secao('7. Nao sobrepor promocao no MESMO espaco');
@@ -345,7 +347,7 @@ async function main() {
   expect('status gravado como cancelled', statusNoBanco!.status, 'cancelled');
   expect('cancelled_by e quem cancelou', statusNoBanco!.cancelled_by, dono1Id);
 
-  const usoAposCancelar = await getMonthlyBenefitUsage(dono1Id);
+  const usoAposCancelar = await getBenefitUsage(dono1Id);
   expect('cancelar NAO devolve o Turbo consumido', usoAposCancelar.turbo.used, 1);
 
   const rCancelaDeNovo = await cancelPromotionAction(undefined, fd({ promotionId: espacoC_promo!.id }));
@@ -368,14 +370,13 @@ async function main() {
    */
 
   // --- 9a. Duas pessoas^Wo MESMO dono tentando gastar o ULTIMO credito do
-  // mes em DOIS anuncios diferentes ao mesmo tempo — trava e o FOR UPDATE em
-  // premium_memberships. Sem ela, as duas transacoes poderiam ler "0 usados"
+  // ciclo em DOIS anuncios diferentes ao mesmo tempo — trava e o FOR UPDATE no
+  // ciclo do Premium (e, por baixo, a trava do banco). Sem ela, as duas transacoes poderiam ler "0 usados"
   // antes de qualquer uma commitar, e as duas passariam (cota furada).
   const dono4Id = crypto.randomUUID();
   await sql`INSERT INTO auth.users (id, email) VALUES (${dono4Id}, ${`${tag}-dono4@exemplo.invalid`})`;
   await sql`UPDATE profiles SET role='owner', full_name='Dono Quatro' WHERE id=${dono4Id}`;
-  await sql`INSERT INTO premium_memberships (user_id, status, source, granted_by)
-    VALUES (${dono4Id}, 'active', 'admin_grant', ${dono4Id})`;
+  await darPremium(sql, dono4Id);
   const espacoRaceX = await seedEspacoPublicado(dono4Id, 'race-x');
   const espacoRaceY = await seedEspacoPublicado(dono4Id, 'race-y');
 
@@ -387,7 +388,7 @@ async function main() {
   const sucessosCota = [respostaCotaX, respostaCotaY].filter((r) => r.ok).length;
   expect('cota de 1 Turbo: EXATAMENTE uma das duas corridas simultaneas venceu', sucessosCota, 1);
 
-  const usoDono4 = await getMonthlyBenefitUsage(dono4Id);
+  const usoDono4 = await getBenefitUsage(dono4Id);
   expect('a cota nao foi furada pela corrida — continua em 1 usado', usoDono4.turbo.used, 1);
 
   // --- 9b. Duas ativacoes simultaneas no MESMO anuncio (cota abundante, so
@@ -418,8 +419,7 @@ async function main() {
   const dono3Id = crypto.randomUUID();
   await sql`INSERT INTO auth.users (id, email) VALUES (${dono3Id}, ${`${tag}-dono3@exemplo.invalid`})`;
   await sql`UPDATE profiles SET role='owner', full_name='Dono Tres' WHERE id=${dono3Id}`;
-  await sql`INSERT INTO premium_memberships (user_id, status, source, granted_by)
-    VALUES (${dono3Id}, 'active', 'admin_grant', ${dono3Id})`;
+  await darPremium(sql, dono3Id);
   const espacoTurbo = await seedEspacoPublicado(dono3Id, 'turbo-vitrine');
 
   entrarComo(dono3Id, 'owner', 'Dono Tres');
@@ -442,7 +442,7 @@ async function main() {
 
   const [promoVencidaId] = await sql<{ id: string }[]>`
     INSERT INTO promotions (space_id, owner_id, type, status, source, started_at, expires_at)
-    VALUES (${espacoRascunho}, ${dono1Id}, 'destaque', 'active', 'premium_benefit',
+    VALUES (${espacoRascunho}, ${dono1Id}, 'destaque', 'active', 'purchase',
       now() - interval '10 days', now() - interval '3 days')
     RETURNING id`.then((r) => r as { id: string }[]);
   for (const n of [0, 1, 2]) {
@@ -600,8 +600,7 @@ async function main() {
   const donoCompatId = crypto.randomUUID();
   await sql`INSERT INTO auth.users (id, email) VALUES (${donoCompatId}, ${`${tag}-donocompat@exemplo.invalid`})`;
   await sql`UPDATE profiles SET role='owner', full_name='Dono Compat' WHERE id=${donoCompatId}`;
-  await sql`INSERT INTO premium_memberships (user_id, status, source, granted_by)
-    VALUES (${donoCompatId}, 'active', 'admin_grant', ${donoCompatId})`;
+  await darPremium(sql, donoCompatId);
 
   async function seedCompat(sufixo: string, tipo: string, publishedAtOffsetMin: number): Promise<string> {
     // Nasce rascunho e so publica DEPOIS das 3 fotos — mesma ordem de

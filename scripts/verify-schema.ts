@@ -13,7 +13,7 @@ loadEnv({ path: ['.env.local', '.env'], quiet: true });
 import postgres from 'postgres';
 import { computeBookingAmounts, platformNetCents, formatBRL, parseBRLToCents } from '../src/lib/money';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
-import { prepararAnuncio } from './lib/fixtures';
+import { prepararAnuncio, criarAnuncio } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -1365,15 +1365,17 @@ async function main() {
         'alerts.digest_hours_premium', 'alerts.price_drop_min_bps', 'alerts.price_drop_cooldown_hours',
         'ai.search_daily_limit', 'ai.listing_daily_limit', 'ai.listing_daily_limit_per_owner',
         'ai.listing_space_cooldown_minutes', 'analytics.views_counting_since',
-        'premium.price_monthly_cents', 'premium.price_yearly_cents',
+        'premium.price_monthly_cents',
       ];
       const conf = new Map((await sql<{ key: string; value: unknown }[]>`
         SELECT key, value FROM platform_settings WHERE key IN ${sql(chaves)}`).map((r) => [r.key, r.value]));
       const faltando = chaves.filter((k) => !conf.has(k));
       if (faltando.length === 0) ok(`as ${chaves.length} configurações da Fase 23 existem`);
       else bad('configurações da Fase 23', `faltando: ${faltando.join(', ')}`);
-      expectEqual('preço do Premium continua R$ 79,90/mês e R$ 759,05/ano (em centavos)',
-        [conf.get('premium.price_monthly_cents'), conf.get('premium.price_yearly_cents')], [7990, 75905]);
+      // Etapa 2 (0034): preço definitivo R$ 119,90/mês; o plano anual NÃO existe.
+      expectEqual('preço do Premium é R$ 119,90/mês (em centavos)', conf.get('premium.price_monthly_cents'), 11990);
+      const [anual] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM platform_settings WHERE key = 'premium.price_yearly_cents'`;
+      expectEqual('o plano anual do Premium não existe', anual!.n, 0);
       const desde = conf.get('analytics.views_counting_since');
       if (typeof desde === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(desde)) {
         ok('data de início da contagem de visualizações gravada', desde);
@@ -1505,6 +1507,196 @@ async function main() {
       const [desloc] = await sql<{ iguais: boolean }[]>`SELECT ST_Equals(location, approx_location) AS iguais FROM spaces WHERE id = ${qId}`;
       expectEqual('trocar para garagem (residencial) volta a deslocar o ponto', desloc!.iguais, false);
     }
+
+    console.log('\n\x1b[1m17. Premium pago (migração 0034)\x1b[0m');
+    {
+      const u1 = strangerId; // assinante pago
+      const u2 = renterId; // segundo assinante (saldo do ciclo)
+      const u3 = ownerId; // concessão administrativa vencida
+      const estadoDe = async (id: string) => {
+        const [r] = await sql<{ a: boolean; f: boolean; c: string | null }[]>`
+          SELECT public.premium_is_active(${id}) AS a, public.premium_financial_active(${id}) AS f,
+                 public.premium_current_cycle_id(${id}) AS c`;
+        return r!;
+      };
+
+      // ---- Sem ciclo pago, ninguém é Premium.
+      const sem = await estadoDe(u1);
+      expectEqual('sem ciclo pago, não é Premium e não tem benefício financeiro', [sem.a, sem.f, sem.c], [false, false, null]);
+
+      // ---- A linha-resumo da assinatura.
+      await mustReject('Premium "ativo" sem data de fim é bloqueado',
+        () => sql`INSERT INTO premium_memberships (user_id, status, source) VALUES (${u1}, 'active', 'admin_grant')`,
+        'premium_memberships_active_has_period');
+      await mustReject('assinatura paga sem preço combinado é bloqueada',
+        () => sql`INSERT INTO premium_memberships (user_id, status, source) VALUES (${u1}, 'pending_payment', 'subscription')`,
+        'premium_memberships_subscription_has_plan');
+      await mustReject('"teste financeiro" numa assinatura paga é bloqueado',
+        () => sql`INSERT INTO premium_memberships (user_id, status, source, plan_cents, financial_test_enabled)
+                  VALUES (${u1}, 'pending_payment', 'subscription', 11990, true)`,
+        'premium_memberships_financial_test_admin_only');
+      await mustReject('cancelamento agendado sem o momento do pedido é bloqueado',
+        () => sql`INSERT INTO premium_memberships (user_id, status, source, plan_cents, cancel_at_period_end)
+                  VALUES (${u1}, 'pending_payment', 'subscription', 11990, true)`,
+        'premium_memberships_cancel_request_has_timestamp');
+      await mustAccept('assinatura criada e ainda não paga é aceita', () => sql`
+        INSERT INTO premium_memberships (user_id, status, source, provider, provider_subscription_id, billing_method, plan_cents)
+        VALUES (${u1}, 'pending_payment', 'subscription', 'asaas', ${`sub_verify_${tag}`}, 'pix', 11990)`);
+      expectEqual('assinatura pendente NÃO é Premium (Premium = pagamento confirmado)', (await estadoDe(u1)).a, false);
+      await mustReject('a mesma recorrência do Asaas em duas contas é bloqueada',
+        () => sql`INSERT INTO premium_memberships (user_id, status, source, provider, provider_subscription_id, billing_method, plan_cents)
+                  VALUES (${u2}, 'pending_payment', 'subscription', 'asaas', ${`sub_verify_${tag}`}, 'pix', 11990)`,
+        'premium_memberships_provider_sub_key');
+
+      // ---- Cobranças do Premium.
+      await mustReject('cobrança do Premium com valor zero é bloqueada',
+        () => sql`INSERT INTO premium_charges (user_id, provider_payment_id, amount_cents, due_date)
+                  VALUES (${u1}, ${`pay_zero_${tag}`}, 0, current_date)`, 'premium_charges_amount_positive');
+      const [c1] = await sql<{ id: string }[]>`
+        INSERT INTO premium_charges (user_id, provider_payment_id, provider_subscription_id, status, method, amount_cents, due_date)
+        VALUES (${u1}, ${`pay_verify_${tag}`}, ${`sub_verify_${tag}`}, 'confirmed', 'pix', 11990, current_date) RETURNING id`;
+      await mustReject('a mesma cobrança do gateway duas vezes é bloqueada',
+        () => sql`INSERT INTO premium_charges (user_id, provider_payment_id, amount_cents, due_date)
+                  VALUES (${u1}, ${`pay_verify_${tag}`}, 11990, current_date)`, 'premium_charges_provider_id_key');
+      await mustReject('estorno maior que a cobrança é bloqueado',
+        () => sql`UPDATE premium_charges SET refunded_cents = 99999 WHERE id = ${c1!.id}`, 'premium_charges_refund_within_amount');
+
+      // ---- Ciclos: período efetivamente pago.
+      await mustReject('ciclo que termina antes de começar é bloqueado',
+        () => sql`INSERT INTO premium_cycles (user_id, number, source, charge_id, starts_at, ends_at)
+                  VALUES (${u1}, 1, 'subscription', ${c1!.id}, now(), now() - interval '1 day')`, 'premium_cycles_ends_after_starts');
+      await mustReject('ciclo pago sem cobrança é bloqueado',
+        () => sql`INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at)
+                  VALUES (${u1}, 1, 'subscription', now(), now() + interval '30 days')`, 'premium_cycles_charge_matches_source');
+      await mustReject('ciclo administrativo com cobrança é bloqueado',
+        () => sql`INSERT INTO premium_cycles (user_id, number, source, charge_id, starts_at, ends_at)
+                  VALUES (${u1}, 1, 'admin_grant', ${c1!.id}, now(), now() + interval '30 days')`, 'premium_cycles_charge_matches_source');
+      const [ciclo1] = await sql<{ id: string; ends_at: string }[]>`
+        INSERT INTO premium_cycles (user_id, number, source, charge_id, starts_at, ends_at, financial_eligible)
+        VALUES (${u1}, 1, 'subscription', ${c1!.id}, now() - interval '1 hour', now() + interval '30 days', true)
+        RETURNING id, ends_at`;
+      const vig = await estadoDe(u1);
+      expectEqual('com ciclo pago vigente é Premium, com benefício financeiro e ciclo atual',
+        [vig.a, vig.f, vig.c === ciclo1!.id], [true, true, true]);
+      await mustReject('uma cobrança gera um ciclo só',
+        () => sql`INSERT INTO premium_cycles (user_id, number, source, charge_id, starts_at, ends_at)
+                  VALUES (${u1}, 2, 'subscription', ${c1!.id}, now() + interval '60 days', now() + interval '90 days')`, 'premium_cycles_charge_key');
+      await mustReject('ciclo sobreposto do mesmo usuário é bloqueado',
+        () => sql`INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at)
+                  VALUES (${u1}, 2, 'admin_grant', now() + interval '10 days', now() + interval '40 days')`, 'premium_cycles_no_overlap');
+      await mustReject('número de ciclo repetido é bloqueado',
+        () => sql`INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at)
+                  VALUES (${u1}, 1, 'admin_grant', now() + interval '60 days', now() + interval '90 days')`, 'premium_cycles_user_number_key');
+      // O fim vem do próprio banco (microssegundos): passar por Date do JS truncaria para milissegundos e sobreporia.
+      await mustAccept('ciclo que começa exatamente quando o anterior termina é aceito', () => sql`
+        INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at)
+        SELECT user_id, 2, 'admin_grant', ends_at, ends_at + interval '30 days' FROM premium_cycles WHERE id = ${ciclo1!.id}`);
+
+      // ---- O ciclo não se edita nem se apaga.
+      await mustReject('o fim de um ciclo não pode ser esticado',
+        () => sql`UPDATE premium_cycles SET ends_at = ends_at + interval '1 day' WHERE id = ${ciclo1!.id}`, 'premium_cycles_immutable');
+      await mustReject('um ciclo não vira "elegível a benefício financeiro" depois de criado',
+        () => sql`UPDATE premium_cycles SET financial_eligible = NOT financial_eligible WHERE id = ${ciclo1!.id}`, 'premium_cycles_immutable');
+      await mustReject('ciclo não se apaga',
+        () => sql`DELETE FROM premium_cycles WHERE id = ${ciclo1!.id}`, 'premium_cycles_immutable');
+      await mustAccept('o fim antecipado de um ciclo (estorno, contestação) é permitido', () => sql`
+        UPDATE premium_cycles SET ended_early_at = now(), ended_early_reason = 'verify' WHERE id = ${ciclo1!.id}`);
+      expectEqual('depois do fim antecipado não é mais Premium', (await estadoDe(u1)).a, false);
+      await mustReject('o fim antecipado só se marca uma vez',
+        () => sql`UPDATE premium_cycles SET ended_early_at = now() - interval '5 minutes' WHERE id = ${ciclo1!.id}`, 'premium_cycles_immutable');
+
+      // ---- Saldo do ciclo: 2 Destaques e 1 Turbo, e o banco confere.
+      const [c2] = await sql<{ id: string }[]>`
+        INSERT INTO premium_charges (user_id, provider_payment_id, status, method, amount_cents, due_date)
+        VALUES (${u2}, ${`pay_verify2_${tag}`}, 'confirmed', 'credit_card', 11990, current_date) RETURNING id`;
+      const [cicloQ] = await sql<{ id: string }[]>`
+        INSERT INTO premium_cycles (user_id, number, source, charge_id, starts_at, ends_at, financial_eligible)
+        VALUES (${u2}, 1, 'subscription', ${c2!.id}, now() - interval '1 hour', now() + interval '30 days', true) RETURNING id`;
+      const espQ = await criarAnuncio(sql, { ownerId: u2, slug: `premium-q-${tag}`, precoCents: 20000 });
+      const promo = (type: string, ciclo: string | null, dono = u2) => sql`
+        INSERT INTO promotions (space_id, owner_id, type, source, premium_cycle_id, expires_at)
+        VALUES (${espQ}, ${dono}, ${type}, 'premium_benefit', ${ciclo}, now() + interval '7 days')`;
+      await mustReject('benefício do Premium sem ciclo é bloqueado', () => promo('destaque', null), 'promotions_premium_needs_cycle');
+      await mustReject('benefício com o ciclo de outra pessoa é bloqueado',
+        () => promo('destaque', cicloQ!.id, u1), 'promotions_premium_cycle_not_current');
+      await mustAccept('1º Destaque do ciclo é aceito', () => promo('destaque', cicloQ!.id));
+      await sql`UPDATE promotions SET status = 'cancelled', cancelled_at = now() WHERE space_id = ${espQ}`;
+      await mustAccept('2º Destaque do ciclo é aceito (o cancelado conta como usado)', () => promo('destaque', cicloQ!.id));
+      await sql`UPDATE promotions SET status = 'expired' WHERE space_id = ${espQ} AND status = 'active'`;
+      await mustReject('3º Destaque do ciclo é bloqueado', () => promo('destaque', cicloQ!.id), 'promotions_premium_cycle_quota');
+      await mustAccept('1 Turbo do ciclo é aceito (o saldo de Turbo é separado do de Destaque)', () => promo('turbo', cicloQ!.id));
+      await sql`UPDATE promotions SET status = 'cancelled', cancelled_at = now() WHERE space_id = ${espQ} AND status = 'active'`;
+      await mustReject('2º Turbo do ciclo é bloqueado', () => promo('turbo', cicloQ!.id), 'promotions_premium_cycle_quota');
+      await mustAccept('compra avulsa não passa pela trava do Premium', () => sql`
+        INSERT INTO promotions (space_id, owner_id, type, source, expires_at)
+        VALUES (${espQ}, ${u2}, 'destaque', 'purchase', now() + interval '1 day')`);
+      await sql`UPDATE promotions SET status = 'expired' WHERE space_id = ${espQ} AND status = 'active'`;
+
+      // ---- Concessão administrativa vencida não vale benefício.
+      const [cicloVencido] = await sql<{ id: string }[]>`
+        INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at)
+        VALUES (${u3}, 1, 'admin_grant', now() - interval '2 days', now() - interval '1 day') RETURNING id`;
+      await mustReject('ciclo já vencido não dá benefício',
+        () => promo('destaque', cicloVencido!.id, u3), 'promotions_premium_cycle_not_current');
+      expectEqual('concessão administrativa vigente NÃO libera benefício financeiro', await (async () => {
+        const [ciclo] = await sql<{ id: string }[]>`
+          INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at, financial_eligible)
+          VALUES (${u3}, 2, 'admin_grant', now() - interval '1 hour', now() + interval '10 days', false) RETURNING id`;
+        const e = await estadoDe(u3);
+        return [e.a, e.f, e.c === ciclo!.id];
+      })(), [true, false, true]);
+
+      // ---- Alerta de busca: o limite do plano segue o Premium VIGENTE.
+      const alertaDe = (id: string, n: number) => sql`
+        INSERT INTO saved_searches (user_id, label, criteria, criteria_key)
+        VALUES (${id}, ${`Alerta ${n}`}, ${sql.json({ tipo: 'garagem', n })}, ${`premium-alerta-${n}-${tag}`})`;
+      await sql`DELETE FROM saved_searches WHERE user_id IN (${u1}, ${u2})`;
+      await alertaDe(u1, 1); await alertaDe(u1, 2);
+      await mustReject('fora do Premium vigente o limite é o do plano gratuito (2)', () => alertaDe(u1, 3), 'saved_searches_active_limit');
+      await alertaDe(u2, 1); await alertaDe(u2, 2);
+      await mustAccept('com ciclo pago vigente o limite sobe (3º alerta)', () => alertaDe(u2, 3));
+      await sql`DELETE FROM saved_searches WHERE user_id IN (${u1}, ${u2})`;
+
+      // ---- Varredura: o estado guardado acompanha o relógio.
+      await sql`DELETE FROM premium_memberships WHERE user_id IN (${u1}, ${u3})`;
+      await sql`INSERT INTO premium_memberships (user_id, status, source, current_period_start, current_period_end)
+                VALUES (${u3}, 'active', 'admin_grant', now() - interval '2 days', now() - interval '1 day')`;
+      await sql`INSERT INTO premium_memberships (user_id, status, source, provider, provider_subscription_id, billing_method, plan_cents,
+                                                  current_period_start, current_period_end, cancel_at_period_end, cancel_requested_at)
+                VALUES (${u1}, 'active', 'subscription', 'asaas', ${`sub_verify_b_${tag}`}, 'credit_card', 11990,
+                        now() - interval '40 days', now() - interval '10 days', true, now() - interval '20 days')`;
+      // u3 ainda tem um ciclo administrativo vigente (da checagem acima): encerra para a varredura enxergar o fim.
+      await sql`UPDATE premium_cycles SET ended_early_at = now(), ended_early_reason = 'verify'
+                 WHERE user_id = ${u3} AND ended_early_at IS NULL AND starts_at <= now() AND now() < ends_at`;
+      await sql`SELECT public.sync_premium_memberships()`;
+      const [sync] = await sql<{ a: string; b: string; ca: boolean }[]>`
+        SELECT (SELECT status::text FROM premium_memberships WHERE user_id = ${u3}) AS a,
+               (SELECT status::text FROM premium_memberships WHERE user_id = ${u1}) AS b,
+               (SELECT cancelled_at IS NOT NULL FROM premium_memberships WHERE user_id = ${u1}) AS ca`;
+      expectEqual('período pago acabou sem renovação: a varredura marca "expirada"', sync!.a, 'expired');
+      expectEqual('período acabou e a renovação estava cancelada: vira "cancelada", com o momento', [sync!.b, sync!.ca], ['cancelled', true]);
+      await sql`UPDATE premium_memberships SET status = 'pending_payment', cancelled_at = NULL, cancelled_by = NULL,
+                       cancel_at_period_end = false, cancel_requested_at = NULL, updated_at = now() - interval '5 days'
+                 WHERE user_id = ${u1}`;
+      await sql`SELECT public.sync_premium_memberships()`;
+      const [aband] = await sql<{ s: string }[]>`SELECT status::text AS s FROM premium_memberships WHERE user_id = ${u1}`;
+      expectEqual('assinatura nunca paga, parada há mais de 3 dias: expirada', aband!.s, 'expired');
+      const [n2] = await sql<{ n: number }[]>`SELECT public.sync_premium_memberships() AS n`;
+      expectEqual('a varredura é idempotente (segunda rodada não muda nada deste teste)', n2!.n >= 0, true);
+
+      // ---- Acesso: só o servidor lê. Sem GRANT para o navegador e com RLS.
+      const tabelasPremium = ['premium_memberships', 'premium_cycles', 'premium_charges'];
+      const expostas = await sql<{ relname: string }[]>`
+        SELECT relname FROM pg_class
+         WHERE relnamespace = 'public'::regnamespace AND relname IN ${sql(tabelasPremium)} AND NOT relrowsecurity`;
+      expectEqual('as 3 tabelas do Premium têm RLS ligado', expostas.map((r) => r.relname), []);
+
+      // ---- Configuração.
+      const conf2 = new Map((await sql<{ key: string; value: unknown }[]>`
+        SELECT key, value FROM platform_settings WHERE key LIKE 'premium.%'`).map((r) => [r.key, r.value]));
+      expectEqual('limites por ciclo: 2 Destaques e 1 Turbo', [conf2.get('premium.cycle_destaque_limit'), conf2.get('premium.cycle_turbo_limit')], [2, 1]);
+      expectEqual('alcance ampliado no mapa: 10 km e 5 anúncios', [conf2.get('premium.map_extra_radius_m'), conf2.get('premium.map_max_outside_pins')], [10000, 5]);
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.
@@ -1518,6 +1710,14 @@ async function main() {
       await tx`SET LOCAL myplace.allow_review_delete = 'on'`;
       await tx`DELETE FROM reviews WHERE author_id IN (${ownerId}, ${renterId}, ${strangerId})`;
     });
+    // Etapa 2: Premium (seção 17). Promoções apontam para ciclos (RESTRICT) e ciclo não se apaga —
+    // só com o gatilho de proteção desligado durante esta limpeza.
+    await sql`DELETE FROM promotions WHERE owner_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    await sql`ALTER TABLE premium_cycles DISABLE TRIGGER premium_cycles_immutable`;
+    await sql`DELETE FROM premium_cycles WHERE user_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    await sql`ALTER TABLE premium_cycles ENABLE TRIGGER premium_cycles_immutable`;
+    await sql`DELETE FROM premium_charges WHERE user_id IN (${ownerId}, ${renterId}, ${strangerId})`;
+    await sql`DELETE FROM premium_memberships WHERE user_id IN (${ownerId}, ${renterId}, ${strangerId})`;
     // Fase 23: o que a seção 15 cria fora do anúncio.
     await sql`DELETE FROM saved_searches WHERE user_id IN (${ownerId}, ${renterId}, ${strangerId})`;
     await sql`DELETE FROM waitlist_entries WHERE user_id IN (${ownerId}, ${renterId}, ${strangerId})`;
@@ -1535,7 +1735,7 @@ async function main() {
     await sql`DELETE FROM booking_end_requests WHERE booking_id IN (
                 SELECT id FROM bookings WHERE owner_id = ${ownerId})`;
     await sql`DELETE FROM bookings WHERE owner_id = ${ownerId}`;
-    await sql`DELETE FROM spaces WHERE owner_id = ${ownerId}`;
+    await sql`DELETE FROM spaces WHERE owner_id IN (${ownerId}, ${renterId}, ${strangerId})`;
     await sql`DELETE FROM webhook_events WHERE provider_event_id LIKE ${`evt_verify-%`}`;
     await sql`DELETE FROM auth.users WHERE id IN (${ownerId}, ${renterId}, ${strangerId}, ${confirmedId}, ${quartoId})`;
   }

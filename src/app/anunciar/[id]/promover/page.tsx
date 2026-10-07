@@ -5,7 +5,8 @@ import { db } from '@/db/client';
 import { profiles } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { loadDraftStep } from '@/lib/spaces/load-step';
-import { getMonthlyBenefitUsage, getActivePromotionForSpace } from '@/lib/promotions/queries';
+import { getActivePromotionForSpace } from '@/lib/promotions/queries';
+import { getBenefitUsage } from '@/lib/premium/queries';
 import { PromoteAfterPublish } from '@/components/promotions/promote-after-publish';
 
 export const metadata: Metadata = { title: 'Turbine seu anúncio' };
@@ -29,7 +30,7 @@ export default async function PromoverPage({ params }: { params: Promise<{ id: s
   if (space.status !== 'published' || !space.publishedAt) notFound();
 
   const [uso, vigente, [perfil]] = await Promise.all([
-    getMonthlyBenefitUsage(user.id),
+    getBenefitUsage(user.id),
     getActivePromotionForSpace(id),
     db.select({ cpfCnpj: profiles.cpfCnpj }).from(profiles).where(eq(profiles.id, user.id)).limit(1),
   ]);

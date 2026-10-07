@@ -5,11 +5,14 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { reports, profiles, auditLogs, premiumMemberships, bookingDeposits } from '@/db/schema';
+import { reports, profiles, auditLogs, bookingDeposits } from '@/db/schema';
 import { notifyUser } from '@/lib/notifications/dispatch';
 import { requireAdminOrThrow } from '@/lib/auth/dal';
 import { releaseDeposit } from '@/lib/payments/deposits';
 import { parseBRLToCents } from '@/lib/money';
+import { formatBrDate } from '@/lib/time';
+import { grantAdminPremium, revokePremiumNow } from '@/lib/premium/cycles';
+import { adminPremiumGrantSchema } from '@/lib/premium/schemas';
 
 export type AdminActionState = {
   ok: boolean;
@@ -250,22 +253,27 @@ export async function updateAccountStatusAction(
 }
 
 // ---------------------------------------------------------------------------
-// Premium (mecanismo interino — Fase 13)
+// Premium — MODO ADMINISTRATIVO/TESTE (Etapa 2)
 // ---------------------------------------------------------------------------
 
-const togglePremiumSchema = z.object({
+const premiumRevokeSchema = z.object({
   userId: z.uuid('Usuário inválido.'),
-  acao: z.enum(['conceder', 'revogar'], { error: 'Ação inválida.' }),
+  reason: z.string().trim().min(5, 'Explique o motivo (mín. 5 caracteres).').max(300, 'Use no máximo 300 caracteres.'),
 });
 
 /**
- * Concede ou revoga Premium manualmente.
+ * Concede ou encerra o Premium pelo painel — MODO TESTE/SUPORTE.
  *
- * Mecanismo INTERINO: hoje não existe assinatura paga, então este é o único
- * jeito de alguém virar Premium. Mesmo padrão de `updateAccountStatusAction`
- * (auditado, admin não mexe na própria conta) — quando o plano pago for
- * decidido, essa ação continua existindo do mesmo jeito (útil para suporte
- * conceder um período de cortesia), só deixa de ser o ÚNICO caminho.
+ * O Premium de verdade é a assinatura paga (R$ 119,90/mês, webhook do Asaas).
+ * Esta ação NÃO é o funcionamento normal e nunca é "grátis para sempre":
+ *   - conceder vale por um número de DIAS (1 a 90), sem cobrança, e exige o
+ *     motivo (fica na auditoria);
+ *   - a concessão NÃO libera os benefícios financeiros (taxa reduzida,
+ *     primeiro mês) — só se a marca "teste financeiro" for ligada de propósito;
+ *   - encerrar termina TODOS os ciclos da pessoa agora. Numa assinatura paga,
+ *     isso não devolve dinheiro (o estorno é decisão do suporte no Asaas).
+ * Mesmo padrão de `updateAccountStatusAction`: auditado, admin não mexe na
+ * própria conta.
  */
 export async function togglePremiumMembershipAction(
   _prev: AdminActionState | undefined,
@@ -273,47 +281,44 @@ export async function togglePremiumMembershipAction(
 ): Promise<AdminActionState> {
   const admin = await requireAdminOrThrow();
 
-  const parsed = togglePremiumSchema.safeParse({
-    userId: formData.get('userId'),
-    acao: formData.get('acao'),
-  });
+  const acao = formData.get('acao');
+  if (acao !== 'conceder' && acao !== 'revogar') return { ok: false, message: 'Ação inválida.' };
+
+  const parsed =
+    acao === 'conceder'
+      ? adminPremiumGrantSchema.safeParse({
+          userId: formData.get('userId'),
+          days: formData.get('dias') || 30,
+          reason: formData.get('motivo'),
+          financialTest: formData.get('testeFinanceiro') === 'on',
+        })
+      : premiumRevokeSchema.safeParse({ userId: formData.get('userId'), reason: formData.get('motivo') });
   if (!parsed.success) {
-    return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors };
+    return { ok: false, fieldErrors: parsed.error.flatten().fieldErrors, message: parsed.error.issues[0]?.message };
   }
-  const { userId, acao } = parsed.data;
+  const { userId, reason } = parsed.data;
 
   if (userId === admin.id) {
-    return { ok: false, message: 'Você não pode conceder Premium à própria conta.' };
+    return { ok: false, message: 'Você não pode alterar o Premium da própria conta.' };
   }
 
   const [alvo] = await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.id, userId)).limit(1);
   if (!alvo) return { ok: false, message: 'Conta não encontrada.' };
 
+  let ate: Date | null = null;
+  let detalhes: Record<string, unknown>;
   if (acao === 'conceder') {
-    await db
-      .insert(premiumMemberships)
-      .values({ userId, status: 'active', source: 'admin_grant', grantedBy: admin.id, grantedAt: new Date() })
-      .onConflictDoUpdate({
-        target: premiumMemberships.userId,
-        set: {
-          status: 'active',
-          source: 'admin_grant',
-          grantedBy: admin.id,
-          grantedAt: new Date(),
-          cancelledBy: null,
-          cancelledAt: null,
-          updatedAt: new Date(),
-        },
-      });
+    const dados = parsed.data as z.infer<typeof adminPremiumGrantSchema>;
+    const resultado = await db.transaction((tx) =>
+      grantAdminPremium(tx, { userId, adminId: admin.id, days: dados.days, financialTest: dados.financialTest }),
+    );
+    if (!resultado.ok) return { ok: false, message: resultado.message };
+    ate = resultado.endsAt;
+    detalhes = { acao, modo: 'admin_teste', days: dados.days, financialTest: dados.financialTest, cycleId: resultado.cycleId, reason };
   } else {
-    const atualizadas = await db
-      .update(premiumMemberships)
-      .set({ status: 'cancelled', cancelledBy: admin.id, cancelledAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(premiumMemberships.userId, userId), eq(premiumMemberships.status, 'active')))
-      .returning({ userId: premiumMemberships.userId });
-    if (atualizadas.length === 0) {
-      return { ok: false, message: 'Esta conta não é Premium no momento.' };
-    }
+    const encerrados = await db.transaction((tx) => revokePremiumNow(tx, { userId, adminId: admin.id }));
+    if (encerrados === 0) return { ok: false, message: 'Esta conta não é Premium no momento.' };
+    detalhes = { acao, modo: 'admin_teste', cyclesEnded: encerrados, reason };
   }
 
   await db.insert(auditLogs).values({
@@ -322,7 +327,7 @@ export async function togglePremiumMembershipAction(
     action: acao === 'conceder' ? 'premium.granted' : 'premium.revoked',
     entityType: 'profile',
     entityId: userId,
-    metadata: { acao },
+    metadata: detalhes,
     ip: await clientIp(),
   });
 
@@ -331,11 +336,11 @@ export async function togglePremiumMembershipAction(
   await notifyUser(db, {
     userId,
     type: 'premium_changed',
-    title: acao === 'conceder' ? 'Você agora é Membro Premium' : 'Seu Premium foi encerrado',
+    title: acao === 'conceder' ? 'Premium liberado pela administração' : 'Seu Premium foi encerrado',
     body:
       acao === 'conceder'
-        ? '2 Destaques e 1 Turbo gratuitos por mês para seus anúncios, renovados todo mês.'
-        : 'Seus anúncios continuam no ar normalmente; os benefícios mensais deixam de valer.',
+        ? `A administração liberou o Premium na sua conta até ${formatBrDate(ate!)} (modo teste/suporte, sem cobrança).`
+        : 'Seus anúncios continuam no ar normalmente; os benefícios do Premium deixam de valer.',
     linkPath: '/premium',
     data: { acao },
   });
@@ -343,5 +348,8 @@ export async function togglePremiumMembershipAction(
   revalidatePath('/admin/usuarios');
   revalidatePath(`/perfil/${userId}`);
 
-  return { ok: true, message: acao === 'conceder' ? 'Premium concedido.' : 'Premium revogado.' };
+  return {
+    ok: true,
+    message: acao === 'conceder' ? `Premium liberado em modo teste até ${formatBrDate(ate!)}.` : 'Premium encerrado.',
+  };
 }

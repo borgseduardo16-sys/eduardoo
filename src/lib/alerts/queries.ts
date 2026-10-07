@@ -3,7 +3,7 @@ import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { savedSearches } from '@/db/schema';
 import { settingInt } from '@/lib/settings';
-import { isPremium } from '@/lib/promotions/queries';
+import { isPremium } from '@/lib/premium/queries';
 import { alertCriteriaSchema, type AlertCriteria } from './criteria';
 
 /**

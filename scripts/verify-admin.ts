@@ -23,7 +23,7 @@ req.cache[req.resolve('server-only')] = {
 } as never;
 
 import postgres from 'postgres';
-import { prepararAnuncio } from './lib/fixtures';
+import { prepararAnuncio, darPremium, limparPremium } from './lib/fixtures';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 
 const url = process.env.DATABASE_URL;
@@ -378,20 +378,29 @@ async function main() {
   assert('admin nao consegue alterar a propria conta', !rSelf.ok, JSON.stringify(rSelf));
 
   // =========================================================================
-  secao('6. Premium — mecanismo interino de concessao pelo admin (Fase 13)');
+  secao('6. Premium — modo administrativo/teste (Etapa 2)');
   // =========================================================================
 
-  function fdPremium(userId: string, acao: 'conceder' | 'revogar'): FormData {
+  /** Formulário do painel: conceder exige dias e motivo; revogar exige o motivo. */
+  function fdPremium(
+    userId: string,
+    acao: 'conceder' | 'revogar',
+    extra: { dias?: string; motivo?: string | null; testeFinanceiro?: boolean } = {},
+  ): FormData {
     const f = new FormData();
     f.set('userId', userId);
     f.set('acao', acao);
+    if (extra.dias !== undefined) f.set('dias', extra.dias);
+    const motivo = extra.motivo === undefined ? 'teste do painel administrativo' : extra.motivo;
+    if (motivo !== null) f.set('motivo', motivo);
+    if (extra.testeFinanceiro) f.set('testeFinanceiro', 'on');
     return f;
   }
 
   entrarComo(reporterIds[0], 'user', 'Denunciante 0');
   let bloqueadoPremium = false;
   try {
-    await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder'));
+    await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder', { dias: '30' }));
   } catch {
     bloqueadoPremium = true;
   }
@@ -399,26 +408,69 @@ async function main() {
 
   entrarComo(adminId, 'admin', 'Moderador');
 
-  const rConcede = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder'));
-  assert('admin concede Premium', rConcede.ok, JSON.stringify(rConcede));
+  const rPremiumSemMotivo = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder', { dias: '30', motivo: null }));
+  assert('conceder sem motivo e recusado (o motivo fica na auditoria)', !rPremiumSemMotivo.ok, JSON.stringify(rPremiumSemMotivo));
+  const rDiasDemais = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder', { dias: '365' }));
+  assert('nao existe concessao "para sempre": no maximo 90 dias', !rDiasDemais.ok, JSON.stringify(rDiasDemais));
+  const rDiasZero = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder', { dias: '0' }));
+  assert('zero dias e recusado', !rDiasZero.ok, JSON.stringify(rDiasZero));
+  expect('as recusas nao deixaram nada gravado', (await getAccountById(targetId))?.isPremium, false);
+
+  const rConcede = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder', { dias: '15' }));
+  assert('admin concede Premium em modo teste', rConcede.ok, JSON.stringify(rConcede));
   const contaComPremium = await getAccountById(targetId);
   expect('conta aparece como Premium na consulta', contaComPremium?.isPremium, true);
+  expect('a origem aparece como concessao administrativa (modo teste)', contaComPremium?.premiumSource, 'admin_grant');
+  expect('a concessao de teste NAO libera beneficio financeiro', contaComPremium?.premiumFinancial, false);
 
-  const rConcedeDeNovo = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder'));
-  assert('conceder de novo (ja e Premium) e idempotente, nao quebra', rConcedeDeNovo.ok, JSON.stringify(rConcedeDeNovo));
+  const [cicloAdmin] = await sql<{ source: string; dias: number; financeiro: boolean; cobranca: string | null }[]>`
+    SELECT source::text AS source, round(extract(epoch FROM (ends_at - starts_at)) / 86400)::int AS dias,
+           financial_eligible AS financeiro, charge_id::text AS cobranca
+      FROM premium_cycles WHERE user_id = ${targetId} ORDER BY number DESC LIMIT 1`;
+  expect('o ciclo administrativo tem data de fim (15 dias), sem cobranca e sem direito financeiro',
+    [cicloAdmin?.source, cicloAdmin?.dias, cicloAdmin?.financeiro, cicloAdmin?.cobranca], ['admin_grant', 15, false, null]);
+  const [auditoria] = await sql<{ metadata: { reason?: string; modo?: string; days?: number } }[]>`
+    SELECT metadata FROM audit_logs WHERE action = 'premium.granted' AND entity_id = ${targetId} ORDER BY created_at DESC LIMIT 1`;
+  expect('a auditoria guarda o motivo e o modo', [auditoria?.metadata.reason, auditoria?.metadata.modo, auditoria?.metadata.days],
+    ['teste do painel administrativo', 'admin_teste', 15]);
 
+  const rConcedeDeNovo = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder', { dias: '30' }));
+  assert('conceder a quem ja tem concessao em vigor e recusado (nada acumula)', !rConcedeDeNovo.ok, JSON.stringify(rConcedeDeNovo));
+  const [{ n: ciclosAposRepetir }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM premium_cycles WHERE user_id = ${targetId}`;
+  expect('continua um ciclo so', ciclosAposRepetir, 1);
+
+  const rRevogaSemMotivo = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'revogar', { motivo: null }));
+  assert('revogar sem motivo e recusado', !rRevogaSemMotivo.ok, JSON.stringify(rRevogaSemMotivo));
   const rRevoga = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'revogar'));
-  assert('admin revoga Premium', rRevoga.ok, JSON.stringify(rRevoga));
+  assert('admin encerra o Premium', rRevoga.ok, JSON.stringify(rRevoga));
   const contaSemPremium = await getAccountById(targetId);
   expect('conta deixa de aparecer como Premium', contaSemPremium?.isPremium, false);
+  const [cicloEncerrado] = await sql<{ motivo: string | null; encerrado: boolean }[]>`
+    SELECT ended_early_reason AS motivo, ended_early_at IS NOT NULL AS encerrado
+      FROM premium_cycles WHERE user_id = ${targetId} ORDER BY number DESC LIMIT 1`;
+  expect('o ciclo guarda que terminou por revogacao', [cicloEncerrado?.encerrado, cicloEncerrado?.motivo], [true, 'revogado_pela_administracao']);
 
   const rRevogaDeNovo = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'revogar'));
   assert('revogar quem ja nao e Premium e recusado', !rRevogaDeNovo.ok, JSON.stringify(rRevogaDeNovo));
 
-  const rSelfPremium = await togglePremiumMembershipAction(undefined, fdPremium(adminId, 'conceder'));
+  // Marca de teste financeiro: só liga de propósito.
+  const rFin = await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'conceder', { dias: '5', testeFinanceiro: true }));
+  assert('concessao com teste financeiro ligado de proposito', rFin.ok, JSON.stringify(rFin));
+  expect('so agora o beneficio financeiro vale (e so neste ciclo de teste)', (await getAccountById(targetId))?.premiumFinancial, true);
+  await togglePremiumMembershipAction(undefined, fdPremium(targetId, 'revogar'));
+
+  const rSelfPremium = await togglePremiumMembershipAction(undefined, fdPremium(adminId, 'conceder', { dias: '30' }));
   assert('admin nao concede Premium a propria conta', !rSelfPremium.ok, JSON.stringify(rSelfPremium));
 
-  await sql`DELETE FROM premium_memberships WHERE user_id = ${targetId}`;
+  // Quem paga a assinatura: o painel não concede por cima, e encerrar não devolve dinheiro.
+  await darPremium(sql, targetLivreId, { pago: true });
+  const rSobrePago = await togglePremiumMembershipAction(undefined, fdPremium(targetLivreId, 'conceder', { dias: '30' }));
+  assert('nao se concede Premium por cima de assinatura paga', !rSobrePago.ok && /assinatura paga/i.test(rSobrePago.message ?? ''), JSON.stringify(rSobrePago));
+  expect('assinante pago aparece como "subscription" e com beneficio financeiro',
+    [(await getAccountById(targetLivreId))?.premiumSource, (await getAccountById(targetLivreId))?.premiumFinancial], ['subscription', true]);
+  await limparPremium(sql, [targetLivreId]);
+
+  await limparPremium(sql, [targetId]);
 
   // =========================================================================
   secao('7. Busca de contas');
@@ -442,7 +494,7 @@ async function limpar() {
     await sql`DELETE FROM conversations WHERE id = ${conversaId}`;
     await sql`DELETE FROM spaces WHERE owner_id = ${targetId}`;
     const todosIds = [adminId, targetId, targetLivreId, ...reporterIds];
-    await sql`DELETE FROM premium_memberships WHERE user_id = ANY(${todosIds})`;
+    await limparPremium(sql, todosIds);
     await sql.begin(async (tx) => {
       await tx`ALTER TABLE public.audit_logs DISABLE TRIGGER audit_logs_append_only`;
       await tx`DELETE FROM public.audit_logs WHERE actor_id IN ${sql(todosIds)}`;

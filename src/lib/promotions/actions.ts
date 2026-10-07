@@ -3,15 +3,16 @@
 import 'server-only';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import postgres from 'postgres';
 import { db } from '@/db/client';
-import { promotions, premiumMemberships, auditLogs, promotionPurchases, profiles, renterBillingProfiles } from '@/db/schema';
+import { promotions, auditLogs, promotionPurchases, profiles, renterBillingProfiles } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
 import { getOwnedSpace } from '@/lib/spaces/queries';
 import { getRenterBillingProfile } from '@/lib/payments/queries';
 import * as asaas from '@/lib/payments/asaas';
-import { monthlyBenefitLimit, promotionDurationHours } from './settings';
+import { promotionDurationHours } from './settings';
+import { cycleBenefitLimit } from '@/lib/premium/settings';
 import { getActivePromotionForSpace } from './queries';
 import { findPriceOption } from './purchase-pricing';
 import { activatePromotionSchema, cancelPromotionSchema, purchasePromotionSchema } from './schemas';
@@ -39,6 +40,19 @@ function isPromotionConflict(err: unknown): boolean {
   return false;
 }
 
+/**
+ * A trava do banco (`promotions_guard_premium_quota`, migração 0034) recusou o
+ * benefício: o ciclo acabou de ser usado por outra aba/clique, ou deixou de
+ * valer no meio do caminho. O código confere antes, mas é o banco quem decide.
+ */
+function premiumQuotaViolation(err: unknown): 'quota' | 'ciclo' | null {
+  const pg = pgErrorFrom(err);
+  if (!pg || pg.code !== '23514') return null;
+  if (pg.constraint_name === 'promotions_premium_cycle_quota') return 'quota';
+  if (pg.constraint_name === 'promotions_premium_cycle_not_current' || pg.constraint_name === 'promotions_premium_needs_cycle') return 'ciclo';
+  return null;
+}
+
 /** Erro esperado de regra de negocio (sem Premium, sem saldo) — vira mensagem, nao 500. */
 class BenefitError extends Error {}
 
@@ -59,20 +73,20 @@ function revalidateAfterChange() {
 
 /**
  * Ativa Destaque ou Turbo num anuncio, consumindo um beneficio Premium do
- * mes corrente.
+ * CICLO PAGO vigente (2 Destaques e 1 Turbo por ciclo; nao acumulam).
  *
  * Autorizacao: `getOwnedSpace` (mesma funcao usada por toda action de
  * anuncio) garante que so o dono promove o proprio anuncio. Nada do que o
- * navegador manda alem de `spaceId`/`type` e confiado — Premium, saldo
+ * navegador manda alem de `spaceId`/`type` e confiado — Premium, ciclo, saldo
  * disponivel e duracao sao sempre recalculados aqui.
  *
- * Concorrencia: a linha de `premium_memberships` do dono e travada
- * (`FOR UPDATE`) antes de contar o uso do mes, entao duas ativacoes
- * simultaneas da MESMA pessoa (dois anuncios diferentes, ou duplo clique
- * rapido antes do primeiro commitar) serializam — a segunda so ve a
- * contagem depois que a primeira commitou. Para o duplo clique no MESMO
- * anuncio, o indice unico parcial (`promotions_one_active_per_space`)
- * cobre mesmo se a trava acima falhar.
+ * Concorrencia: o ciclo vigente e travado (`FOR UPDATE`) antes de contar o
+ * uso, entao duas ativacoes simultaneas da MESMA pessoa (dois anuncios
+ * diferentes, ou duplo clique rapido) serializam — a segunda so ve a
+ * contagem depois que a primeira commitou. Por baixo, o BANCO repete a conta
+ * no INSERT (`promotions_guard_premium_quota`): mesmo uma chamada direta nao
+ * passa do limite. Para o duplo clique no MESMO anuncio, o indice unico
+ * parcial (`promotions_one_active_per_space`) tambem cobre.
  */
 export async function activatePromotionAction(
   _prev: PromotionActionState | undefined,
@@ -102,31 +116,25 @@ export async function activatePromotionAction(
 
   try {
     const promotionId = await db.transaction(async (tx) => {
-      const [membership] = await tx
-        .select({ status: premiumMemberships.status })
-        .from(premiumMemberships)
-        .where(eq(premiumMemberships.userId, user.id))
-        .for('update');
+      const [ciclo] = (await tx.execute(sql`
+        SELECT id, COALESCE(ended_early_at, ends_at) AS ends_at
+          FROM premium_cycles
+         WHERE id = public.premium_current_cycle_id(${user.id}::uuid)
+           FOR UPDATE
+      `)) as unknown as { id: string; ends_at: Date | string }[];
 
-      if (!membership || membership.status !== 'active') {
-        throw new BenefitError('Você precisa ser Membro Premium para usar Destaque ou Turbo.');
+      if (!ciclo) {
+        throw new BenefitError('Você precisa ser Membro Premium (com o pagamento confirmado) para usar Destaque ou Turbo.');
       }
 
-      const limit = await monthlyBenefitLimit(type);
+      const limit = await cycleBenefitLimit(type);
       const [{ n }] = await tx
         .select({ n: sql<number>`count(*)::int` })
         .from(promotions)
-        .where(
-          and(
-            eq(promotions.ownerId, user.id),
-            eq(promotions.type, type),
-            eq(promotions.source, 'premium_benefit'),
-            gte(promotions.createdAt, sql`date_trunc('month', now())`),
-          ),
-        );
+        .where(and(eq(promotions.premiumCycleId, ciclo.id), eq(promotions.type, type)));
       if (n >= limit) {
         throw new BenefitError(
-          `Você já usou ${limit === 1 ? 'o' : 'os'} ${limit} ${TYPE_LABEL[type]}${limit === 1 ? '' : 's'} disponíve${limit === 1 ? 'l' : 'is'} este mês.`,
+          `Você já usou ${limit === 1 ? 'o' : 'os'} ${limit} ${TYPE_LABEL[type]}${limit === 1 ? '' : 's'} deste ciclo do Premium. Os benefícios não acumulam: no próximo ciclo pago você recebe novos.`,
         );
       }
 
@@ -142,6 +150,7 @@ export async function activatePromotionAction(
           type,
           status: 'active',
           source: 'premium_benefit',
+          premiumCycleId: ciclo.id,
           startedAt,
           expiresAt,
         })
@@ -153,7 +162,7 @@ export async function activatePromotionAction(
         action: 'promotion.activated',
         entityType: 'promotion',
         entityId: inserted!.id,
-        metadata: { spaceId, type, source: 'premium_benefit', expiresAt: expiresAt.toISOString() },
+        metadata: { spaceId, type, source: 'premium_benefit', cycleId: ciclo.id, expiresAt: expiresAt.toISOString() },
       });
 
       return inserted!.id;
@@ -166,6 +175,13 @@ export async function activatePromotionAction(
     if (err instanceof BenefitError) return { ok: false, message: err.message };
     if (isPromotionConflict(err)) {
       return { ok: false, message: 'Este anúncio já tem uma promoção ativa agora.' };
+    }
+    const violacao = premiumQuotaViolation(err);
+    if (violacao === 'quota') {
+      return { ok: false, message: `Os benefícios de ${TYPE_LABEL[type]} deste ciclo do Premium já foram usados.` };
+    }
+    if (violacao === 'ciclo') {
+      return { ok: false, message: 'Seu Premium não está vigente agora. Veja a situação em Meu Premium.' };
     }
     throw err;
   }

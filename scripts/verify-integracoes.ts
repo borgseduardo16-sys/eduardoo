@@ -47,7 +47,7 @@ import { chromium, type Browser, type ConsoleMessage, type Page, type Locator } 
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { formatBRL } from '../src/lib/money';
 import { startTestbed, sessionCookie, fakeJwt, type Testbed } from './testbed/server';
-import { criarAnuncio, prepararAnuncio, vagas } from './lib/fixtures';
+import { criarAnuncio, prepararAnuncio, vagas, darPremium, limparPremium } from './lib/fixtures';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 
@@ -2541,8 +2541,7 @@ async function testeOPromocoes() {
    */
   await sql`INSERT INTO auth.users (id, email) VALUES (${donoPromoId}, ${`${tag}-donopromo@exemplo.invalid`})`;
   await sql`UPDATE profiles SET role='owner', full_name=${`Dono Promo ${tag}`} WHERE id=${donoPromoId}`;
-  await sql`INSERT INTO premium_memberships (user_id, status, source, granted_by)
-    VALUES (${donoPromoId}, 'active', 'admin_grant', ${donoPromoId})`;
+  await darPremium(sql, donoPromoId);
 
   const espacoDisponivel = await publicarDireto(
     donoPromoId, `${tag}-promo-disponivel`, 'Sala para teste de Destaque', 'sala', 30000,
@@ -2651,7 +2650,7 @@ async function testeOPromocoes() {
   await seloPremium.waitFor({ timeout: 20_000 });
   ok('quem NAO e o dono ve o selo "Membro Premium" no anuncio');
   await seloPremium.click();
-  await pageOutroVe.getByText('2 Destaques gratuitos por mês').waitFor({ timeout: 10_000 });
+  await pageOutroVe.getByText('2 Destaques por ciclo pago').waitFor({ timeout: 10_000 });
   await pageOutroVe.getByRole('link', { name: 'Torne-se membro' }).waitFor({ timeout: 5_000 });
   ok('clicar no selo abre o painel com os beneficios e o CTA — descoberta organica, como pedido');
 
@@ -2709,25 +2708,36 @@ async function testeOPromocoes() {
   await pageAdminPromo.goto(`${baseUrl}/admin/usuarios?q=${encodeURIComponent('Outro')}`, { waitUntil: 'domcontentloaded' });
   const cardOutroAdmin = pageAdminPromo.locator('li', { hasText: `Outro ${tag}` });
   await cardOutroAdmin.waitFor({ timeout: 20_000 });
-  await cardOutroAdmin.getByRole('button', { name: 'Conceder Premium' }).click();
-  await cardOutroAdmin.getByText('Premium concedido.').waitFor({ timeout: 20_000 });
-  ok('admin concede Premium pela interface real de /admin/usuarios');
+  // Modo administrativo/teste (Etapa 2): abre o painel do Premium, informa dias e motivo e libera.
+  await cardOutroAdmin.getByText('Premium — modo administrativo/teste').click();
+  await cardOutroAdmin.getByLabel('Dias (1 a 90)').fill('7');
+  await cardOutroAdmin.getByLabel('Motivo (fica na auditoria)').fill('teste do navegador');
+  await cardOutroAdmin.getByRole('button', { name: 'Liberar Premium (teste)' }).click();
+  await cardOutroAdmin.getByText(/Premium liberado em modo teste até/).waitFor({ timeout: 20_000 });
+  ok('admin libera Premium em modo teste pela interface real de /admin/usuarios (dias e motivo obrigatorios)');
 
   await aguardarCondicao(async () => {
     const [row] = await sql<{ status: string }[]>`
       SELECT status FROM premium_memberships WHERE user_id=${outroId} AND status='active'`;
     return Boolean(row);
-  }, 'o banco reflete o Premium concedido pela tela');
+  }, 'o banco reflete o Premium liberado pela tela');
+  const [cicloTeste] = await sql<{ source: string; financeiro: boolean; dias: number }[]>`
+    SELECT source::text AS source, financial_eligible AS financeiro,
+           round(extract(epoch FROM (ends_at - starts_at)) / 86400)::int AS dias
+      FROM premium_cycles WHERE user_id=${outroId} ORDER BY number DESC LIMIT 1`;
+  expect('o ciclo e administrativo, de 7 dias e sem direito financeiro', [cicloTeste?.source, cicloTeste?.dias, cicloTeste?.financeiro], ['admin_grant', 7, false]);
 
   await pageAdminPromo.reload({ waitUntil: 'domcontentloaded' });
-  await pageAdminPromo.getByText('✦ Premium').waitFor({ timeout: 10_000 });
-  ok('o selo "✦ Premium" aparece no card da conta depois de conceder');
+  await pageAdminPromo.getByText('✦ Premium (teste)').waitFor({ timeout: 10_000 });
+  ok('o selo "✦ Premium (teste)" aparece no card da conta depois de liberar');
 
-  // Revoga de volta — outroId e reusado por outros testes (A-N) que nao
-  // esperam Premium concedido; deixar isto sujaria a identidade compartilhada.
-  await cardOutroAdmin.getByRole('button', { name: 'Revogar Premium' }).click();
-  await cardOutroAdmin.getByText('Premium revogado.').waitFor({ timeout: 20_000 });
-  ok('admin revoga Premium pela interface (limpeza da identidade compartilhada)');
+  // Encerra de volta — outroId e reusado por outros testes (A-N) que nao
+  // esperam Premium; deixar isto sujaria a identidade compartilhada.
+  await cardOutroAdmin.getByText('Premium — modo administrativo/teste').click();
+  await cardOutroAdmin.getByLabel('Motivo (fica na auditoria)').fill('limpeza do teste');
+  await cardOutroAdmin.getByRole('button', { name: 'Encerrar Premium' }).click();
+  await cardOutroAdmin.getByText('Premium encerrado.').waitFor({ timeout: 20_000 });
+  ok('admin encerra o Premium pela interface (limpeza da identidade compartilhada)');
   await pageAdminPromo.context().close();
 }
 
@@ -3351,6 +3361,13 @@ async function limpar() {
     await sql`DELETE FROM renter_billing_profiles WHERE user_id IN (${donoId}, ${outroId})`;
   } catch (err) {
     console.log(`  ${FRACO}limpeza de contas de pagamento: ${String(err).slice(0, 140)}${FIM}`);
+  }
+
+  try {
+    // Premium (Etapa 2): ciclo não se apaga e o razão é append-only — só com os gatilhos desligados durante a limpeza.
+    await limparPremium(sql, [donoId, outroId, donoPromoId]);
+  } catch (err) {
+    console.log(`  ${FRACO}limpeza do Premium: ${String(err).slice(0, 140)}${FIM}`);
   }
 
   try {

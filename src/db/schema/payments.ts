@@ -23,6 +23,7 @@ import {
 import { profiles } from './users';
 import { bookings } from './bookings';
 import { reports } from './trust';
+import { premiumCharges } from './premium';
 
 /**
  * Assinatura mensal no gateway (a recorrencia de uma locacao).
@@ -283,6 +284,8 @@ export const ledgerEntries = pgTable(
     bookingId: uuid('booking_id').references(() => bookings.id, { onDelete: 'restrict' }),
     paymentId: uuid('payment_id').references(() => payments.id, { onDelete: 'restrict' }),
     payoutId: uuid('payout_id').references(() => payouts.id, { onDelete: 'restrict' }),
+    /** Cobranca do Premium (receita da plataforma, sem reserva) — 0034. */
+    premiumChargeId: uuid('premium_charge_id').references(() => premiumCharges.id, { onDelete: 'restrict' }),
     /** Titular do lancamento. NULL = a propria plataforma. */
     userId: uuid('user_id').references(() => profiles.id, { onDelete: 'restrict' }),
 
@@ -297,6 +300,7 @@ export const ledgerEntries = pgTable(
   (t) => [
     index('ledger_booking_idx').on(t.bookingId),
     index('ledger_payment_idx').on(t.paymentId),
+    index('ledger_premium_charge_idx').on(t.premiumChargeId),
     index('ledger_user_idx').on(t.userId),
     index('ledger_type_occurred_idx').on(t.type, t.occurredAt),
     check('ledger_amount_not_zero', sql`${t.amountCents} <> 0`),

@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Rocket } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
-import { listOwnerPromotions, getMonthlyBenefitUsage } from '@/lib/promotions/queries';
+import { listOwnerPromotions } from '@/lib/promotions/queries';
+import { getBenefitUsage } from '@/lib/premium/queries';
 import {
   formatPromotionDateTime, formatPromotionDuration, formatTimeRemaining,
   PROMOTION_STATUS_INFO, PROMOTION_SOURCE_LABEL,
@@ -22,7 +23,7 @@ export default async function PromocoesPage() {
   const user = await requireUser('/meus-espacos/promocoes');
   const [todas, uso] = await Promise.all([
     listOwnerPromotions(user.id, 50),
-    getMonthlyBenefitUsage(user.id),
+    getBenefitUsage(user.id),
   ]);
 
   const ativas = todas.filter((p) => p.status === 'active' || p.status === 'scheduled');

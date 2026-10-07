@@ -369,12 +369,13 @@ export function ExploreMap({ fallback, initialFilters, autoLocate, notice }: Exp
       geoMessage={geoMsg}
       total={data?.total ?? null}
       outsideShown={data?.outsideShown ?? 0}
+      reachShown={data?.reachShown ?? 0}
       onClose={() => setPainelAberto(false)}
       listHref={listHref}
     />
   );
 
-  const vazio = data != null && !loading && data.total === 0 && data.outsideShown === 0;
+  const vazio = data != null && !loading && data.total === 0 && data.outsideShown === 0 && data.reachShown === 0;
 
   return (
     <div className="relative size-full overflow-hidden bg-[var(--surface-sunken)]" data-testid="explorar-mapa">

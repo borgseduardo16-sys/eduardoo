@@ -154,7 +154,7 @@ export async function deliverPendingAlerts(opts?: { alertIds?: string[] }): Prom
       : sql``;
     const devidos = (await db.execute(sql`
       SELECT ss.id, ss.user_id, ss.label, ss.criteria,
-        EXISTS (SELECT 1 FROM premium_memberships pm WHERE pm.user_id = ss.user_id AND pm.status = 'active') AS premium
+        public.premium_is_active(ss.user_id) AS premium
       FROM saved_searches ss
       WHERE ss.status = 'active' ${filtro}
         AND EXISTS (

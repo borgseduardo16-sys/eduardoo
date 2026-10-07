@@ -33,7 +33,7 @@ import postgres from 'postgres';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { computeBookingAmounts } from '../src/lib/money';
 import { startTestbed, type Testbed } from './testbed/server';
-import { prepararAnuncio } from './lib/fixtures';
+import { prepararAnuncio, darPremium, tirarPremium, limparPremium } from './lib/fixtures';
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error('DATABASE_URL nao definida.');
@@ -545,9 +545,9 @@ async function main() {
   // estão disponíveis para alugar agora, os mesmos que aparecem logo abaixo.
   expect('espaços disponíveis contados do banco (o alugado fica de fora)', pub?.activeSpacesCount, 2);
   expect('sem plano ativo, nenhum indicador Premium', pub?.isPremium, false);
-  await sql`INSERT INTO premium_memberships (user_id, status, source) VALUES (${donoId}, 'active', 'admin_grant')`;
+  await darPremium(sql, donoId);
   expect('Premium só aparece quando o plano está ativo no banco', (await getPublicProfile(donoId))?.isPremium, true);
-  await sql`UPDATE premium_memberships SET status='cancelled', cancelled_at=now() WHERE user_id=${donoId}`;
+  await tirarPremium(sql, donoId);
   expect('Premium encerrado some do perfil', (await getPublicProfile(donoId))?.isPremium, false);
   const sinaisDono = buildTrustSignals({ createdAt: new Date(), emailVerified: false, phoneVerified: false, completedBookings: 4 });
   assert('Premium nunca entra nos sinais de confiança', !sinaisDono.some((x) => /premium/i.test(x.label)));
@@ -978,7 +978,7 @@ async function limpar() {
     await sql`DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE owner_id IN ${sql(todos)} OR renter_id IN ${sql(todos)})`;
     await sql`DELETE FROM conversations WHERE owner_id IN ${sql(todos)} OR renter_id IN ${sql(todos)}`;
     await sql`DELETE FROM promotions WHERE owner_id IN ${sql(todos)}`;
-    await sql`DELETE FROM premium_memberships WHERE user_id IN ${sql(todos)}`;
+    await limparPremium(sql, todos);
     await sql`DELETE FROM bookings WHERE owner_id IN ${sql(todos)} OR renter_id IN ${sql(todos)}`;
     await sql`DELETE FROM spaces WHERE owner_id IN ${sql(todos)}`;
     await sql.begin(async (tx) => {

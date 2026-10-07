@@ -23,7 +23,8 @@ import { SiteFooter } from '@/components/layout/site-footer';
 import { OwnerSubnav } from '@/components/layout/owner-subnav';
 import { SpaceCardActions } from '@/components/anunciar/space-card-actions';
 import { PromotionBadge } from '@/components/promotions/promotion-badge';
-import { getMonthlyBenefitUsage, getActivePromotionsForSpaces } from '@/lib/promotions/queries';
+import { getActivePromotionsForSpaces } from '@/lib/promotions/queries';
+import { getBenefitUsage } from '@/lib/premium/queries';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -58,7 +59,7 @@ export default async function MeusEspacosPage({
   const [spaces, contagem, benefitUsage, [perfil]] = await Promise.all([
     listOwnerSpaces(user.id, ativo.status ? [...ativo.status] : undefined),
     countOwnerSpacesByStatus(user.id),
-    getMonthlyBenefitUsage(user.id),
+    getBenefitUsage(user.id),
     db.select({ cpfCnpj: profiles.cpfCnpj }).from(profiles).where(eq(profiles.id, user.id)).limit(1),
   ]);
 

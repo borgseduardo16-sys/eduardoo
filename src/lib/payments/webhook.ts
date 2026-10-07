@@ -23,6 +23,7 @@ import { PAYMENT_WINDOW_MINUTES } from '@/lib/bookings/payment-window';
 import { formatDateShort } from '@/lib/bookings/format';
 import { brDate, brTime } from '@/lib/time';
 import { handleDepositEvent } from './deposits';
+import { EVENTOS_SO_PREMIUM, findPremiumTarget, handlePremiumEvent } from '@/lib/premium/webhook';
 
 const { PostgresError } = postgres;
 
@@ -124,12 +125,40 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
         return { ok: true, reason: 'evento ja processado antes (idempotencia)' };
       }
 
-      if (!EVENTOS_TRATADOS.has(event)) {
+      const soPremium = EVENTOS_SO_PREMIUM.has(event);
+      if (!EVENTOS_TRATADOS.has(event) && !soPremium) {
         await tx
           .update(webhookEvents)
           .set({ status: 'ignored', processedAt: new Date() })
           .where(eq(webhookEvents.id, claimed.id));
         return { ok: true, reason: `evento "${event}" reconhecido mas nao tratado por esta versao` };
+      }
+
+      /*
+       * Premium (Etapa 2): a assinatura do Premium é PRÓPRIA — outra
+       * recorrência no Asaas, sem split, sem reserva. Olhamos primeiro
+       * (duas buscas por índice) para que a cobrança do Premium nunca caia
+       * nas rotas das locações. Sem linha nossa e sem assinatura conhecida,
+       * o evento segue o caminho de sempre.
+       */
+      const idAssinatura = typeof payload.payment?.subscription === 'string' ? payload.payment.subscription : null;
+      const alvoPremium = await findPremiumTarget(tx, providerPaymentId, idAssinatura);
+      if (alvoPremium.userId) {
+        pushJobs = await handlePremiumEvent(tx, event, providerPaymentId, alvoPremium, payload);
+
+        await tx
+          .update(webhookEvents)
+          .set({ status: 'processed', processedAt: new Date() })
+          .where(eq(webhookEvents.id, claimed.id));
+
+        return { ok: true };
+      }
+      if (soPremium) {
+        await tx
+          .update(webhookEvents)
+          .set({ status: 'ignored', processedAt: new Date(), lastError: 'evento tratado so para cobrancas do Premium' })
+          .where(eq(webhookEvents.id, claimed.id));
+        return { ok: true, reason: `evento "${event}" so e tratado para cobrancas do Premium` };
       }
 
       const [pagamento] = await tx
@@ -164,7 +193,6 @@ export async function processAsaasWebhook(payload: AsaasWebhookPayload): Promise
        * o mesmo caminho de qualquer cobrança. Assinatura desconhecida cai no
        * "ignorado" lá embaixo — nada é criado a partir de um id que não é nosso.
        */
-      const idAssinatura = typeof payload.payment?.subscription === 'string' ? payload.payment.subscription : null;
       if (idAssinatura) {
         const [assinatura] = await tx
           .select()

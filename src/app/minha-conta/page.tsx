@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { requireUser } from '@/lib/auth/dal';
 import { signOutAction } from '@/lib/auth/actions';
-import { isPremium } from '@/lib/promotions/queries';
+import { isPremium } from '@/lib/premium/queries';
 import { isIntegrationConfigured } from '@/lib/env';
 import { getOwnProfileForEdit } from '@/lib/profiles/queries';
 import { getVerificationOverview } from '@/lib/verification/queries';
@@ -219,8 +219,8 @@ export default async function MinhaContaPage({
               titulo={premium ? 'Você é Membro Premium' : 'Conheça o Premium'}
               texto={
                 premium
-                  ? 'Veja seus Destaques e Turbo disponíveis este mês.'
-                  : 'Destaques e Turbo gratuitos todo mês para seus anúncios.'
+                  ? 'Veja sua assinatura e os Destaques e Turbo disponíveis neste ciclo.'
+                  : 'Destaques e Turbo a cada período pago, alcance ampliado no mapa e mais.'
               }
             />
             <Atalho href="/suporte" icon={LifeBuoy} titulo="Ajuda" texto="Dúvidas, problemas com uma reserva ou pagamento." />

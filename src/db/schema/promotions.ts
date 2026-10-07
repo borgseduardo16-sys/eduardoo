@@ -14,12 +14,11 @@ import {
   promotionType,
   promotionStatus,
   promotionSource,
-  premiumMembershipStatus,
-  premiumMembershipSource,
   paymentStatus,
 } from './enums';
 import { profiles } from './users';
 import { spaces } from './spaces';
+import { premiumCycles } from './premium';
 
 /**
  * Promocao de um anuncio (Destaque ou Turbo).
@@ -51,6 +50,15 @@ export const promotions = pgTable(
     /** Id da transacao no gateway, quando vier de compra avulsa. NULL hoje sempre. */
     transactionId: text('transaction_id'),
 
+    /**
+     * Ciclo do Premium que financiou o beneficio (`source = 'premium_benefit'`):
+     * o limite de 2 Destaques e 1 Turbo vale POR CICLO PAGO, nao por mes do
+     * calendario. A trava `promotions_guard_premium_quota` (migracao 0034)
+     * confere, no INSERT, que o ciclo e do dono, esta vigente e ainda tem saldo.
+     * Promocoes antigas (mes-calendario, antes da 0034) ficam com NULL.
+     */
+    premiumCycleId: uuid('premium_cycle_id').references(() => premiumCycles.id, { onDelete: 'restrict' }),
+
     startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
@@ -70,6 +78,8 @@ export const promotions = pgTable(
     index('promotions_owner_period_idx').on(t.ownerId, t.type, t.source, t.createdAt),
     /** Varredura preguicosa de promocao vencida (mesmo padrao de bookings expirados). */
     index('promotions_status_expires_idx').on(t.status, t.expiresAt),
+    /** Saldo do ciclo: quantas promocoes de cada tipo o Premium ja usou naquele ciclo. */
+    index('promotions_premium_cycle_idx').on(t.premiumCycleId, t.type),
 
     /**
      * Um anuncio nao pode ter mais de uma promocao vigente ao mesmo tempo —
@@ -84,44 +94,6 @@ export const promotions = pgTable(
     check('promotions_expires_after_started', sql`${t.expiresAt} > ${t.startedAt}`),
     check(
       'promotions_cancelled_has_timestamp',
-      sql`(${t.status} <> 'cancelled') OR (${t.cancelledAt} IS NOT NULL)`,
-    ),
-  ],
-);
-
-/**
- * Assinatura Premium. 1:1 com `profiles` — por isso `userId` e a propria
- * chave primaria, em vez de um `id` proprio (mesmo raciocinio de `profiles`
- * estar ligada 1:1 a `auth.users` pelo mesmo uuid).
- *
- * Separada de `profiles` pelo mesmo motivo de `owner_payout_accounts`: tem
- * ciclo de vida proprio (concedida, cancelada) e vai crescer (plano, data de
- * renovacao) quando a assinatura paga for decidida — nao e um campo a mais
- * no perfil.
- */
-export const premiumMemberships = pgTable(
-  'premium_memberships',
-  {
-    userId: uuid('user_id')
-      .primaryKey()
-      .references(() => profiles.id, { onDelete: 'cascade' }),
-
-    status: premiumMembershipStatus('status').notNull().default('active'),
-    source: premiumMembershipSource('source').notNull().default('admin_grant'),
-
-    grantedBy: uuid('granted_by').references(() => profiles.id, { onDelete: 'set null' }),
-    grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
-
-    cancelledBy: uuid('cancelled_by').references(() => profiles.id, { onDelete: 'set null' }),
-    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
-
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index('premium_memberships_status_idx').on(t.status),
-    check(
-      'premium_memberships_cancelled_has_timestamp',
       sql`(${t.status} <> 'cancelled') OR (${t.cancelledAt} IS NOT NULL)`,
     ),
   ],
@@ -192,6 +164,3 @@ export const promotionPurchasesRelations = relations(promotionPurchases, ({ one 
   promotion: one(promotions, { fields: [promotionPurchases.promotionId], references: [promotions.id] }),
 }));
 
-export const premiumMembershipsRelations = relations(premiumMemberships, ({ one }) => ({
-  user: one(profiles, { fields: [premiumMemberships.userId], references: [profiles.id] }),
-}));

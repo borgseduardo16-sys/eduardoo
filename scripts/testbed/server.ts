@@ -85,6 +85,19 @@ export type AsaasStubPayment = {
   externalReference?: string | null;
 };
 
+/** Assinatura no dublê do Asaas — guarda o que o app mandou, para o teste conferir (valor, forma, split, referência). */
+export type AsaasStubSubscription = {
+  id: string;
+  status: string;
+  nextDueDate: string;
+  value: number;
+  customer: string;
+  billingType?: string;
+  cycle?: string;
+  externalReference?: string | null;
+  split?: { walletId: string; fixedValue?: number; percentualValue?: number }[] | null;
+};
+
 export type RequestLog = {
   at: number;
   method: string;
@@ -120,7 +133,7 @@ export type Testbed = {
   asaasSemChavePix: boolean;
   asaasCustomers: Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>;
   asaasSubaccounts: Map<string, { id: string; apiKey: string; walletId: string }>;
-  asaasSubscriptions: Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>;
+  asaasSubscriptions: Map<string, AsaasStubSubscription>;
   asaasPayments: Map<string, AsaasStubPayment>;
   /** Chave que o testbed exige no header `authorization: Bearer <chave>` das chamadas Resend. */
   resendApiKey: string;
@@ -199,7 +212,7 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const redisStore = new Map<string, { count: number; expiresAt: number }>();
   const asaasCustomers = new Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>();
   const asaasSubaccounts = new Map<string, { id: string; apiKey: string; walletId: string }>();
-  const asaasSubscriptions = new Map<string, { id: string; status: string; nextDueDate: string; value: number; customer: string }>();
+  const asaasSubscriptions = new Map<string, AsaasStubSubscription>();
   const asaasPayments = new Map<string, AsaasStubPayment>();
   const emailsSent: { id: string; from: string; to: string[]; subject: string; html: string; text: string }[] = [];
   const twilio = {
@@ -546,7 +559,8 @@ export async function startTestbed(port = 0): Promise<Testbed> {
             }
           } else if (req.method === 'POST' && rota === '/v3/subscriptions') {
             const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
-              customer?: string; value?: number; nextDueDate?: string; billingType?: string;
+              customer?: string; value?: number; nextDueDate?: string; billingType?: string; cycle?: string;
+              externalReference?: string;
               split?: { walletId: string; fixedValue?: number; percentualValue?: number }[];
             };
             if (!corpo.customer || !corpo.value || !corpo.nextDueDate) {
@@ -561,9 +575,11 @@ export async function startTestbed(port = 0): Promise<Testbed> {
               status = json(res, 400, { errors: [{ code: 'invalid_wallet', description: 'walletId do split nao existe' }] });
             } else {
               const subId = `sub_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
-              const assinatura = {
+              const assinatura: AsaasStubSubscription = {
                 id: subId, status: 'ACTIVE', nextDueDate: corpo.nextDueDate,
                 value: corpo.value, customer: corpo.customer,
+                billingType: corpo.billingType, cycle: corpo.cycle,
+                externalReference: corpo.externalReference ?? null, split: corpo.split ?? null,
               };
               asaasSubscriptions.set(subId, assinatura);
 
@@ -573,6 +589,8 @@ export async function startTestbed(port = 0): Promise<Testbed> {
                 id: payId, status: 'PENDING', value: corpo.value, netValue: null,
                 invoiceUrl: `http://127.0.0.1/fake-invoice/${payId}`, dueDate: corpo.nextDueDate,
                 refundedCents: 0, subscription: subId,
+                billingType: corpo.billingType, externalReference: corpo.externalReference ?? null,
+                split: corpo.split ?? null,
               });
 
               status = json(res, 200, { ...assinatura, firstPaymentId: payId });

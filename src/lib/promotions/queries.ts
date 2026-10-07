@@ -1,14 +1,14 @@
 import 'server-only';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { promotions, premiumMemberships, spaces, promotionPurchases } from '@/db/schema';
+import { promotions, spaces, promotionPurchases } from '@/db/schema';
 import { latOf, lngOf } from '@/db/schema/_types';
 import { upcomingBlocksExpr } from '@/lib/spaces/sql';
-import { monthlyBenefitLimit, featuredSectionLimit } from './settings';
+import { featuredSectionLimit } from './settings';
 import { hasSearchContext, compatibilityScoreExpr, sameCityAsSearchExpr, type CompatibilityContext } from './compatibility';
 
 /**
- * Leitura de promocoes e assinatura Premium.
+ * Leitura de promocoes. (O Premium — ciclos, saldo de beneficios — vive em src/lib/premium/queries.ts.)
  *
  * Mesma separacao do resto do app: nenhuma consulta aqui confia em nada
  * vindo do navegador alem de um id — quantidade usada, limite e vigencia
@@ -27,93 +27,6 @@ export async function expireStalePromotions(): Promise<number> {
     .where(and(eq(promotions.status, 'active'), sql`${promotions.expiresAt} <= now()`))
     .returning({ id: promotions.id });
   return result.length;
-}
-
-// ---------------------------------------------------------------------------
-// Premium
-// ---------------------------------------------------------------------------
-
-export type PremiumMembership = {
-  status: 'active' | 'cancelled';
-  source: 'admin_grant' | 'subscription';
-  grantedAt: Date;
-};
-
-export async function getPremiumMembership(userId: string): Promise<PremiumMembership | null> {
-  const [row] = await db
-    .select({
-      status: premiumMemberships.status,
-      source: premiumMemberships.source,
-      grantedAt: premiumMemberships.grantedAt,
-    })
-    .from(premiumMemberships)
-    .where(eq(premiumMemberships.userId, userId))
-    .limit(1);
-  return row ?? null;
-}
-
-export async function isPremium(userId: string): Promise<boolean> {
-  const membership = await getPremiumMembership(userId);
-  return membership?.status === 'active';
-}
-
-export type BenefitUsage = {
-  premium: boolean;
-  periodStart: Date;
-  periodEnd: Date;
-  destaque: { used: number; limit: number; remaining: number };
-  turbo: { used: number; limit: number; remaining: number };
-};
-
-/**
- * Uso do beneficio mensal, contado direto em `promotions` — sem coluna de
- * saldo a parte. O periodo e o MES CALENDARIO (dia 1 a dia 1 do mes
- * seguinte), calculado no banco para nao correr risco de fuso divergente
- * entre o relogio do servidor e o do Postgres.
- */
-export async function getMonthlyBenefitUsage(ownerId: string): Promise<BenefitUsage> {
-  const [membership, [periodo], contagens, destaqueLimit, turboLimit] = await Promise.all([
-    getPremiumMembership(ownerId),
-    db.execute<{ period_start: Date; period_end: Date }>(
-      sql`SELECT date_trunc('month', now()) AS period_start, date_trunc('month', now()) + interval '1 month' AS period_end`,
-    ),
-    db
-      .select({ type: promotions.type, n: sql<number>`count(*)::int` })
-      .from(promotions)
-      .where(
-        and(
-          eq(promotions.ownerId, ownerId),
-          eq(promotions.source, 'premium_benefit'),
-          gte(promotions.createdAt, sql`date_trunc('month', now())`),
-        ),
-      )
-      .groupBy(promotions.type),
-    monthlyBenefitLimit('destaque'),
-    monthlyBenefitLimit('turbo'),
-  ]);
-
-  const destaqueUsed = contagens.find((c) => c.type === 'destaque')?.n ?? 0;
-  const turboUsed = contagens.find((c) => c.type === 'turbo')?.n ?? 0;
-
-  return {
-    premium: membership?.status === 'active',
-    // `db.execute` devolve o valor bruto do driver — uma string, nao um
-    // Date, apesar do generic dizer o contrario (e so um cast, nao converte
-    // nada em runtime). `new Date(...)` garante o tipo que `BenefitUsage`
-    // promete.
-    periodStart: new Date(periodo!.period_start),
-    periodEnd: new Date(periodo!.period_end),
-    destaque: {
-      used: destaqueUsed,
-      limit: destaqueLimit,
-      remaining: Math.max(0, destaqueLimit - destaqueUsed),
-    },
-    turbo: {
-      used: turboUsed,
-      limit: turboLimit,
-      remaining: Math.max(0, turboLimit - turboUsed),
-    },
-  };
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import 'server-only';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { reports, profiles, spaces, messages, premiumMemberships, bookings, bookingDeposits } from '@/db/schema';
+import { reports, profiles, spaces, messages, bookings, bookingDeposits } from '@/db/schema';
 
 /** Ordem de gravidade na fila — mais grave primeiro, sem depender da ordem alfabética do enum. */
 const severityRank = sql<number>`CASE ${reports.severity}
@@ -103,8 +103,13 @@ export type AdminAccountRow = {
   upheldReportCount: number;
   completedBookingsCount: number;
   createdAt: Date;
-  /** Mecanismo interino (Fase 13): so alcancado por concessao manual daqui. */
+  /** Premium AGORA: ciclo pago (ou concessao administrativa) vigente — `premium_is_active()`. */
   isPremium: boolean;
+  /** `subscription` (assinatura paga) ou `admin_grant` (modo teste/suporte); null fora do Premium. */
+  premiumSource: string | null;
+  premiumEndsAt: Date | string | null;
+  /** O Premium vigente da direito aos beneficios financeiros? */
+  premiumFinancial: boolean;
 };
 
 const accountColumns = {
@@ -116,7 +121,11 @@ const accountColumns = {
   upheldReportCount: profiles.upheldReportCount,
   completedBookingsCount: profiles.completedBookingsCount,
   createdAt: profiles.createdAt,
-  isPremium: sql<boolean>`${premiumMemberships.status} = 'active'`,
+  isPremium: sql<boolean>`public.premium_is_active(${profiles.id})`,
+  // `profiles.id` por extenso nas subconsultas: o Drizzle interpolaria só "id", que ali viraria o id do CICLO.
+  premiumSource: sql<string | null>`(SELECT c.source::text FROM premium_cycles c WHERE c.id = public.premium_current_cycle_id(profiles.id))`,
+  premiumEndsAt: sql<Date | string | null>`(SELECT COALESCE(c.ended_early_at, c.ends_at) FROM premium_cycles c WHERE c.id = public.premium_current_cycle_id(profiles.id))`,
+  premiumFinancial: sql<boolean>`public.premium_financial_active(${profiles.id})`,
 };
 
 /**
@@ -133,7 +142,6 @@ export async function searchAccounts(query: string, limit = 20): Promise<AdminAc
   return db
     .select(accountColumns)
     .from(profiles)
-    .leftJoin(premiumMemberships, eq(premiumMemberships.userId, profiles.id))
     .where(sql`${profiles.fullName} ILIKE ${'%' + termo + '%'}`)
     .orderBy(desc(profiles.createdAt))
     .limit(limit);
@@ -143,7 +151,6 @@ export async function getAccountById(id: string): Promise<AdminAccountRow | null
   const [row] = await db
     .select(accountColumns)
     .from(profiles)
-    .leftJoin(premiumMemberships, eq(premiumMemberships.userId, profiles.id))
     .where(eq(profiles.id, id))
     .limit(1);
   return row ?? null;

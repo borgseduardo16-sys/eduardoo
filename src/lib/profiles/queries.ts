@@ -66,10 +66,8 @@ export const getPublicProfile = cache(async (userId: string): Promise<PublicProf
         SELECT count(*)::int FROM spaces s
         WHERE s.owner_id = profiles.id AND s.status = 'published' AND s.deleted_at IS NULL
       )`,
-      isPremium: sql<boolean>`EXISTS (
-        SELECT 1 FROM premium_memberships pm
-        WHERE pm.user_id = profiles.id AND pm.status = 'active'
-      )`,
+      // Premium VIGENTE (ciclo pago ou concessão administrativa em vigor) — `premium_is_active()`.
+      isPremium: sql<boolean>`public.premium_is_active(profiles.id)`,
     })
     .from(profiles)
     .where(and(eq(profiles.id, userId), eq(profiles.status, 'active'), isNull(profiles.deletedAt)))

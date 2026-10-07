@@ -464,9 +464,7 @@ export const getPublicSpaceBySlug = cache(async (slug: string) => {
           SELECT count(*)::int FROM spaces s2
           WHERE s2.owner_id = profiles.id AND s2.status = 'published' AND s2.deleted_at IS NULL
         )`,
-        isPremium: sql<boolean>`EXISTS (
-          SELECT 1 FROM premium_memberships pm WHERE pm.user_id = profiles.id AND pm.status = 'active'
-        )`,
+        isPremium: sql<boolean>`public.premium_is_active(profiles.id)`,
         // Dado interno de moderação: só reforça a recomendação de visita,
         // nunca vira texto na tela (ver `underReview` em safety/trust.ts).
         // Mesmo limite que a moderação usa, lido de platform_settings.

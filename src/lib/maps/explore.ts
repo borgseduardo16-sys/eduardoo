@@ -7,6 +7,7 @@ import { todayInSaoPaulo } from '@/lib/dates';
 import { startPossibleOn } from '@/lib/spaces/queries';
 import { categoryOfType, typesOfCategories, type MapCategoryKey } from '@/lib/spaces/categories';
 import { signImagePaths } from '@/lib/storage/signed-urls';
+import { premiumMapReach } from '@/lib/premium/settings';
 import {
   MAX_INDIVIDUAL_PINS,
   MAX_OUTSIDE_PINS,
@@ -31,10 +32,20 @@ import {
  *     tem tamanho limitado, não importa quantos anúncios existam na área.
  *
  *  3. PERTO PRIMEIRO. Com um ponto de referência e um raio (padrão: 2 km),
- *     dentro do raio aparece tudo; fora dele só aparecem os Destaques e os
- *     espaços bem avaliados (poucos), e o resto fica de fora até a pessoa pedir
- *     "qualquer distância". O raio filtra, não ordena: nada de anúncio longe
- *     tomando o lugar de um próximo.
+ *     dentro do raio aparece tudo; fora dele só aparecem, nesta ordem, os Turbo,
+ *     os Destaques, os anúncios de assinantes Premium (alcance ampliado, abaixo)
+ *     e os espaços bem avaliados (poucos), e o resto fica de fora até a pessoa
+ *     pedir "qualquer distância". O raio filtra, não ordena: nada de anúncio
+ *     longe tomando o lugar de um próximo.
+ *
+ *  4. ALCANCE AMPLIADO DO PREMIUM. O anúncio de quem é Premium (ciclo pago
+ *     vigente) pode aparecer até `premium.map_extra_radius_m` (10 km) ALÉM do
+ *     raio, no máximo `premium.map_max_outside_pins` (5) individuais, sempre
+ *     depois de Turbo e Destaque, e SEM rótulo: não é "Destaque", não finge ser
+ *     Turbo — é um anúncio normal (`promotion: null`). Respeita tudo que vale
+ *     para os demais: enquadramento, preço, categoria e disponibilidade.
+ *     Ele nunca entra nos círculos de agrupamento: é um dos poucos individuais
+ *     fora do raio, como o Destaque.
  */
 
 export type ExplorePin = {
@@ -68,12 +79,21 @@ export type ExploreResult = {
   clusters: ExploreCluster[];
   /** Espaços que cumprem os filtros dentro do raio (ou na área toda, sem raio). */
   total: number;
-  /** Quantos Destaques/bem avaliados aparecem fora do raio. */
+  /** Quantos Turbo/Destaques/bem avaliados aparecem fora do raio. */
   outsideShown: number;
+  /** Quantos anúncios aparecem fora do raio só pelo alcance ampliado (sem rótulo na tela). */
+  reachShown: number;
   radiusMeters: number | null;
 };
 
 const promotedExpr = sql<boolean>`EXISTS (SELECT 1 FROM promotions p WHERE p.space_id = spaces.id AND p.status = 'active')`;
+/** Turbo vale mais que Destaque; sem promoção, zero. */
+const promotionRankExpr = sql<number>`COALESCE((
+  SELECT CASE p.type WHEN 'turbo' THEN 2 WHEN 'destaque' THEN 1 ELSE 0 END
+  FROM promotions p WHERE p.space_id = spaces.id AND p.status = 'active' LIMIT 1
+), 0)`;
+/** O dono do anúncio é Premium AGORA (ciclo pago vigente, relógio do banco). */
+const ownerPremiumExpr = sql<boolean>`public.premium_is_active(spaces.owner_id)`;
 /** "Relevante" fora do raio: boa nota com um mínimo de avaliações (uma nota 5 sozinha não conta). */
 const relevantExpr = sql<boolean>`(${spaces.ratingCount} >= 3 AND ${spaces.ratingAvg} >= 4.5)`;
 
@@ -197,25 +217,61 @@ export async function exploreSpaces(q: ExploreQuery): Promise<ExploreResult> {
     }
   }
 
-  // Fora do raio: só Destaques e bem avaliados, poucos.
+  // Fora do raio: Turbo e Destaques primeiro, depois os anúncios Premium (alcance ampliado) e
+  // por último os bem avaliados — poucos de cada.
   let outsideShown = 0;
+  let reachShown = 0;
   if (comRaio) {
     const fora = await db
       .select(pinColumns)
       .from(spaces)
       .where(and(...base, sql`NOT (${near})`, or(promotedExpr, relevantExpr)))
-      .orderBy(desc(promotedExpr), sql`${spaces.ratingAvg} DESC NULLS LAST`, distancia)
+      .orderBy(desc(promotionRankExpr), sql`${spaces.ratingAvg} DESC NULLS LAST`, distancia)
       .limit(MAX_OUTSIDE_PINS);
     const jaTem = new Set(pins.map((p) => p.id));
-    for (const l of fora) {
-      if (!jaTem.has(l.id)) {
-        pins.push(toPin(l, true));
-        outsideShown += 1;
+    const foraNovos = fora.filter((l) => !jaTem.has(l.id));
+    for (const l of foraNovos.filter((x) => x.promotion != null)) {
+      pins.push(toPin(l, true));
+      jaTem.add(l.id);
+      outsideShown += 1;
+    }
+
+    // Alcance ampliado: do raio até raio + 10 km, só dono Premium, os mais próximos primeiro.
+    const { extraRadiusM, maxOutsidePins } = await premiumMapReach();
+    if (maxOutsidePins > 0 && extraRadiusM > 0) {
+      const ampliados = await db
+        .select(pinColumns)
+        .from(spaces)
+        .where(
+          and(
+            ...base,
+            sql`NOT (${near})`,
+            withinMeters(spaces.approxLocation, q.center!, q.radiusMeters! + extraRadiusM),
+            sql`NOT ${promotedExpr}`,
+            ownerPremiumExpr,
+          ),
+        )
+        .orderBy(distancia)
+        .limit(maxOutsidePins + jaTem.size);
+      for (const l of ampliados) {
+        if (reachShown >= maxOutsidePins) break;
+        if (jaTem.has(l.id)) continue;
+        // Anúncio normal: sem promoção, sem rótulo — só a posição diz que veio do alcance ampliado.
+        pins.push(toPin({ ...l, promotion: null }, true));
+        jaTem.add(l.id);
+        reachShown += 1;
       }
+    }
+
+    for (const l of foraNovos.filter((x) => x.promotion == null)) {
+      if (jaTem.has(l.id)) continue;
+      pins.push(toPin(l, true));
+      jaTem.add(l.id);
+      outsideShown += 1;
     }
   }
 
-  return { pins, clusters, total, outsideShown, radiusMeters: comRaio ? q.radiusMeters : null };
+  return { pins, clusters, total, outsideShown, reachShown, radiusMeters: comRaio ? q.radiusMeters : null };
 }
 
 // ---------------------------------------------------------------------------

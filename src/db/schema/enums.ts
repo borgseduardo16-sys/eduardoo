@@ -397,19 +397,32 @@ export const promotionStatus = pgEnum('promotion_status', [
 export const promotionSource = pgEnum('promotion_source', ['premium_benefit', 'purchase']);
 
 /**
- * Estado da assinatura Premium. Sem `expired` de proposito: enquanto o unico
- * jeito de virar Premium e o admin conceder manualmente (ver
- * `premiumMembershipSource`), nao existe uma data de renovacao real para
- * expirar sozinha — so `cancelled`, decidido por uma pessoa.
+ * Estado da assinatura Premium (resumo — quem diz se a pessoa E Premium agora
+ * sao os ciclos pagos, ver `premium_is_active()` e src/db/schema/premium.ts).
+ *   active          : tem (ou teve, ate a varredura) um periodo pago;
+ *   cancelled       : terminou por cancelamento ou revogacao;
+ *   pending_payment : assinatura criada, 1o pagamento ainda nao confirmado
+ *                     (NAO e Premium — Premium e pagamento confirmado);
+ *   expired         : o periodo pago acabou e nao houve renovacao confirmada.
+ * Os dois ultimos entram na migracao 0034 (valores novos de enum existente:
+ * nao sao usados como literal dentro da propria migracao).
  */
-export const premiumMembershipStatus = pgEnum('premium_membership_status', ['active', 'cancelled']);
+export const premiumMembershipStatus = pgEnum('premium_membership_status', [
+  'active',
+  'cancelled',
+  'pending_payment',
+  'expired',
+]);
 
 /**
  * Como a pessoa virou Premium.
- * `admin_grant`  : mecanismo interino de hoje — o admin concede pelo painel,
- *                  mesmo padrao de suspender/ativar conta (auditado, reversivel).
- * `subscription` : plano pago, ainda a definir. Existe aqui pronta para
- *                  quando esse fluxo for decidido, sem precisar de migracao nova.
+ * `subscription` : assinatura PAGA (R$ 119,90/mes, recorrencia propria no
+ *                  Asaas). E o caminho normal do produto.
+ * `admin_grant`  : MODO ADMINISTRATIVO/TESTE — a administracao concede por
+ *                  um numero de dias, para teste ou suporte. Nao e gratis
+ *                  "de verdade": nao recebe os beneficios financeiros
+ *                  (taxa reduzida, primeiro mes) a menos que a concessao
+ *                  marque o teste financeiro de proposito.
  */
 export const premiumMembershipSource = pgEnum('premium_membership_source', [
   'admin_grant',

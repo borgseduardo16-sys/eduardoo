@@ -65,7 +65,7 @@ export function ModalidadeCard({
 
       {beneficio !== null && !gratisDisponivel && (
         <p className="text-[0.75rem] text-[var(--content-subtle)]">
-          Benefício grátis do mês já usado — comprar continua disponível.
+          Benefício grátis deste ciclo do Premium já usado — comprar continua disponível.
         </p>
       )}
     </div>
