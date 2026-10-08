@@ -133,6 +133,9 @@ export type Testbed = {
   asaasSemChavePix: boolean;
   asaasCustomers: Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>;
   asaasSubaccounts: Map<string, { id: string; apiKey: string; walletId: string }>;
+  asaasTransfers: Map<string, { id: string; value: number; walletId: string; externalReference: string | null; status: string }>;
+  /** Saldo da conta principal do dublê, em reais (ajustável pelos testes). */
+  asaasBalance: { value: number };
   asaasSubscriptions: Map<string, AsaasStubSubscription>;
   asaasPayments: Map<string, AsaasStubPayment>;
   /** Chave que o testbed exige no header `authorization: Bearer <chave>` das chamadas Resend. */
@@ -212,6 +215,8 @@ export async function startTestbed(port = 0): Promise<Testbed> {
   const redisStore = new Map<string, { count: number; expiresAt: number }>();
   const asaasCustomers = new Map<string, { id: string; name: string; cpfCnpj: string; email: string | null }>();
   const asaasSubaccounts = new Map<string, { id: string; apiKey: string; walletId: string }>();
+  const asaasTransfers = new Map<string, { id: string; value: number; walletId: string; externalReference: string | null; status: string }>();
+  const asaasBalance = { value: 10000 };
   const asaasSubscriptions = new Map<string, AsaasStubSubscription>();
   const asaasPayments = new Map<string, AsaasStubPayment>();
   const emailsSent: { id: string; from: string; to: string[]; subject: string; html: string; text: string }[] = [];
@@ -649,15 +654,39 @@ export async function startTestbed(port = 0): Promise<Testbed> {
             status = pagamento
               ? json(res, 200, pagamento)
               : json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+          } else if (req.method === 'GET' && rota === '/v3/finance/balance') {
+            status = json(res, 200, { balance: asaasBalance.value });
+          } else if (req.method === 'POST' && rota === '/v3/transfers') {
+            // DUBLÊ: aceita transferência para carteira existente. O Asaas real pode exigir validação por webhook.
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { value?: number; walletId?: string; externalReference?: string };
+            if (!corpo.value || !corpo.walletId || !walletExiste(corpo.walletId)) {
+              status = json(res, 400, { errors: [{ code: 'invalid_transfer', description: 'value e walletId existente sao obrigatorios' }] });
+            } else if (corpo.value * 100 > asaasBalance.value * 100) {
+              status = json(res, 400, { errors: [{ code: 'insufficient_balance', description: 'saldo insuficiente' }] });
+            } else {
+              const id = `tra_${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+              asaasBalance.value = Math.round((asaasBalance.value - corpo.value) * 100) / 100;
+              const t = { id, value: corpo.value, walletId: corpo.walletId, externalReference: corpo.externalReference ?? null, status: 'PENDING' };
+              asaasTransfers.set(id, t);
+              status = json(res, 200, t);
+            }
           } else if (req.method === 'PUT' && /^\/v3\/payments\/[^/]+$/.test(rota)) {
             // Troca a forma de pagamento da MESMA cobrança (só enquanto não foi paga).
             const id = rota.split('/').pop()!;
             const pagamento = asaasPayments.get(id);
-            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as { billingType?: string };
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+              billingType?: string; value?: number; split?: { walletId: string; fixedValue?: number }[];
+            };
             if (!pagamento || pagamento.deleted) {
               status = json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
             } else if (!['PENDING', 'OVERDUE'].includes(pagamento.status)) {
               status = json(res, 400, { errors: [{ code: 'invalid_action', description: 'So e possivel alterar cobrancas aguardando pagamento ou vencidas.' }] });
+            } else if (corpo.value !== undefined && !corpo.billingType) {
+              // DUBLÊ (não é o Asaas): aceita trocar valor e split da cobrança pendente. Se o Asaas real recusar isto,
+              // é exatamente a limitação que o sandbox precisa revelar — ver docs/PREMIUM-BENEFICIO.md.
+              const atualizado = { ...pagamento, value: corpo.value, split: corpo.split ?? null };
+              asaasPayments.set(id, atualizado);
+              status = json(res, 200, atualizado);
             } else if (!corpo.billingType || !['PIX', 'CREDIT_CARD', 'BOLETO', 'UNDEFINED'].includes(corpo.billingType)) {
               status = json(res, 400, { errors: [{ code: 'invalid_billingType', description: 'billingType invalido' }] });
             } else {
@@ -918,6 +947,8 @@ export async function startTestbed(port = 0): Promise<Testbed> {
     },
     asaasCustomers,
     asaasSubaccounts,
+    asaasTransfers,
+    asaasBalance,
     asaasSubscriptions,
     asaasPayments,
     resendApiKey: estado.resendApiKey,

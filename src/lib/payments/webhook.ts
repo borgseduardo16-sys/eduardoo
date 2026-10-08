@@ -16,6 +16,7 @@ import {
   promotions,
   bookingDeposits,
 } from '@/db/schema';
+import { consumeBenefitOnPayment } from '@/lib/premium/benefit';
 import { platformNetCents } from '@/lib/money';
 import { insertNotification, insertNotifications, flushPushJobs, type PushJob } from '@/lib/notifications/dispatch';
 import { postAccessInstructions } from '@/lib/messaging/system';
@@ -607,7 +608,8 @@ async function handleReceived(
 
   const netPlataformaCents = tarifaGatewayCents !== null
     ? platformNetCents(
-        { totalChargedCents: booking.totalChargedCents, ownerPayoutCents: booking.ownerPayoutCents },
+        // O valor realmente cobrado: igual ao total da locação, exceto na 1ª cobrança com o benefício do Premium.
+        { totalChargedCents: valorBrutoCents, ownerPayoutCents: booking.ownerPayoutCents },
         tarifaGatewayCents,
       )
     : null;
@@ -659,6 +661,15 @@ async function handleReceived(
     console.error(`[asaas webhook] proprietario ${booking.ownerId} sem carteira cadastrada — repasse do pagamento ${pagamento.id} nao registrado`);
   }
 
+  // Benefício do primeiro mês (atrás de feature flag): a cobrança com abatimento foi recebida — consome o
+  // direito e enfileira a transferência da plataforma ao proprietário. Sem benefício reservado, nada acontece.
+  const beneficio = estornada
+    ? null
+    : await consumeBenefitOnPayment(tx, {
+        providerPaymentId: pagamento.providerPaymentId,
+        destinationWalletId: contaDoDono?.providerWalletId ?? null,
+      });
+
   if (tarifaGatewayCents !== null) {
     /*
      * As tres linhas sao do ponto de vista da PLATAFORMA (userId null): o que
@@ -681,6 +692,7 @@ async function handleReceived(
         ? []
         : [{
             type: 'owner_payout' as const, bookingId: booking.id, paymentId: pagamento.id, payoutId,
+            premiumBenefitId: beneficio?.benefitId ?? null,
             userId: null, amountCents: -booking.ownerPayoutCents, description: 'Repasse ao proprietario',
           }]),
     ]);

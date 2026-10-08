@@ -1907,6 +1907,24 @@ async function main() {
         'bookings_owner_fee_allowed');
       await fecha(pendente!.id);
     }
+
+    console.log('\n\x1b[1m19. Benefício do primeiro mês — atrás de feature flag (migração 0036)\x1b[0m');
+    {
+      const conf4 = new Map((await sql<{ key: string; value: unknown }[]>`
+        SELECT key, value FROM platform_settings WHERE key LIKE 'premium.first_month%' OR key IN ('premium.card_hold_days', 'premium.benefit_min_charge_cents')`).map((r) => [r.key, r.value]));
+      expectEqual('a feature flag nasce DESLIGADA (0)', Number(conf4.get('premium.first_month_benefit_enabled')), 0);
+      expectEqual('teto de R$ 100, carência do cartão de 7 dias, mínimo do gateway de R$ 5',
+        [conf4.get('premium.first_month_benefit_max_cents'), conf4.get('premium.card_hold_days'), conf4.get('premium.benefit_min_charge_cents')].map(Number), [10000, 7, 500]);
+      const rls = await sql<{ relname: string }[]>`
+        SELECT relname FROM pg_class WHERE relnamespace = 'public'::regnamespace
+           AND relname IN ('premium_benefits', 'platform_transfers') AND NOT relrowsecurity`;
+      expectEqual('as tabelas do benefício e da fila de transferências têm RLS ligado', rls.map((r) => r.relname), []);
+      await mustReject('com a flag desligada o banco recusa criar benefício',
+        () => sql`INSERT INTO premium_benefits (cycle_id, user_id, identity_hash, period_key, booking_id, max_cents, benefit_cents, charge_total_cents, payer_pays_cents, owner_payout_cents)
+                  VALUES (${crypto.randomUUID()}, ${renterId}, 'h', '2026-10', ${bookingId}, 10000, 10000, 30900, 20900, 29100)`, 'premium_benefits_flag_off');
+      const [exp] = await sql<{ eligible_cycles: number }[]>`SELECT * FROM public.premium_benefit_exposure()`;
+      expectEqual('a função de exposição responde', typeof exp!.eligible_cycles, 'number');
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.

@@ -14,6 +14,7 @@ import {
   auditLogs,
 } from '@/db/schema';
 import { requireUserOrThrow } from '@/lib/auth/dal';
+import { decideFirstMonthBenefit, reserveBenefit } from '@/lib/premium/benefit';
 import * as asaas from './asaas';
 import { DOCUMENT_IN_OTHER_ACCOUNT, documentInUseByOther } from './document';
 import { ensureAsaasCustomer } from './customer';
@@ -222,6 +223,34 @@ export async function startCheckoutAction(
 
   const diaVencimento = Math.min(Number(nextDueDate.slice(8, 10)), 28);
 
+  /*
+   * Benefício do primeiro mês do Premium — ATRÁS DE FEATURE FLAG (desligada por padrão: `decide…` devolve
+   * `off` e nada abaixo roda). Com a flag ligada e o direito confirmado pelo banco, a PRIMEIRA cobrança
+   * passa a valer o que o locatário de fato paga e perde o split (a plataforma recebe e transfere o repasse
+   * inteiro ao proprietário pela fila `platform_transfers`). NÃO validado no Asaas real — ver
+   * docs/PREMIUM-BENEFICIO.md. Se o ajuste da cobrança falhar, a cobrança segue no valor cheio.
+   */
+  let beneficio: Extract<Awaited<ReturnType<typeof decideFirstMonthBenefit>>, { kind: 'apply' }> | null = null;
+  let valorPrimeiraCobrancaCents = booking.totalChargedCents;
+  let decisaoBeneficio: Awaited<ReturnType<typeof decideFirstMonthBenefit>> = { kind: 'off' };
+  try {
+    decisaoBeneficio = await decideFirstMonthBenefit({
+      renterId: user.id, cpfCnpj, monthlyRentCents: booking.monthlyRentCents, totalChargedCents: booking.totalChargedCents,
+    });
+  } catch (err) {
+    // Flag ligada sem configuração completa: o benefício não é aplicado (e o erro fica no log); a cobrança normal segue.
+    console.error('[checkout] benefício do Premium indisponível:', err instanceof Error ? err.message : err);
+  }
+  if (decisaoBeneficio.kind === 'apply') {
+    try {
+      await asaas.updatePaymentValueAndSplit(cobranca.id, { valueCents: decisaoBeneficio.result.payerPaysCents, split: [] });
+      beneficio = decisaoBeneficio;
+      valorPrimeiraCobrancaCents = decisaoBeneficio.result.payerPaysCents;
+    } catch (err) {
+      console.error('[checkout] benefício do Premium não aplicado — cobrança segue no valor cheio:', cobranca.id, err instanceof asaas.AsaasError ? err.body : err);
+    }
+  }
+
   // Pix: o QR da primeira mensalidade aparece no próprio app (sem sair para a fatura).
   let qr: asaas.AsaasPixQrCode | null = null;
   if (!cartao) {
@@ -256,7 +285,7 @@ export async function startCheckoutAction(
         providerPaymentId: cobranca.id,
         status: 'pending',
         method: cartao ? 'credit_card' : 'pix',
-        amountCents: booking.totalChargedCents,
+        amountCents: valorPrimeiraCobrancaCents,
         dueDate: nextDueDate,
         invoiceUrl: cobranca.invoiceUrl,
         pixPayload: qr?.payload ?? null,
@@ -272,6 +301,14 @@ export async function startCheckoutAction(
         .where(and(eq(bookings.id, booking.id), eq(bookings.status, 'approved')))
         .returning({ id: bookings.id });
       if (marcadas.length === 0) throw new Error('RESERVA_FORA_DO_PRAZO');
+
+      if (beneficio) {
+        await reserveBenefit(tx, {
+          decision: beneficio, renterId: user.id, cpfCnpj, bookingId: booking.id,
+          totalChargedCents: booking.totalChargedCents, ownerPayoutCents: booking.ownerPayoutCents,
+          providerPaymentId: cobranca.id,
+        });
+      }
 
       if (cobrancaCaucao) {
         await tx.insert(bookingDeposits).values({

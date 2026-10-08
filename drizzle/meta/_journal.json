@@ -253,6 +253,13 @@
       "when": 1791331653515,
       "tag": "0035_taxa_premium_proprietario",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791460156786,
+      "tag": "0036_premium_beneficio_primeiro_mes",
+      "breakpoints": true
     }
   ]
 }

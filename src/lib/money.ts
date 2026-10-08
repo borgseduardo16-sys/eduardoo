@@ -326,3 +326,45 @@ export function formatBRLShort(cents: number): string {
 export function formatBps(bps: number): string {
   return `${(bps / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
 }
+
+// ---------------------------------------------------------------------------
+// Benefício do primeiro mês do Premium (Etapa 2, Fase C — atrás de feature flag)
+// ---------------------------------------------------------------------------
+
+export type FirstMonthBenefitResult =
+  | { applied: true; benefitCents: number; payerPaysCents: number }
+  | {
+      applied: false;
+      /** `below_gateway_minimum`: o que sobraria cobrar fica abaixo do mínimo do gateway. */
+      reason: 'below_gateway_minimum';
+      payerPaysCents: number;
+    };
+
+/**
+ * Quanto do aluguel o benefício abate: min(teto, aluguel) — R$ 80 → R$ 80; R$ 100
+ * → R$ 100; R$ 300 → R$ 100. O benefício NUNCA passa do teto nem do aluguel (a
+ * taxa de serviço do locatário não é abatida), e NUNCA é aumentado para a
+ * cobrança restante alcançar o mínimo do gateway: se o restante ficaria abaixo
+ * dele, o benefício simplesmente não se aplica e a razão é devolvida para a tela
+ * explicar. Dinheiro em centavos inteiros.
+ */
+export function computeFirstMonthBenefit(input: {
+  monthlyRentCents: number;
+  totalChargedCents: number;
+  maxCents: number;
+  gatewayMinChargeCents: number;
+}): FirstMonthBenefitResult {
+  const { monthlyRentCents, totalChargedCents, maxCents, gatewayMinChargeCents } = input;
+  for (const v of [monthlyRentCents, totalChargedCents, maxCents, gatewayMinChargeCents]) {
+    if (!Number.isInteger(v) || v < 0) throw new InvalidAmountError('Valores do benefício precisam ser inteiros em centavos.');
+  }
+  if (monthlyRentCents <= 0 || totalChargedCents < monthlyRentCents) {
+    throw new InvalidAmountError('Valores do benefício inconsistentes com o aluguel.');
+  }
+  const benefitCents = Math.min(maxCents, monthlyRentCents);
+  const payerPaysCents = totalChargedCents - benefitCents;
+  if (benefitCents <= 0 || payerPaysCents < gatewayMinChargeCents) {
+    return { applied: false, reason: 'below_gateway_minimum', payerPaysCents: totalChargedCents };
+  }
+  return { applied: true, benefitCents, payerPaysCents };
+}

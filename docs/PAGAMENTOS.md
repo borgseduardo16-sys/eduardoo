@@ -308,3 +308,14 @@ mostrar o erro real.** Cada chamada ao Asaas passa por
 mensagem de que a integração não está configurada. Não há checkout falso, não
 há "pagamento simulado", não há tela de sucesso sem cobrança — a locação só
 fica ativa quando o **webhook do Asaas** confirma o pagamento.
+
+## Premium (Etapa 2) — o que muda no dinheiro
+
+- **Assinatura do Premium:** R$ 119,90/mês, recorrência PRÓPRIA no Asaas, **sem split** (receita da
+  plataforma; lançamentos `charge_captured`/`gateway_fee` com `premium_charge_id`, titular nulo).
+- **Taxa do proprietário Premium:** 2% (em vez de 3%) a partir de R$ 50 de aluguel; decidida no
+  servidor, congelada no aceite, conferida pelo banco. O split continua limitado ao líquido da cobrança
+  (por isso o piso). Taxa do locatário inalterada (3%).
+- **Benefício do primeiro mês (desligado):** a primeira cobrança do Premium locatário perde até
+  R$ 100 e o split; a plataforma transfere o repasse inteiro da conta principal. Ver
+  `docs/PREMIUM-BENEFICIO.md` — **nada disso foi validado no Asaas real**.

@@ -8,6 +8,7 @@ export * from './messaging';
 export * from './trust';
 export * from './system';
 export * from './premium';
+export * from './premium-benefit';
 export * from './promotions';
 export * from './quality';
 export * from './discovery';

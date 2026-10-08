@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 const ITENS = [
   { key: 'denuncias', href: '/admin/denuncias', label: 'Denúncias' },
   { key: 'usuarios', href: '/admin/usuarios', label: 'Usuários' },
+  { key: 'premium', href: '/admin/premium', label: 'Premium' },
 ] as const;
 
 /** Navegação do painel administrativo — mesmo padrão visual do OwnerSubnav. */

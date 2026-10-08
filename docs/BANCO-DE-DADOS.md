@@ -502,3 +502,13 @@ pnpm verify:integracoes                  # o app de verdade num navegador real
 
 Ele cria dados, tenta violar cada invariante, confirma que o banco recusa, e
 limpa tudo ao final.
+
+## Etapa 2 — Premium (migrações 0034 a 0036)
+
+- `0034`: `premium_memberships` (resumo), `premium_cycles` (período efetivamente pago; imutável),
+  `premium_charges`; funções `premium_is_active`, `premium_financial_active`; travas de cota por ciclo.
+- `0035`: taxas `fees.owner_fee_bps_premium` e `fees.premium_min_rent_cents`; gatilho
+  `bookings_guard_price_fee` (taxa só padrão ou reduzida com Premium financeiro vigente e aluguel ≥ piso).
+- `0036`: `premium_benefits`, `platform_transfers`, `premium_benefit_cycle_id()`,
+  `premium_benefit_exposure()`, gatilho `guard_premium_benefit` e a **flag desligada**
+  `premium.first_month_benefit_enabled`. Ver `docs/PREMIUM-BENEFICIO.md`.

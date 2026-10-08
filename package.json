@@ -17,7 +17,7 @@
     "postinstall": "node scripts/copy-maplibre-worker.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm build",
     "db:supabase-sql": "tsx scripts/build-supabase-setup.ts",
-    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts && tsx scripts/verify-images.ts && tsx scripts/verify-busca.ts && tsx scripts/verify-bookings.ts && tsx scripts/verify-payments.ts && tsx scripts/verify-messaging.ts && tsx scripts/verify-admin.ts && tsx scripts/verify-rate-limit.ts && tsx scripts/verify-promotions.ts && tsx scripts/verify-premium.ts && tsx scripts/verify-notifications.ts && tsx scripts/verify-confianca.ts && tsx scripts/verify-descoberta.ts && tsx scripts/verify-reservas.ts && tsx scripts/verify-audio.ts && tsx scripts/verify-mapa.ts && tsx scripts/verify-paridade.ts",
+    "verify": "tsx scripts/verify-schema.ts && tsx scripts/verify-safety.ts && tsx scripts/verify-spaces.ts && tsx scripts/verify-images.ts && tsx scripts/verify-busca.ts && tsx scripts/verify-bookings.ts && tsx scripts/verify-payments.ts && tsx scripts/verify-messaging.ts && tsx scripts/verify-admin.ts && tsx scripts/verify-rate-limit.ts && tsx scripts/verify-promotions.ts && tsx scripts/verify-premium.ts && tsx scripts/verify-beneficio.ts && tsx scripts/verify-notifications.ts && tsx scripts/verify-confianca.ts && tsx scripts/verify-descoberta.ts && tsx scripts/verify-reservas.ts && tsx scripts/verify-audio.ts && tsx scripts/verify-mapa.ts && tsx scripts/verify-paridade.ts",
     "verify:integracoes": "tsx scripts/verify-integracoes.ts",
     "verify:tudo": "pnpm verify && pnpm verify:integracoes",
     "check:producao": "tsx scripts/verify-producao.ts"

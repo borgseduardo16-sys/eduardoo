@@ -49,6 +49,20 @@ Produto real em construção (marketplace de espaços ociosos), não protótipo.
 - `unsafe-eval` no CSP só vale nas rotas de `ROTAS_COM_MAPA` (`next.config.ts`).
   `/mapa` não precisa, e o TESTE S confere.
 
+## Premium (leia `docs/PREMIUM-BENEFICIO.md` antes de mexer)
+
+- **Premium = pagamento confirmado.** "É Premium agora" = um ciclo pago cobrindo `now()` (relógio do
+  banco): `premium_is_active()`. Nunca olhe `status = 'active'` sozinho. Cancelar = não renovar; o
+  Premium vai até o fim do período já pago, sem reembolso proporcional.
+- Concessão do admin é **modo teste/suporte**: não dá benefício financeiro (taxa de 2%, R$ 100) a menos
+  que a concessão tenha a marca de teste financeiro (`premium_financial_active()`).
+- **Taxa do proprietário:** 3% → 2% só com Premium pago e aluguel ≥ R$ 50 (`fees.premium_min_rent_cents`).
+  Quem decide é `resolveBookingFees` (`src/lib/bookings/fees.ts`); congelada no aceite; o gatilho
+  `bookings_guard_price_fee` confere. A taxa do locatário não muda.
+- **Benefício do primeiro mês (até R$ 100) está atrás de feature flag DESLIGADA**
+  (`premium.first_month_benefit_enabled`). Não foi validado no Asaas real. Não ligue, não "conserte" por
+  suposição: se o sandbox contradisser algo, **pare e pergunte** (ver o documento acima).
+
 ## Ao mexer no banco
 
 - Alterou `src/db/schema/` → `pnpm db:generate` → revise o SQL gerado → `pnpm db:migrate`
@@ -64,7 +78,7 @@ pnpm typecheck && pnpm lint && pnpm build
 pnpm tsx scripts/verify-schema.ts
 ```
 
-Mexeu em locação, pagamento, chat ou mapa? Rode também `pnpm verify` (banco, sem
+Mexeu em locação, pagamento, Premium, chat ou mapa? Rode também `pnpm verify` (banco, sem
 navegador) e, para telas, `pnpm verify:integracoes` (Chromium contra o build de
 produção).
 

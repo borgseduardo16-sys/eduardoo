@@ -50,6 +50,8 @@ const baseSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
+  /** Segredo do HMAC que transforma CPF/CNPJ em identidade (benefício do Premium). Nunca vai ao navegador. */
+  IDENTITY_HASH_SECRET: z.string().optional(),
 });
 
 function parseEnv() {
@@ -115,6 +117,11 @@ const INTEGRATIONS = {
     label: 'Notificação push no navegador (Web Push/VAPID)',
     vars: ['NEXT_PUBLIC_VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY', 'VAPID_SUBJECT'],
     doc: 'docs/SETUP.md#12-vapid-notificacao-push-no-navegador',
+  },
+  identityHash: {
+    label: 'Identidade por hash (benefício de primeiro mês do Premium)',
+    vars: ['IDENTITY_HASH_SECRET'],
+    doc: 'docs/PREMIUM-BENEFICIO.md',
   },
   phoneVerification: {
     label: 'Verificação de telefone por SMS (Twilio Verify)',

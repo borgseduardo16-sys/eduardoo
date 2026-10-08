@@ -2514,7 +2514,7 @@ async function testeNAdmin() {
   ok('busca de usuarios encontra o alvo, com a reincidencia ja refletida');
 
   await pageAdmin.getByLabel('Status da conta').selectOption('suspended');
-  await pageAdmin.getByLabel('Motivo').fill('Assedio confirmado na denuncia acima.');
+  await pageAdmin.locator('textarea[name="statusReason"]').fill('Assedio confirmado na denuncia acima.');
   await pageAdmin.getByRole('button', { name: 'Salvar status' }).click();
   await pageAdmin.getByText('Status da conta atualizado.').waitFor({ timeout: 20_000 });
   ok('admin suspende a conta manualmente, pela interface');

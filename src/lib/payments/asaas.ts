@@ -361,3 +361,50 @@ export async function refundPayment(
     body: JSON.stringify(body),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Benefício do primeiro mês (Fase C) — NADA ABAIXO FOI VALIDADO NO ASAAS REAL.
+// Ver docs/PREMIUM-BENEFICIO.md e scripts/validar-asaas-beneficio.ts: antes de
+// ligar a feature flag, cada chamada precisa ser exercitada no sandbox e depois
+// na configuração real.
+// ---------------------------------------------------------------------------
+
+/** Saldo da conta PRINCIPAL (`GET /v3/finance/balance`). Só no servidor. */
+export async function getBalanceCents(): Promise<number> {
+  const r = await asaasFetch<{ balance: number }>('/finance/balance');
+  if (typeof r.balance !== 'number') throw new AsaasError(502, r, 'Resposta de saldo sem o campo "balance".');
+  return Math.round(r.balance * 100);
+}
+
+export type AsaasTransfer = { id: string; status?: string; value?: number };
+
+/**
+ * Transferência da conta principal para uma conta Asaas vinculada, pelo walletId
+ * (`POST /v3/transfers`). É operação crítica: o Asaas pode exigir validação —
+ * por webhook, que precisa ser habilitado pelo suporte (não vem ligado).
+ */
+export async function createTransferToWallet(input: {
+  walletId: string;
+  valueCents: number;
+  externalReference: string;
+}): Promise<AsaasTransfer> {
+  return asaasFetch<AsaasTransfer>('/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      value: input.valueCents / 100,
+      walletId: input.walletId,
+      externalReference: input.externalReference,
+    }),
+  });
+}
+
+/** Ajusta valor e split de uma cobrança que ainda não foi paga (`PUT /v3/payments/{id}`). */
+export async function updatePaymentValueAndSplit(
+  providerPaymentId: string,
+  input: { valueCents: number; split: AsaasSplitItem[] },
+): Promise<AsaasPayment> {
+  return asaasFetch<AsaasPayment>(`/payments/${encodeURIComponent(providerPaymentId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ value: input.valueCents / 100, split: input.split }),
+  });
+}

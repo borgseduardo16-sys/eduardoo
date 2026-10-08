@@ -149,8 +149,9 @@ mesmo hash — então dá no mesmo:
 
 | Arquivo | Migrações | O que traz | Para quem parou em |
 |---|---|---|---|
-| `supabase/atualizacao-0025.sql` | `0025` a `0033` | Fase 23, Parte 12 e o **modelo mensal por quantidade** (`0033`) | `0024` (a última confirmada no seu projeto, em 29/09) |
+| `supabase/atualizacao-0025.sql` | `0025` a `0036` | Fase 23, Parte 12, o **modelo mensal por quantidade** (`0033`) e o **Premium pago** (`0034` a `0036`) | `0024` (a última confirmada no seu projeto, em 29/09) |
 | `supabase/atualizacao-0033.sql` | `0033` | só o modelo mensal por quantidade, o bucket e as políticas do áudio | `0032` |
+| `supabase/atualizacao-0034.sql` | `0034` a `0036` | **Premium pago** (assinatura, ciclos), **taxa de 2% do proprietário** e o **benefício do primeiro mês** (desligado por feature flag) | `0033` |
 
 Cada arquivo parcial confere, antes de tudo, se a migração anterior à
 primeira dele já está no banco. Se não estiver, ele para ali **sem mudar
@@ -166,7 +167,7 @@ pnpm tsx scripts/build-supabase-setup.ts --desde 33
 *Verificado em 04/10/2026 (modelo mensal, migração `0033`):* num banco montado
 como o Supabase monta — PostGIS no schema `extensions`, schemas `auth` e
 `storage` já existentes e o SQL rodado por um papel **sem superusuário** — o
-`setup.sql` entra sem erro (34 de 34 migrações), cria o bucket `chat-audio` e as
+`setup.sql` entra sem erro (37 de 37 migrações), cria o bucket `chat-audio` e as
 duas políticas, e rodar de novo não faz nada. O schema resultante bate com o do
 Drizzle (`verify-paridade`, coluna por coluna, índice por índice, CHECK por
 CHECK), e as 101 checagens de locação (`verify-reservas`) passam nele. Também

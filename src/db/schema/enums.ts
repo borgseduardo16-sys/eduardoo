@@ -142,6 +142,9 @@ export const ledgerEntryType = pgEnum('ledger_entry_type', [
   'refund',
   'chargeback',
   'adjustment',
+  // --- Etapa 2, Fase C: benefício do primeiro mês (atrás de feature flag) ---
+  /** A plataforma financia o abatimento do Premium: transferência da conta principal ao proprietário. */
+  'premium_benefit_funded',
   // --- Fase 20: caução (proteção contra dano) ---
   /** Caução cobrada e confirmada — dinheiro em custódia, ainda de ninguém. */
   'deposit_charged',
