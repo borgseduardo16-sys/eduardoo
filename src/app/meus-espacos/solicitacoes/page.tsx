@@ -15,7 +15,9 @@ import {
 } from '@/lib/bookings/response-format';
 import { displayNameOr } from '@/lib/profiles/format';
 import { signImagePaths } from '@/lib/storage/signed-urls';
-import { formatBRL } from '@/lib/money';
+import { decideOwnerFee, formatBRL, formatBps, ownerNetFor } from '@/lib/money';
+import { loadFeePolicy, type FeePolicy } from '@/lib/bookings/fees';
+import { isPremiumFinancial } from '@/lib/premium/queries';
 import { addDaysToDate, brDate, formatBrDate } from '@/lib/time';
 import { bookingBadge, endReasonLabel, formatDateShort, formatDueDate } from '@/lib/bookings/format';
 import { formatDeadline } from '@/lib/bookings/deadlines';
@@ -53,6 +55,17 @@ const FILTROS = [
 ] as const;
 
 type Linha = Awaited<ReturnType<typeof listOwnerBookingRequests>>[number];
+
+/**
+ * Quanto o proprietário recebe por mês nesta locação. Depois do aceite é o valor CONGELADO. Enquanto o
+ * pedido está pendente, é o de AGORA: a taxa é decidida ao aceitar, com o Premium dele como estiver
+ * nesse instante — mostrar a conta feita no dia do pedido prometeria o que o aceite pode não gravar.
+ */
+function repasseDoCartao(s: Linha, politica: FeePolicy, premiumFinanceiro: boolean): { payoutCents: number; reduzida: boolean; bps: number | null } {
+  if (s.status !== 'requested') return { payoutCents: s.ownerPayoutCents, reduzida: false, bps: null };
+  const decisao = decideOwnerFee(s.monthlyRentCents, premiumFinanceiro, politica.owner);
+  return { payoutCents: ownerNetFor(s.monthlyRentCents, decisao.bps).netCents, reduzida: decisao.reduced, bps: decisao.bps };
+}
 
 /** Uma linha de texto sobre onde a locação está, com os prazos que importam ao proprietário. */
 function situacaoDoCartao(s: Linha, agora: Date, hoje: string): string | null {
@@ -94,13 +107,15 @@ export default async function SolicitacoesPage({
   const ativo = FILTROS.find((f) => f.key === filtro) ?? FILTROS[0];
   const page = parsePage(pagina);
 
-  const [linhas, pendentesTotal, minhasRespostas] = await Promise.all([
+  const [linhas, pendentesTotal, minhasRespostas, politicaTaxas, premiumFinanceiro] = await Promise.all([
     listOwnerBookingRequests(user.id, ativo.status ? ([...ativo.status] as BookingStatus[]) : undefined, {
       limit: PAGE_SIZE + 1,
       offset: (page - 1) * PAGE_SIZE,
     }),
     countOwnerPendingRequests(user.id),
     getOwnerResponseStats(user.id),
+    loadFeePolicy(),
+    isPremiumFinancial(user.id),
   ]);
   const solicitacoes = linhas.slice(0, PAGE_SIZE);
   const agora = new Date();
@@ -181,6 +196,7 @@ export default async function SolicitacoesPage({
               const info = bookingBadge(s, hoje);
               const situacao = situacaoDoCartao(s, agora, hoje);
               const semVaga = s.status === 'requested' && s.spaceQuantityAvailable <= 0;
+              const repasse = repasseDoCartao(s, politicaTaxas, premiumFinanceiro);
               return (
                 <li key={s.id} id={`reserva-${s.id}`} className="rounded-[var(--radius-card)] border p-4 space-y-3 scroll-mt-20">
                   <div className="flex gap-3">
@@ -213,8 +229,13 @@ export default async function SolicitacoesPage({
                         {displayNameOr(s.renterPublicName, 'Interessado')} · quer começar em {formatDateShort(s.startDate)} · pediu em {formatBrDate(s.requestedAt)}
                       </p>
                       <p className="text-[0.9375rem] font-medium tabular-nums">
-                        Você recebe {formatBRL(s.ownerPayoutCents)} por mês
-                        <span className="font-normal text-[var(--content-muted)]"> (aluguel {formatBRL(s.monthlyRentCents)}, já com a taxa de serviço)</span>
+                        Você recebe {formatBRL(repasse.payoutCents)} por mês
+                        <span className="font-normal text-[var(--content-muted)]">
+                          {' '}
+                          (aluguel {formatBRL(s.monthlyRentCents)}, já com a taxa de serviço
+                          {repasse.bps != null ? ` de ${formatBps(repasse.bps)}` : ''}
+                          {repasse.reduzida ? ', reduzida pelo Premium' : ''})
+                        </span>
                       </p>
                     </div>
                   </div>

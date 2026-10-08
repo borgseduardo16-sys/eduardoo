@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import { settingInt } from '@/lib/settings';
+import { loadFeePolicy } from '@/lib/bookings/fees';
+import { isPremiumFinancial } from '@/lib/premium/queries';
 import { loadDraftStep } from '@/lib/spaces/load-step';
 import { todayInSaoPaulo } from '@/lib/dates';
 import { WizardShell } from '@/components/anunciar/wizard-shell';
@@ -10,12 +12,13 @@ export const metadata: Metadata = { title: 'Como alugar · Anunciar' };
 /** As taxas e o mínimo vêm do banco: mudar a política não exige alterar código. */
 export default async function PrecoPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const [{ space }, minRent, ownerBps, renterBps] = await Promise.all([
+  const [{ space }, minRent, politica] = await Promise.all([
     loadDraftStep(id),
     settingInt('booking.min_rent_cents', 3500),
-    settingInt('fees.owner_fee_bps', 300),
-    settingInt('fees.renter_fee_bps', 300),
+    loadFeePolicy(),
   ]);
+  // Premium PAGO e vigente do dono do rascunho (loadDraftStep já garante que é de quem está logado).
+  const premiumFinanceiro = await isPremiumFinancial(space.ownerId);
 
   return (
     <WizardShell
@@ -34,8 +37,9 @@ export default async function PrecoPage({ params }: { params: Promise<{ id: stri
         }}
         today={todayInSaoPaulo()}
         minRentCents={minRent}
-        ownerFeeBps={ownerBps}
-        renterFeeBps={renterBps}
+        ownerFeePolicy={politica.owner}
+        premiumFinancial={premiumFinanceiro}
+        renterFeeBps={politica.renterFeeBps}
         occupied={space.quantityOffered - space.quantityAvailable}
       />
     </WizardShell>

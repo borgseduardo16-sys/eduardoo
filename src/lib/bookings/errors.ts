@@ -36,6 +36,10 @@ export function bookingRuleMessage(err: unknown): string | null {
       return 'O prazo para responder esta solicitação terminou.';
     case 'bookings_rent_matches_space':
       return 'O preço deste anúncio mudou agora há pouco. Confira o novo valor e tente de novo.';
+    case 'bookings_owner_fee_allowed':
+      return 'O Premium do proprietário ou a taxa de serviço mudou agora há pouco. Tente de novo.';
+    case 'bookings_owner_fee_matches_bps':
+      return 'Não foi possível calcular os valores deste anúncio agora.';
     case 'bookings_period_not_blocked':
       return 'O proprietário bloqueou o início de locações nessa data. Escolha outra data.';
     case 'bookings_one_live_per_renter_space':

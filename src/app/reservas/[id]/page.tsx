@@ -15,7 +15,9 @@ import { RenewalPanel } from '@/components/bookings/renewal-panel';
 import { isUuid } from '@/lib/profiles/queries';
 import { displayNameOr } from '@/lib/profiles/format';
 import { signImagePaths } from '@/lib/storage/signed-urls';
-import { formatBRL, formatBps } from '@/lib/money';
+import { decideOwnerFee, formatBRL, formatBps, ownerNetFor } from '@/lib/money';
+import { loadFeePolicy } from '@/lib/bookings/fees';
+import { isPremiumFinancial } from '@/lib/premium/queries';
 import { addDaysToDate, brDate, formatBrDateTime } from '@/lib/time';
 import { bookingBadge, endReasonLabel, formatDateShort, formatDueDate } from '@/lib/bookings/format';
 import { formatDeadline } from '@/lib/bookings/deadlines';
@@ -101,6 +103,22 @@ export default async function ReservaPage({
   ]);
 
   const pedidoAberto = pedidosEncerramento.find((r) => r.status === 'pending') ?? null;
+
+  // O proprietário que ainda não respondeu vê a taxa de AGORA (é a que o aceite vai gravar, com o Premium
+  // dele como estiver); depois do aceite, o que vale é o valor congelado da locação.
+  let taxaDoDonoBps = b.ownerFeeBps;
+  let repasseDoDono = { netCents: b.ownerPayoutCents, feeCents: b.ownerFeeCents };
+  let taxaReduzidaPeloPremium = false;
+  if (papel === 'owner') {
+    const politica = await loadFeePolicy();
+    taxaReduzidaPeloPremium = b.ownerFeeBps < politica.owner.standardBps;
+    if (b.status === 'requested') {
+      const decisao = decideOwnerFee(b.monthlyRentCents, await isPremiumFinancial(b.ownerId), politica.owner);
+      taxaDoDonoBps = decisao.bps;
+      repasseDoDono = ownerNetFor(b.monthlyRentCents, decisao.bps);
+      taxaReduzidaPeloPremium = decisao.reduced;
+    }
+  }
   const mostrarRenovacao = renovacao != null && ['active', 'past_due', 'ended'].includes(b.status);
 
   const selo = bookingBadge(b, hoje);
@@ -312,8 +330,11 @@ export default async function ReservaPage({
               </>
             ) : (
               <>
-                <Linha rotulo={`Taxa de serviço (${formatBps(b.ownerFeeBps)})`} valor={`− ${formatBRL(b.ownerFeeCents)}`} />
-                <Linha rotulo="Você recebe por mês" valor={formatBRL(b.ownerPayoutCents)} destaque />
+                <Linha
+                  rotulo={`Taxa de serviço (${formatBps(taxaDoDonoBps)}${taxaReduzidaPeloPremium ? ', reduzida pelo Premium' : ''})`}
+                  valor={`− ${formatBRL(repasseDoDono.feeCents)}`}
+                />
+                <Linha rotulo="Você recebe por mês" valor={formatBRL(repasseDoDono.netCents)} destaque />
               </>
             )}
             {['ended', 'expired', 'cancelled'].includes(b.status) && endReasonLabel(b.endReason, { status: b.status, viewer: papel }) && (

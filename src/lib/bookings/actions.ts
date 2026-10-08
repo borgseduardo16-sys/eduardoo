@@ -32,6 +32,7 @@ import { bookingRuleMessage, pgErrorFrom } from './errors';
 import { formatBookingDate, formatDateShort } from './format';
 import { formatDeadline } from './deadlines';
 import { processPaymentOutbox } from './maintenance';
+import { resolveBookingFees } from './fees';
 
 export type BookingActionState = {
   ok: boolean;
@@ -41,14 +42,6 @@ export type BookingActionState = {
 
 /** Recusa de negócio dentro de uma transação: vira mensagem para a pessoa, sem detalhe técnico. */
 class RegraDeNegocio extends Error {}
-
-async function currentFees() {
-  const [renterFeeBps, ownerFeeBps] = await Promise.all([
-    settingInt('fees.renter_fee_bps', 300),
-    settingInt('fees.owner_fee_bps', 300),
-  ]);
-  return { renterFeeBps, ownerFeeBps };
-}
 
 /**
  * Antes de olhar vagas de um anúncio, encerra o que já venceu nele: um pedido
@@ -157,7 +150,10 @@ export async function requestBookingAction(
 
   let amounts;
   try {
-    amounts = computeBookingAmounts(space.priceMonthlyCents, await currentFees());
+    // A taxa do proprietário depende do Premium DELE e do valor do aluguel: quem decide é o servidor
+    // (src/lib/bookings/fees.ts), e o aceite refaz a conta e congela.
+    const fees = await resolveBookingFees({ ownerId: space.ownerId, monthlyRentCents: space.priceMonthlyCents });
+    amounts = computeBookingAmounts(space.priceMonthlyCents, fees);
   } catch (err) {
     if (err instanceof InvalidAmountError) {
       return { ok: false, message: 'Não foi possível calcular os valores deste anúncio agora.' };
@@ -349,7 +345,6 @@ export async function respondToBookingRequestAction(
     return { ok: false, message: 'Informe como o locatário encontra e usa o espaço — por texto ou por áudio.' };
   }
 
-  const fees = await currentFees();
   let spaceTitle = '';
   let aceita: { firstPaymentDeadlineAt: Date | null } | undefined;
   let preteridos: { id: string; renterId: string }[] = [];
@@ -375,9 +370,13 @@ export async function respondToBookingRequestAction(
       if (sp.priceMonthlyCents == null) throw new RegraDeNegocio('Este anúncio está sem preço mensal. Defina o preço antes de aceitar.');
       spaceTitle = sp.title;
 
+      // As taxas são decididas AGORA, dentro da transação, com o Premium do proprietário como está neste
+      // instante — e congeladas junto com o resto. O banco confere (`bookings_guard_price_fee`).
       let amounts;
+      let taxas;
       try {
-        amounts = computeBookingAmounts(sp.priceMonthlyCents, fees);
+        taxas = await resolveBookingFees({ ownerId: booking.ownerId, monthlyRentCents: sp.priceMonthlyCents, executor: tx });
+        amounts = computeBookingAmounts(sp.priceMonthlyCents, taxas);
       } catch (err) {
         if (err instanceof InvalidAmountError) throw new RegraDeNegocio('Não foi possível calcular os valores deste anúncio agora.');
         throw err;
@@ -407,6 +406,10 @@ export async function respondToBookingRequestAction(
           termsSnapshot: {
             renterFeeBps: amounts.renterFeeBps, ownerFeeBps: amounts.ownerFeeBps,
             priceMonthlyCentsAtAccept: amounts.monthlyRentCents, startDate: booking.startDate,
+            // Por que o proprietário paga esta taxa — fica para sempre na locação, mesmo que o Premium acabe.
+            ownerFeeReason: taxas.ownerFeeReduced ? 'premium' : 'standard',
+            standardOwnerFeeBps: taxas.standardOwnerFeeBps,
+            premiumCycleId: taxas.premiumCycleId,
           },
           ownerResponse: ownerResponse || null,
           respondedAt: new Date(),

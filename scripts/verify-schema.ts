@@ -11,7 +11,15 @@ import { config as loadEnv } from 'dotenv';
 loadEnv({ path: ['.env.local', '.env'], quiet: true });
 
 import postgres from 'postgres';
-import { computeBookingAmounts, platformNetCents, formatBRL, parseBRLToCents } from '../src/lib/money';
+import {
+  computeBookingAmounts,
+  decideOwnerFee,
+  ownerNetFor,
+  platformNetCents,
+  formatBRL,
+  parseBRLToCents,
+  splitFitsNet,
+} from '../src/lib/money';
 import { PG_CONNECTION_PARAMS } from '../src/db/connection';
 import { prepararAnuncio, criarAnuncio } from './lib/fixtures';
 
@@ -70,6 +78,7 @@ async function main() {
   const strangerId = crypto.randomUUID();
   const confirmedId = crypto.randomUUID();
   const quartoId = crypto.randomUUID();
+  const taxaDonoId = crypto.randomUUID(); // seção 18: dono cujo Premium o teste liga e desliga
   let spaceId = '';
   let bookingId = '';
 
@@ -135,6 +144,62 @@ async function main() {
       } catch {
         ok('taxa de 100% rejeitada');
       }
+
+      // ---- Taxa do proprietário no Premium (migração 0035): a decisão é pura e testável sem banco.
+      const politica = { standardBps: 300, premiumBps: 200, premiumMinRentCents: 5_000 };
+      expectEqual('sem Premium pago: taxa padrão de 3%', decideOwnerFee(30_000, false, politica), { bps: 300, reduced: false, belowFloor: false });
+      expectEqual('Premium pago, R$ 300: taxa de 2%', decideOwnerFee(30_000, true, politica), { bps: 200, reduced: true, belowFloor: false });
+      expectEqual('Premium pago, exatamente R$ 50,00: taxa de 2% (o piso vale)', decideOwnerFee(5_000, true, politica), { bps: 200, reduced: true, belowFloor: false });
+      expectEqual('Premium pago, R$ 49,99: taxa padrão, e a conta diz que foi o piso', decideOwnerFee(4_999, true, politica), { bps: 300, reduced: false, belowFloor: true });
+      expectEqual('sem Premium, abaixo do piso: padrão, sem falar em piso', decideOwnerFee(4_999, false, politica), { bps: 300, reduced: false, belowFloor: false });
+      expectEqual('taxa "reduzida" que não é menor que a padrão nunca vale como redução',
+        decideOwnerFee(30_000, true, { ...politica, premiumBps: 300 }).reduced, false);
+      expectEqual('e uma "reduzida" MAIOR que a padrão também não cobra mais caro por ser Premium',
+        decideOwnerFee(30_000, true, { ...politica, premiumBps: 500 }), { bps: 300, reduced: false, belowFloor: false });
+      for (const [nome, cents] of [['aluguel com centavos quebrados', 30_000.5], ['aluguel zero', 0], ['aluguel negativo', -100]] as const) {
+        try {
+          decideOwnerFee(cents, true, politica);
+          bad(`${nome} é recusado`, 'aceitou');
+        } catch {
+          ok(`${nome} é recusado pela decisão da taxa`);
+        }
+      }
+
+      // O exemplo do produto: R$ 300 → R$ 294 no Premium (R$ 291 sem).
+      expectEqual('R$ 300 sem Premium: o proprietário recebe R$ 291', ownerNetFor(30_000, 300), { netCents: 29_100, feeCents: 900 });
+      expectEqual('R$ 300 com Premium: o proprietário recebe R$ 294', ownerNetFor(30_000, 200), { netCents: 29_400, feeCents: 600 });
+      const premium300 = computeBookingAmounts(30_000, { renterFeeBps: 300, ownerFeeBps: 200 });
+      expectEqual('com o Premium do dono, o locatário continua pagando R$ 309 (a taxa dele não muda)',
+        [premium300.renterFeeCents, premium300.totalChargedCents, premium300.ownerPayoutCents], [900, 30_900, 29_400]);
+
+      // O piso existe por causa do gateway: abaixo dele o líquido da cobrança não cobre o repasse (o Asaas
+      // recusaria o split). Prova em TODOS os valores de R$ 50,00 a R$ 3.000,00 (centavo a centavo) e na
+      // região em que o 2% não fecha a conta.
+      const folga = (aluguel: number, ownerBps: number) => {
+        const v = computeBookingAmounts(aluguel, { renterFeeBps: 300, ownerFeeBps: ownerBps });
+        return { v, cabe: splitFitsNet(v) };
+      };
+      let primeiroQueFecha = 0;
+      let quebrouAcimaDoPiso: number | null = null;
+      for (let aluguel = 3_500; aluguel <= 300_000; aluguel++) {
+        const { cabe } = folga(aluguel, 200);
+        if (cabe && primeiroQueFecha === 0) primeiroQueFecha = aluguel;
+        if (!cabe && aluguel >= 5_000 && quebrouAcimaDoPiso === null) quebrouAcimaDoPiso = aluguel;
+      }
+      expectEqual('com 3%+2%, em NENHUM valor de R$ 50,00 a R$ 3.000,00 o repasse passa do líquido da cobrança (pior caso Pix/cartão)',
+        quebrouAcimaDoPiso, null);
+      if (primeiroQueFecha > 0 && primeiroQueFecha < 5_000) {
+        ok('o piso de R$ 50 tem folga sobre o ponto em que a conta passa a fechar', `fecha a partir de ${formatBRL(primeiroQueFecha)}`);
+      } else {
+        bad('o piso de R$ 50 tem folga sobre o ponto de equilíbrio', `a conta fecha a partir de ${primeiroQueFecha}`);
+      }
+      expectEqual('R$ 35 (o aluguel mínimo) com 3%+2% NÃO fecha: o líquido do Pix fica abaixo do repasse', folga(3_500, 200).cabe, false);
+      expectEqual('R$ 35 com 3%+3% (a taxa padrão) fecha', folga(3_500, 300).cabe, true);
+      let padraoQuebrou: number | null = null;
+      for (let aluguel = 3_500; aluguel <= 300_000; aluguel++) {
+        if (!folga(aluguel, 300).cabe) { padraoQuebrou = aluguel; break; }
+      }
+      expectEqual('a taxa padrão fecha a conta em todo valor a partir do aluguel mínimo (nada mudou para quem não é Premium)', padraoQuebrou, null);
     }
 
     console.log('\n\x1b[1m2. Identidade e criacao automatica de perfil\x1b[0m');
@@ -1697,6 +1762,151 @@ async function main() {
       expectEqual('limites por ciclo: 2 Destaques e 1 Turbo', [conf2.get('premium.cycle_destaque_limit'), conf2.get('premium.cycle_turbo_limit')], [2, 1]);
       expectEqual('alcance ampliado no mapa: 10 km e 5 anúncios', [conf2.get('premium.map_extra_radius_m'), conf2.get('premium.map_max_outside_pins')], [10000, 5]);
     }
+
+    console.log('\n\x1b[1m18. Taxa do proprietário no Premium (migração 0035)\x1b[0m');
+    {
+      await sql`INSERT INTO auth.users (id, email) VALUES (${taxaDonoId}, ${`taxa-dono-${tag}@example.com`})`;
+      await sql`UPDATE profiles SET role = 'owner' WHERE id = ${taxaDonoId}`;
+      const dono = taxaDonoId;
+      const locatario = renterId;
+
+      const conf3 = new Map((await sql<{ key: string; value: unknown }[]>`
+        SELECT key, value FROM platform_settings WHERE key LIKE 'fees.%' OR key = 'booking.min_rent_cents'`).map((r) => [r.key, r.value]));
+      expectEqual('taxas no banco: 3% do locatário, 3% do proprietário, 2% no Premium, piso de R$ 50',
+        [conf3.get('fees.renter_fee_bps'), conf3.get('fees.owner_fee_bps'), conf3.get('fees.owner_fee_bps_premium'), conf3.get('fees.premium_min_rent_cents')],
+        [300, 300, 200, 5000]);
+
+      const anuncio = (preco: number, n: string) => criarAnuncio(sql, { ownerId: dono, slug: `taxa-${n}-${tag}`, precoCents: preco });
+      const e300 = await anuncio(30_000, 'a');
+      const e4999 = await anuncio(4_999, 'b');
+      const e5000 = await anuncio(5_000, 'c');
+
+      let seq = 0;
+      /** Pedido de locação por SQL direto (o que um bug ou um acesso indevido faria), com a taxa escolhida pelo teste. */
+      const pedido = (espaco: string, aluguel: number, ownerBps: number, taxaCents?: number) => {
+        const a = computeBookingAmounts(aluguel, { renterFeeBps: 300, ownerFeeBps: ownerBps });
+        const taxa = taxaCents ?? a.ownerFeeCents;
+        seq += 1;
+        return sql<{ id: string }[]>`
+          INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date,
+            monthly_rent_cents, renter_fee_bps, owner_fee_bps, renter_fee_cents,
+            owner_fee_cents, total_charged_cents, owner_payout_cents)
+          VALUES (${`MP-T${tag.slice(-5).toUpperCase()}${seq}`}, ${espaco}, ${locatario}, ${dono}, 'requested',
+            (now() AT TIME ZONE 'America/Sao_Paulo')::date, ${aluguel}, 300, ${ownerBps}, ${a.renterFeeCents},
+            ${taxa}, ${a.totalChargedCents}, ${aluguel - taxa})
+          RETURNING id`;
+      };
+      const fecha = (id: string) => sql`UPDATE bookings SET status = 'cancelled', cancelled_at = now() WHERE id = ${id}`;
+      const instrucoes = 'Portão azul ao lado da padaria; a vaga fica atrás da pilastra.';
+      const aceita = (id: string, ownerBps: number, aluguel: number) => {
+        const a = computeBookingAmounts(aluguel, { renterFeeBps: 300, ownerFeeBps: ownerBps });
+        return sql`UPDATE bookings SET status = 'approved', responded_at = now(), access_instructions = ${instrucoes},
+                      owner_fee_bps = ${ownerBps}, owner_fee_cents = ${a.ownerFeeCents}, owner_payout_cents = ${a.ownerPayoutCents}
+                    WHERE id = ${id}`;
+      };
+
+      // ---- Quem nunca foi Premium paga a taxa padrão e só ela.
+      const [p3] = await pedido(e300, 30_000, 300);
+      ok('sem Premium: a taxa padrão de 3% é aceita');
+      await fecha(p3!.id);
+      await mustReject('sem Premium: taxa de 2% é bloqueada pelo banco',
+        () => pedido(e300, 30_000, 200), 'bookings_owner_fee_allowed');
+      await mustReject('taxa que não é nem a padrão nem a do Premium (2,5%) é bloqueada',
+        () => pedido(e300, 30_000, 250), 'bookings_owner_fee_allowed');
+      await mustReject('taxa zero também é bloqueada',
+        () => pedido(e300, 30_000, 0), 'bookings_owner_fee_allowed');
+      await mustReject('centavos da taxa que não batem com a porcentagem são bloqueados (3% de R$ 300 = R$ 9)',
+        () => pedido(e300, 30_000, 300, 100), 'bookings_owner_fee_matches_bps');
+      await mustReject('porcentagem de 3% com os centavos de 2% é bloqueada (não dá para "dizer" 3% e cobrar 2%)',
+        () => pedido(e300, 30_000, 300, 600), 'bookings_owner_fee_matches_bps');
+
+      // ---- Concessão administrativa (modo teste) NÃO reduz a taxa.
+      const [cAdm] = await sql<{ id: string }[]>`
+        INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at, financial_eligible)
+        VALUES (${dono}, 1, 'admin_grant', now() - interval '1 hour', now() + interval '10 days', false) RETURNING id`;
+      expectEqual('concessão de teste: é Premium, mas SEM direito financeiro',
+        (await sql<{ a: boolean; f: boolean }[]>`SELECT public.premium_is_active(${dono}) AS a, public.premium_financial_active(${dono}) AS f`)[0],
+        { a: true, f: false });
+      await mustReject('Premium de teste (sem a marca financeira): a taxa de 2% é bloqueada',
+        () => pedido(e300, 30_000, 200), 'bookings_owner_fee_allowed');
+      await sql`UPDATE premium_cycles SET ended_early_at = now(), ended_early_reason = 'verify' WHERE id = ${cAdm!.id}`;
+
+      // O teste com a marca ligada DE PROPÓSITO (ciclo novo: o ciclo não se edita).
+      const [cTeste] = await sql<{ id: string }[]>`
+        INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at, financial_eligible)
+        SELECT user_id, 2, 'admin_grant'::premium_membership_source, ended_early_at, ended_early_at + interval '10 days', true
+          FROM premium_cycles WHERE id = ${cAdm!.id} RETURNING id`;
+      const [pTeste] = await pedido(e300, 30_000, 200);
+      ok('Premium de teste COM a marca financeira ligada de propósito: a taxa de 2% vale');
+      await fecha(pTeste!.id);
+      await sql`UPDATE premium_cycles SET ended_early_at = now(), ended_early_reason = 'verify' WHERE id = ${cTeste!.id}`;
+
+      // ---- Premium pago e vigente: 2% a partir de R$ 50,00.
+      const [cobranca] = await sql<{ id: string }[]>`
+        INSERT INTO premium_charges (user_id, provider_payment_id, provider_subscription_id, status, method, amount_cents, due_date, paid_at)
+        VALUES (${dono}, ${`pay_taxa_${tag}`}, ${`sub_taxa_${tag}`}, 'confirmed', 'pix', 11990, current_date, now()) RETURNING id`;
+      const [cPago] = await sql<{ id: string }[]>`
+        INSERT INTO premium_cycles (user_id, number, source, charge_id, starts_at, ends_at, financial_eligible)
+        SELECT user_id, 3, 'subscription'::premium_membership_source, ${cobranca!.id}::uuid, ended_early_at, ended_early_at + interval '30 days', true
+          FROM premium_cycles WHERE id = ${cTeste!.id} RETURNING id`;
+      expectEqual('Premium pago: com direito financeiro', (await sql<{ f: boolean }[]>`SELECT public.premium_financial_active(${dono}) AS f`)[0]!.f, true);
+      const [p2] = await pedido(e300, 30_000, 200);
+      ok('Premium pago, R$ 300: a taxa de 2% é aceita');
+      const [valores] = await sql<{ fee: number; payout: number; total: number }[]>`
+        SELECT owner_fee_cents AS fee, owner_payout_cents AS payout, total_charged_cents AS total FROM bookings WHERE id = ${p2!.id}`;
+      expectEqual('e o repasse é R$ 294 (taxa de R$ 6), com o locatário pagando os mesmos R$ 309', [valores!.fee, valores!.payout, valores!.total], [600, 29_400, 30_900]);
+      await fecha(p2!.id);
+      await mustReject('Premium pago: a taxa de 3% continua valendo, mas 2,5% não',
+        () => pedido(e300, 30_000, 250), 'bookings_owner_fee_allowed');
+      const [p3b] = await pedido(e300, 30_000, 300);
+      ok('Premium pago pode cobrar a taxa padrão (o direito é a redução, não uma obrigação)');
+      await fecha(p3b!.id);
+
+      // ---- O piso de R$ 50,00.
+      const [p50] = await pedido(e5000, 5_000, 200);
+      ok('Premium pago, exatamente R$ 50,00: a taxa de 2% é aceita (o piso vale)');
+      await fecha(p50!.id);
+      await mustReject('Premium pago, R$ 49,99: a taxa de 2% é bloqueada (abaixo do piso)',
+        () => pedido(e4999, 4_999, 200), 'bookings_owner_fee_allowed');
+      const [p4999] = await pedido(e4999, 4_999, 300);
+      ok('Premium pago, R$ 49,99: a taxa padrão de 3% é aceita');
+      await fecha(p4999!.id);
+
+      // ---- Congelamento: o aceite decide; depois a locação segue com a taxa combinada.
+      const [pedidoCongelado] = await pedido(e300, 30_000, 200);
+      const [aceito] = await sql<{ id: string }[]>`SELECT id FROM bookings WHERE id = ${pedidoCongelado!.id}`;
+      await aceita(aceito!.id, 200, 30_000);
+      ok('aceite com Premium vigente e taxa de 2%: aceito');
+      // O Premium acaba DEPOIS do aceite…
+      await sql`UPDATE premium_cycles SET ended_early_at = now(), ended_early_reason = 'verify' WHERE id = ${cPago!.id}`;
+      expectEqual('o Premium acabou', (await sql<{ a: boolean }[]>`SELECT public.premium_is_active(${dono}) AS a`)[0]!.a, false);
+      // …e a locação já aceita segue o seu caminho sem ser reavaliada.
+      await mustAccept('depois do aceite, a locação ativa com 2% não é reavaliada (a taxa está congelada)',
+        () => sql`UPDATE bookings SET status = 'active', activated_at = now() WHERE id = ${aceito!.id}`);
+      expectEqual('a taxa gravada continua 2%', (await sql<{ b: number }[]>`SELECT owner_fee_bps AS b FROM bookings WHERE id = ${aceito!.id}`)[0]!.b, 200);
+      await sql`UPDATE bookings SET status = 'ended', ended_at = now() WHERE id = ${aceito!.id}`;
+
+      // Mexer nos centavos da taxa de uma locação sem mexer na porcentagem é recusado, com ou sem Premium.
+      await mustReject('trocar só os centavos da taxa de uma locação (R$ 5 em vez de R$ 6) é bloqueado',
+        () => sql`UPDATE bookings SET owner_fee_cents = 500, owner_payout_cents = 29500 WHERE id = ${aceito!.id}`,
+        'bookings_owner_fee_matches_bps');
+
+      // Pedido feito com Premium e aceito depois que o Premium acabou: o aceite precisa refazer a taxa.
+      const [cPago2] = await sql<{ id: string }[]>`
+        INSERT INTO premium_cycles (user_id, number, source, starts_at, ends_at, financial_eligible)
+        SELECT user_id, 4, 'admin_grant'::premium_membership_source, ended_early_at, ended_early_at + interval '10 days', true
+          FROM premium_cycles WHERE id = ${cPago!.id} RETURNING id`;
+      const [pendente] = await pedido(e300, 30_000, 200);
+      await sql`UPDATE premium_cycles SET ended_early_at = now(), ended_early_reason = 'verify' WHERE id = ${cPago2!.id}`;
+      await mustReject('aceitar com 2% depois que o Premium acabou é bloqueado (o aceite reavalia)',
+        () => aceita(pendente!.id, 200, 30_000), 'bookings_owner_fee_allowed');
+      await mustAccept('o aceite com a taxa padrão (o que o servidor grava agora) passa', () => aceita(pendente!.id, 300, 30_000));
+      expectEqual('a locação ficou com 3%', (await sql<{ b: number }[]>`SELECT owner_fee_bps AS b FROM bookings WHERE id = ${pendente!.id}`)[0]!.b, 300);
+      await mustReject('sem Premium vigente, trocar a taxa de uma locação para 2% é bloqueado',
+        () => sql`UPDATE bookings SET owner_fee_bps = 200, owner_fee_cents = 600, owner_payout_cents = 29400 WHERE id = ${pendente!.id}`,
+        'bookings_owner_fee_allowed');
+      await fecha(pendente!.id);
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.
@@ -1737,7 +1947,15 @@ async function main() {
     await sql`DELETE FROM bookings WHERE owner_id = ${ownerId}`;
     await sql`DELETE FROM spaces WHERE owner_id IN (${ownerId}, ${renterId}, ${strangerId})`;
     await sql`DELETE FROM webhook_events WHERE provider_event_id LIKE ${`evt_verify-%`}`;
-    await sql`DELETE FROM auth.users WHERE id IN (${ownerId}, ${renterId}, ${strangerId}, ${confirmedId}, ${quartoId})`;
+    // Seção 18: o dono da taxa do Premium (locações, ciclos, cobrança e anúncios dele).
+    await sql`DELETE FROM bookings WHERE owner_id = ${taxaDonoId}`;
+    await sql`ALTER TABLE premium_cycles DISABLE TRIGGER premium_cycles_immutable`;
+    await sql`DELETE FROM premium_cycles WHERE user_id = ${taxaDonoId}`;
+    await sql`ALTER TABLE premium_cycles ENABLE TRIGGER premium_cycles_immutable`;
+    await sql`DELETE FROM premium_charges WHERE user_id = ${taxaDonoId}`;
+    await sql`DELETE FROM premium_memberships WHERE user_id = ${taxaDonoId}`;
+    await sql`DELETE FROM spaces WHERE owner_id = ${taxaDonoId}`;
+    await sql`DELETE FROM auth.users WHERE id IN (${ownerId}, ${renterId}, ${strangerId}, ${confirmedId}, ${quartoId}, ${taxaDonoId})`;
   }
 
   console.log(

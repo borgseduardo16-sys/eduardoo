@@ -5,8 +5,9 @@ import { saveStepAction, type SpaceActionState } from '@/lib/spaces/actions';
 import { Field } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Alert } from '@/components/ui/alert';
-import { InvalidAmountError, computeBookingAmounts, formatBRL, formatBps, parseBRLToCents } from '@/lib/money';
-import { ownerReceivesPhrase } from '@/lib/spaces/price';
+import Link from 'next/link';
+import { InvalidAmountError, computeBookingAmounts, decideOwnerFee, formatBRL, formatBps, parseBRLToCents, type OwnerFeePolicy } from '@/lib/money';
+import { ownerFeeNote, ownerReceivesPhrase } from '@/lib/spaces/price';
 import { unitNounFor } from '@/lib/spaces/types';
 import { StepActions } from './step-actions';
 import { useAdvanceOnSave } from './use-advance';
@@ -58,7 +59,8 @@ export function PriceForm({
   initial,
   today,
   minRentCents,
-  ownerFeeBps,
+  ownerFeePolicy,
+  premiumFinancial,
   renterFeeBps,
   occupied,
 }: {
@@ -68,7 +70,10 @@ export function PriceForm({
   /** Hoje em Brasília (`YYYY-MM-DD`), calculado no servidor. */
   today: string;
   minRentCents: number;
-  ownerFeeBps: number;
+  /** Taxa padrão, taxa reduzida do Premium e o piso dela — lidas do banco pelo servidor. */
+  ownerFeePolicy: OwnerFeePolicy;
+  /** O proprietário tem Premium PAGO e vigente (a taxa reduzida vale para ele)? Prévia; quem decide é o servidor. */
+  premiumFinancial: boolean;
   renterFeeBps: number;
   /** Quantas unidades já estão ocupadas por locação: a quantidade oferecida não pode ficar abaixo. */
   occupied: number;
@@ -95,10 +100,14 @@ export function PriceForm({
   const valido = cents != null && cents >= minRentCents;
   let frase: string | null = null;
   let locatarioPaga: number | null = null;
+  let nota: ReturnType<typeof ownerFeeNote> = null;
   if (cents != null && valido) {
     try {
-      frase = ownerReceivesPhrase(cents, ownerFeeBps);
-      locatarioPaga = computeBookingAmounts(cents, { renterFeeBps, ownerFeeBps }).totalChargedCents;
+      // A mesma decisão do servidor (src/lib/money.ts): Premium pago + aluguel a partir do piso = taxa reduzida.
+      const decisao = decideOwnerFee(cents, premiumFinancial, ownerFeePolicy);
+      frase = ownerReceivesPhrase(cents, decisao.bps);
+      locatarioPaga = computeBookingAmounts(cents, { renterFeeBps, ownerFeeBps: decisao.bps }).totalChargedCents;
+      nota = ownerFeeNote({ priceCents: cents, premiumFinancial, decision: decisao, policy: ownerFeePolicy });
     } catch (e) {
       if (!(e instanceof InvalidAmountError)) throw e;
     }
@@ -125,6 +134,17 @@ export function PriceForm({
           {frase && (
             <div className="rounded-[var(--radius-field)] bg-[var(--surface-sunken)] px-3.5 py-3 space-y-1" data-testid="frase-liquido">
               <p className="font-medium">{frase}</p>
+              {nota && (
+                <p className="text-[0.8125rem] text-[var(--content-muted)]" data-testid="nota-taxa">
+                  {nota.text}
+                  {nota.kind === 'upsell' && (
+                    <>
+                      {' '}
+                      <Link href="/premium" className="text-[var(--accent)] underline underline-offset-4">Conheça o Premium</Link>
+                    </>
+                  )}
+                </p>
+              )}
               {locatarioPaga != null && (
                 <p className="text-[0.8125rem] text-[var(--content-muted)]">
                   Quem alugar paga {formatBRL(locatarioPaga)} por mês: o aluguel mais uma taxa de serviço de {formatBps(renterFeeBps)}.

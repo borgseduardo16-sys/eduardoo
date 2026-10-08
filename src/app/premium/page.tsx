@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { BellRing, ChartColumn, Heart, MapPinned, Rocket, Sparkle, Star } from 'lucide-react';
+import { BellRing, ChartColumn, Heart, MapPinned, Percent, Rocket, Sparkle, Star } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/dal';
+import { loadFeePolicy } from '@/lib/bookings/fees';
 import {
   getBenefitUsage,
   getPremiumCheckoutHints,
@@ -10,7 +11,7 @@ import {
 } from '@/lib/premium/queries';
 import { cycleBenefitLimit, premiumMapReach, premiumMonthlyPriceCents } from '@/lib/premium/settings';
 import { settingInt } from '@/lib/settings';
-import { formatBRL } from '@/lib/money';
+import { formatBRL, formatBRLShort, formatBps, ownerNetFor, type OwnerFeePolicy } from '@/lib/money';
 import { formatBrDate } from '@/lib/time';
 import { SiteHeader } from '@/components/layout/site-header';
 import { SiteFooter } from '@/components/layout/site-footer';
@@ -37,8 +38,14 @@ function beneficios(v: {
   alertasPremium: number;
   horasFree: number;
   horasPremium: number;
+  taxa: OwnerFeePolicy;
 }) {
   const horas = (h: number) => (h === 1 ? '1 hora' : `${h} horas`);
+  // Exemplo com o aluguel de R$ 300 (a conta é a mesma do repasse; o texto não digita valor nenhum).
+  const exemploCents = 30000;
+  const taxaReduzida = v.taxa.premiumBps < v.taxa.standardBps && exemploCents >= v.taxa.premiumMinRentCents;
+  const liquidoPadrao = ownerNetFor(exemploCents, v.taxa.standardBps).netCents;
+  const liquidoPremium = ownerNetFor(exemploCents, v.taxa.premiumBps).netCents;
   return [
     {
       icon: Star,
@@ -53,6 +60,21 @@ function beneficios(v: {
       descricao: 'Prioridade mais forte para um anúncio, por um período curto. Também não acumula.',
       disponivel: true,
     },
+    ...(v.taxa.premiumBps < v.taxa.standardBps
+      ? [
+          {
+            icon: Percent,
+            titulo: `Taxa de ${formatBps(v.taxa.premiumBps)} para quem anuncia`,
+            descricao:
+              `Nos aluguéis a partir de ${formatBRL(v.taxa.premiumMinRentCents)} por mês, a taxa de serviço do proprietário cai de ${formatBps(v.taxa.standardBps)} para ${formatBps(v.taxa.premiumBps)}.` +
+              (taxaReduzida
+                ? ` Em um aluguel de ${formatBRLShort(exemploCents)}, você recebe ${formatBRLShort(liquidoPremium)} em vez de ${formatBRLShort(liquidoPadrao)}.`
+                : '') +
+              ` Abaixo de ${formatBRL(v.taxa.premiumMinRentCents)} vale a taxa padrão. A taxa de cada locação é definida quando você aceita o pedido e não muda depois. A taxa de quem aluga não muda.`,
+            disponivel: true,
+          },
+        ]
+      : []),
     {
       icon: MapPinned,
       titulo: 'Alcance ampliado no mapa',
@@ -102,6 +124,7 @@ export default async function PremiumPage({ searchParams }: { searchParams: Prom
     alertasPremium,
     horasFree,
     horasPremium,
+    politicaTaxas,
   ] = await Promise.all([
     user ? getPremiumOverview(user.id) : Promise.resolve(null),
     user ? getBenefitUsage(user.id) : Promise.resolve(null),
@@ -114,6 +137,7 @@ export default async function PremiumPage({ searchParams }: { searchParams: Prom
     settingInt('alerts.saved_search_max_premium', 20),
     settingInt('alerts.digest_hours_free', 24),
     settingInt('alerts.digest_hours_premium', 1),
+    loadFeePolicy(),
   ]);
   const lista = beneficios({
     destaques,
@@ -124,6 +148,7 @@ export default async function PremiumPage({ searchParams }: { searchParams: Prom
     alertasPremium,
     horasFree,
     horasPremium,
+    taxa: politicaTaxas.owner,
   });
   const precoTexto = preco ? formatBRL(preco) : null;
   const ativo = visao?.isActive === true;
@@ -147,8 +172,8 @@ export default async function PremiumPage({ searchParams }: { searchParams: Prom
                   : 'Aumente a exposição dos seus anúncios'}
             </h1>
             <p className="text-[1.0625rem] text-[var(--content-muted)] leading-relaxed">
-              Destaques e Turbo a cada período pago, alcance ampliado no mapa, mais alertas, o painel de desempenho
-              completo e o selo Premium.
+              Destaques e Turbo a cada período pago, taxa de serviço menor para quem anuncia, alcance ampliado no
+              mapa, mais alertas, o painel de desempenho completo e o selo Premium.
             </p>
             {precoTexto ? (
               <p className="text-[0.9375rem]">
@@ -176,6 +201,7 @@ export default async function PremiumPage({ searchParams }: { searchParams: Prom
                 precoTexto={precoTexto}
                 cpfSugerido={dicas?.cpfSuggested ?? null}
                 pedirCpf={dicas?.needsCpf ?? true}
+                taxa={politicaTaxas.owner}
               />
             ) : (
               <div className="rounded-[var(--radius-card)] border p-5 sm:p-6 space-y-3">
@@ -229,12 +255,14 @@ function PainelDaConta({
   precoTexto,
   pedirCpf,
   cpfSugerido,
+  taxa,
 }: {
   visao: PremiumOverview;
   uso: Awaited<ReturnType<typeof getBenefitUsage>>;
   precoTexto: string | null;
   pedirCpf: boolean;
   cpfSugerido: string | null;
+  taxa: OwnerFeePolicy;
 }) {
   // Pagar o que está em aberto: a primeira cobrança (ainda sem Premium) ou a renovação.
   const cobranca = visao.openCharge;
@@ -285,6 +313,21 @@ function PainelDaConta({
           <h2 className="font-semibold">Seus benefícios neste ciclo</h2>
           <ConsumoBeneficio label="Destaques" usado={uso.destaque.used} limite={uso.destaque.limit} />
           <ConsumoBeneficio label="Turbo" usado={uso.turbo.used} limite={uso.turbo.limit} />
+          {taxa.premiumBps < taxa.standardBps && (
+            <p className="text-[0.875rem]">
+              <span className="font-medium">Taxa de serviço do proprietário:</span>{' '}
+              {visao.financialEligible ? (
+                <span className="text-[var(--content-muted)]">
+                  {formatBps(taxa.premiumBps)} nos aluguéis a partir de {formatBRL(taxa.premiumMinRentCents)} (em vez de{' '}
+                  {formatBps(taxa.standardBps)}), decidida quando você aceita cada pedido.
+                </span>
+              ) : (
+                <span className="text-[var(--content-muted)]">
+                  {formatBps(taxa.standardBps)} — a taxa reduzida não vale neste modo.
+                </span>
+              )}
+            </p>
+          )}
           <p className="text-[0.75rem] text-[var(--content-subtle)]">
             Novos benefícios quando o próximo ciclo for pago. Ative em{' '}
             <Link href="/meus-espacos" className="underline underline-offset-2">

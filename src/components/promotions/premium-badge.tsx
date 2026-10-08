@@ -81,6 +81,7 @@ export function PremiumBadge({ className }: { className?: string }) {
           <ul className="space-y-2 text-[0.875rem] text-[var(--content-muted)]">
             <li>• 2 Destaques por ciclo pago</li>
             <li>• 1 Turbo por ciclo pago</li>
+            <li>• Taxa de serviço menor para quem anuncia</li>
             <li>• Alcance ampliado no mapa</li>
             <li>• Benefícios renovados a cada ciclo pago</li>
             <li>• Não acumulativos</li>

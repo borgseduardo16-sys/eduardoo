@@ -104,6 +104,89 @@ export function computeBookingAmounts(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Taxa do proprietário no Premium (Etapa 2, Fase B)
+// ---------------------------------------------------------------------------
+
+/**
+ * Política vigente da taxa do proprietário — lida de `platform_settings` pelo
+ * servidor (`fees.owner_fee_bps`, `fees.owner_fee_bps_premium`,
+ * `fees.premium_min_rent_cents`). Módulo puro: o servidor decide com isto e o
+ * navegador só usa para mostrar a prévia ("Você receberá R$ 294…").
+ */
+export type OwnerFeePolicy = {
+  /** Taxa padrão do proprietário, em pontos-base (300 = 3%). */
+  standardBps: number;
+  /** Taxa reduzida do Premium pago (200 = 2%). */
+  premiumBps: number;
+  /** A taxa reduzida só vale para aluguel a partir deste valor, em centavos (R$ 50,00 = 5000). */
+  premiumMinRentCents: number;
+};
+
+export type OwnerFeeDecision = {
+  /** A taxa do proprietário a aplicar, em pontos-base. */
+  bps: number;
+  /** A taxa reduzida do Premium foi aplicada. */
+  reduced: boolean;
+  /** Tem direito à taxa reduzida, mas o aluguel está abaixo do piso: vale a taxa padrão. */
+  belowFloor: boolean;
+};
+
+/**
+ * Qual taxa o proprietário paga neste aluguel.
+ *
+ * Premium PAGO e vigente (`premiumFinancial`, ver `premium_financial_active`)
+ * paga a taxa reduzida — mas só em aluguel a partir do piso. Abaixo do piso
+ * (ou sem Premium financeiro) vale a taxa padrão. Uma taxa "reduzida" que não
+ * fosse menor que a padrão nunca vale como redução (política mal configurada
+ * não cobra mais caro por ser Premium).
+ */
+export function decideOwnerFee(
+  monthlyRentCents: number,
+  premiumFinancial: boolean,
+  policy: OwnerFeePolicy,
+): OwnerFeeDecision {
+  if (!Number.isInteger(monthlyRentCents) || monthlyRentCents <= 0) {
+    throw new InvalidAmountError('O aluguel precisa ser um inteiro positivo em centavos.');
+  }
+  const { standardBps, premiumBps, premiumMinRentCents } = policy;
+  if (![standardBps, premiumBps, premiumMinRentCents].every(Number.isInteger) || standardBps < 0 || premiumBps < 0) {
+    throw new InvalidAmountError('A política de taxa do proprietário é inválida.');
+  }
+  if (!premiumFinancial || premiumBps >= standardBps) {
+    return { bps: standardBps, reduced: false, belowFloor: false };
+  }
+  if (monthlyRentCents < premiumMinRentCents) {
+    return { bps: standardBps, reduced: false, belowFloor: true };
+  }
+  return { bps: premiumBps, reduced: true, belowFloor: false };
+}
+
+/**
+ * Tarifas de REFERÊNCIA do gateway (a tabela do projeto, docs/PAGAMENTOS.md):
+ * Pix R$ 1,99 por recebimento; cartão 2,99% + R$ 0,49. Servem só para conferir
+ * se uma combinação de taxas FECHA A CONTA — a tarifa real vem do gateway, no
+ * webhook, e nenhum valor cobrado sai daqui.
+ */
+export const GATEWAY_FEE_REFERENCE = { pixCents: 199, cardBps: 299, cardFixedCents: 49 } as const;
+
+/** O pior caso (Pix ou cartão) das tarifas de referência para uma cobrança deste total. */
+export function worstReferenceGatewayFeeCents(totalChargedCents: number): number {
+  const cartao = applyBps(totalChargedCents, GATEWAY_FEE_REFERENCE.cardBps) + GATEWAY_FEE_REFERENCE.cardFixedCents;
+  return Math.max(GATEWAY_FEE_REFERENCE.pixCents, cartao);
+}
+
+/**
+ * O líquido da cobrança (depois da tarifa do gateway) cobre o repasse ao
+ * proprietário? O split do Asaas é limitado ao líquido: se o repasse passa
+ * dele, o Asaas bloqueia a assinatura e desliga o split. É por isso que a taxa
+ * reduzida tem piso — e esta conferência é a segunda trava, caso alguém
+ * configure um piso baixo demais.
+ */
+export function splitFitsNet(amounts: Pick<BookingAmounts, 'totalChargedCents' | 'ownerPayoutCents'>): boolean {
+  return amounts.totalChargedCents - worstReferenceGatewayFeeCents(amounts.totalChargedCents) >= amounts.ownerPayoutCents;
+}
+
 /**
  * Quanto o proprietário recebe por mês de um anúncio com este preço: o aluguel
  * menos a taxa de serviço dele. Mesma conta do repasse de uma locação
