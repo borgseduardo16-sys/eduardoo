@@ -841,7 +841,7 @@ async function main() {
   expect('dono sem Premium: taxa padrão de 3% (R$ 291,00)', [q6.owner_fee_bps, q6.owner_fee_cents, q6.owner_payout_cents], [300, 900, 29100]);
   expect('e o locatário paga o mesmo de sempre nos três casos (R$ 309,00)', [q5.total_charged_cents, q6.total_charged_cents, q1.total_charged_cents], [30900, 30900, 30900]);
 
-  // ---- 15.5 A taxa é congelada no aceite — e refeita nele.
+  // ---- 15.5 A taxa é decidida no aceite e SEGUE o Premium: acabou o Premium, as próximas mensalidades voltam a 3%.
   const f1 = await solicitar(x1);
   const f2 = await solicitar(x2);
   expect('dois pedidos feitos com o Premium vigente: os dois nascem com 2%', [(await reserva(f1.id)).owner_fee_bps, (await reserva(f2.id)).owner_fee_bps], [200, 200]);
@@ -852,7 +852,15 @@ async function main() {
   assert('aceitar depois do fim do Premium funciona (sem erro técnico)', acDepois.ok === true, JSON.stringify(acDepois));
   const qf1 = await reserva(f1.id);
   const qf2 = await reserva(f2.id);
-  expect('aceito ANTES do fim do Premium: continua com 2% (congelado)', [qf1.owner_fee_bps, qf1.owner_payout_cents, qf1.snap?.ownerFeeReason], [200, 29400, 'premium']);
+  expect('aceito ANTES do fim do Premium: nasceu com 2% (o registro do aceite guarda por quê)', [qf1.owner_fee_bps, qf1.owner_payout_cents, qf1.snap?.ownerFeeReason], [200, 29400, 'premium']);
+  const { syncOwnerFeesWithPremium, syncSubscriptionSplits } = await import('../src/lib/bookings/fees');
+  const sinc = await syncOwnerFeesWithPremium();
+  assert('a manutenção percebe o fim do Premium e ajusta a locação', sinc.changed >= 1, JSON.stringify(sinc));
+  const qf1b = await reserva(f1.id);
+  expect('sem Premium, a locação aceita com 2% volta a 3% (R$ 291 nas próximas mensalidades)', [qf1b.owner_fee_bps, qf1b.owner_fee_cents, qf1b.owner_payout_cents], [300, 900, 29100]);
+  expect('o locatário continua pagando o mesmo (R$ 309)', qf1b.total_charged_cents, 30900);
+  expect('o proprietário é avisado da mudança', (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${ids.taxaDono2} AND data->>'bookingId' = ${f1.id} AND type = 'premium_changed'`)[0]!.n, 1);
+  expect('rodar de novo não muda nada nem repete aviso', [(await syncOwnerFeesWithPremium()).changed, (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM notifications WHERE user_id = ${ids.taxaDono2} AND type = 'premium_changed'`)[0]!.n >= 1], [0, true]);
   expect('aceito DEPOIS do fim do Premium: o aceite refez a conta e gravou 3%', [qf2.owner_fee_bps, qf2.owner_payout_cents, qf2.snap?.ownerFeeReason], [300, 29100, 'standard']);
   expect('o locatário não foi afetado em nenhum dos dois (R$ 309,00)', [qf1.total_charged_cents, qf2.total_charged_cents], [30900, 30900]);
   const f3 = await solicitar(x3);
@@ -888,6 +896,30 @@ async function main() {
   const notaVenda = ownerFeeNote({ priceCents: 30000, premiumFinancial: false, decision: { bps: 300, reduced: false, belowFloor: false }, policy: politicaTexto });
   expect('sem Premium, R$ 300: a tela mostra o que o Premium mudaria (R$ 294)', [notaVenda?.kind, semNbsp(notaVenda?.text ?? '').includes('R$ 294')], ['upsell', true]);
   expect('sem Premium, abaixo do piso: nenhuma promessa', ownerFeeNote({ priceCents: 4000, premiumFinancial: false, decision: { bps: 300, reduced: false, belowFloor: false }, policy: politicaTexto }), null);
+  // ---- 15.8 O split da recorrência no Asaas (dublê) acompanha a taxa: Premium acaba → 3%; volta → 2%.
+  const subDe = () => [...testbed!.asaasSubscriptions.values()].find((a) => a.externalReference === q1b.reference)!;
+  const gravadoNoGateway = async () => (await sql<{ g: number | null }[]>`SELECT gateway_owner_payout_cents AS g FROM subscriptions WHERE booking_id = ${s1.id}`)[0]!.g;
+  expect('antes: split de R$ 294 configurado no gateway', [subDe().split?.[0]?.fixedValue, await gravadoNoGateway()], [294, 29400]);
+  await encerrarPremium(ids.taxaDono);
+  await syncOwnerFeesWithPremium();
+  expect('o Premium do dono acabou: a locação ativa passa a 3%', (await reserva(s1.id)).owner_payout_cents, 29100);
+  const sp = await syncSubscriptionSplits();
+  // (outras recorrências do banco de teste podem falhar no dublê; o que importa é a desta locação, conferida abaixo)
+  assert('a manutenção atualiza o split da recorrência no gateway', sp.updated >= 1, JSON.stringify(sp));
+  expect('o split no gateway passa a R$ 291 e fica registrado', [subDe().split?.[0]?.fixedValue, await gravadoNoGateway()], [291, 29100]);
+  expect('rodar de novo não chama o gateway outra vez', (await syncSubscriptionSplits()).updated, 0);
+  // Assina de novo: um ciclo pago novo, colado no fim do anterior.
+  const [cobVolta] = await sql<{ id: string }[]>`
+    INSERT INTO premium_charges (user_id, provider_payment_id, status, method, amount_cents, due_date, paid_at)
+    VALUES (${ids.taxaDono}, ${`pay_volta_${tag}`}, 'confirmed', 'pix', 11990, current_date, now()) RETURNING id`;
+  await sql`INSERT INTO premium_cycles (user_id, number, source, charge_id, starts_at, ends_at, financial_eligible)
+            SELECT ${ids.taxaDono}::uuid, max(number) + 1, 'subscription'::premium_membership_source, ${cobVolta!.id}::uuid,
+                   max(COALESCE(ended_early_at, ends_at)), max(COALESCE(ended_early_at, ends_at)) + interval '1 month', true
+              FROM premium_cycles WHERE user_id = ${ids.taxaDono}`;
+  await syncOwnerFeesWithPremium();
+  await syncSubscriptionSplits();
+  expect('Premium de volta: 2% de novo, e o split volta a R$ 294', [(await reserva(s1.id)).owner_payout_cents, subDe().split?.[0]?.fixedValue], [29400, 294]);
+
   const aluguelExemplo = computeBookingAmounts(30000, { renterFeeBps: 300, ownerFeeBps: 200 });
   expect('o exemplo da página de taxas e do Premium bate com a conta de verdade: R$ 294,00', aluguelExemplo.ownerPayoutCents, 29400);
 }

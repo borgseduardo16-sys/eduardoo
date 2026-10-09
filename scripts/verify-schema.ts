@@ -1925,6 +1925,33 @@ async function main() {
       const [exp] = await sql<{ eligible_cycles: number }[]>`SELECT * FROM public.premium_benefit_exposure()`;
       expectEqual('a função de exposição responde', typeof exp!.eligible_cycles, 'number');
     }
+
+    console.log('\n\x1b[1m20. Um Premium por pessoa e contas vinculadas (migração 0037)\x1b[0m');
+    {
+      const [canon] = await sql<{ a: string; b: string; c: string; t: string }[]>`
+        SELECT public.canonical_email('Joao.Silva+teste@GMAIL.com') AS a, public.canonical_email('joaosilva@googlemail.com') AS b,
+               public.canonical_email('Maria+x@Exemplo.com.br') AS c, public.canonical_phone('+55 (27) 99999-0000') AS t`;
+      expectEqual('e-mail e telefone canônicos', [canon!.a === canon!.b, canon!.c, canon!.t], [true, 'maria@exemplo.com.br', '27999990000']);
+      // Duas contas da mesma pessoa (mesmo telefone): a segunda não abre Premium enquanto a primeira tem.
+      await sql`UPDATE profiles SET phone = '+5527988887777' WHERE id = ${renterId}`;
+      await sql`UPDATE profiles SET phone = '(27) 98888-7777' WHERE id = ${strangerId}`;
+      await sql`DELETE FROM premium_memberships WHERE user_id IN (${renterId}, ${strangerId})`;
+      await sql`INSERT INTO premium_memberships (user_id, status, source, provider, provider_subscription_id, billing_method, plan_cents)
+                VALUES (${renterId}, 'pending_payment', 'subscription', 'asaas', ${`sub_id1_${tag}`}, 'pix', 11990)`;
+      await mustReject('outra conta com o mesmo telefone não abre um segundo Premium',
+        () => sql`INSERT INTO premium_memberships (user_id, status, source, provider, provider_subscription_id, billing_method, plan_cents)
+                  VALUES (${strangerId}, 'pending_payment', 'subscription', 'asaas', ${`sub_id2_${tag}`}, 'pix', 11990)`,
+        'premium_memberships_linked_account');
+      expectEqual('o motivo do vínculo é dito', (await sql<{ m: string }[]>`SELECT public.premium_accounts_linked(${renterId}, ${strangerId}) AS m`)[0]!.m, 'mesmo telefone');
+      await sql`UPDATE premium_memberships SET status = 'expired' WHERE user_id = ${renterId}`;
+      await mustAccept('quando o Premium da primeira acaba, a outra pode assinar', () => sql`
+        INSERT INTO premium_memberships (user_id, status, source, provider, provider_subscription_id, billing_method, plan_cents)
+        VALUES (${strangerId}, 'pending_payment', 'subscription', 'asaas', ${`sub_id3_${tag}`}, 'pix', 11990)`);
+      await sql`DELETE FROM premium_memberships WHERE user_id IN (${renterId}, ${strangerId})`;
+      await sql`UPDATE profiles SET phone = NULL WHERE id IN (${renterId}, ${strangerId})`;
+      const [col] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'subscriptions' AND column_name = 'gateway_owner_payout_cents'`;
+      expectEqual('a recorrência guarda o repasse configurado no gateway', col!.n, 1);
+    }
   } finally {
     // Limpeza: apagar o usuario cascateia para perfil, espacos, reservas etc.
     // ledger_entries e append-only, entao sai antes, por fora do trigger.

@@ -235,7 +235,7 @@ export async function startCheckoutAction(
   let decisaoBeneficio: Awaited<ReturnType<typeof decideFirstMonthBenefit>> = { kind: 'off' };
   try {
     decisaoBeneficio = await decideFirstMonthBenefit({
-      renterId: user.id, cpfCnpj, monthlyRentCents: booking.monthlyRentCents, totalChargedCents: booking.totalChargedCents,
+      renterId: user.id, ownerId: booking.ownerId, cpfCnpj, monthlyRentCents: booking.monthlyRentCents, totalChargedCents: booking.totalChargedCents,
     });
   } catch (err) {
     // Flag ligada sem configuração completa: o benefício não é aplicado (e o erro fica no log); a cobrança normal segue.
@@ -273,6 +273,7 @@ export async function startCheckoutAction(
           status: 'pending_authorization',
           method: cartao ? 'credit_card' : 'pix',
           amountCents: booking.totalChargedCents,
+          gatewayOwnerPayoutCents: booking.ownerPayoutCents,
           billingDay: diaVencimento,
           nextDueDate,
         })

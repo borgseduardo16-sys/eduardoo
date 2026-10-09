@@ -1821,7 +1821,7 @@ proprietário funciona de ponta a ponta (Fase B); o benefício de até R$ 100 es
   ao fim do período, estorno/contestação encerram o ciclo; assinatura própria no Asaas, sem split.
 - 2 Destaques + 1 Turbo por ciclo (trava no banco), alcance ampliado no mapa (10 km, até 5 anúncios),
   tela "Meu Premium". Admin só concede em modo teste, sem benefício financeiro.
-- Migração `0034`; suíte `verify-premium` (207 checagens).
+- Migração `0034`; suíte `verify-premium` (218 checagens, com as da Fase B).
 
 ### Fase B — taxa do proprietário de 2% ✅
 - 3% → 2% com Premium pago e aluguel ≥ R$ 50; abaixo do piso vale 3% e a tela explica. Decisão no
@@ -1829,15 +1829,13 @@ proprietário funciona de ponta a ponta (Fase B); o benefício de até R$ 100 es
   Segunda trava: o split precisa caber no líquido do gateway (pior caso Pix/cartão).
 - Telas: "Você receberá R$ 294 por mês. Já descontada a taxa de serviço de 2%.", `/taxas`, `/premium`,
   Solicitações e detalhe da locação (mostram a taxa de agora enquanto o pedido está pendente).
-- **Consequência a conhecer:** a taxa reduzida fica congelada na locação aceita mesmo que o Premium
-  acabe depois (decisão "congelado no aceite"); uma pessoa poderia assinar por um mês para aceitar
-  várias locações a 2%. Ver os pontos em aberto abaixo.
+- A taxa é decidida no aceite e **segue o Premium** depois (ver decisões abaixo).
 
 ### Fase C — benefício do primeiro mês ⚠️ *(desligado; NÃO validado no Asaas real)*
 - Construído: direito controlado pelo banco (um por ciclo, teto de R$ 100, identidade por hash do
   CPF, só 1ª cobrança de locação nova, carência de 7 dias no cartão), reserva/consumo, fila de
   transferências, razão ligado ao benefício, webhook de validação, painel `/admin/premium`
-  (exposição × saldo lido no servidor). Migração `0036`; suíte `verify-beneficio` (48 checagens).
+  (exposição × saldo lido no servidor). Migrações `0036`/`0037`; suíte `verify-beneficio` (54 checagens).
 - **Não provado:** que o Asaas real aceita `PUT /payments` com valor menor e sem split numa cobrança
   de assinatura, `POST /transfers` entre contas e a validação por webhook (o suporte precisa
   habilitar). **Este ambiente não alcança o Asaas** (proxy 403); rode
@@ -1845,11 +1843,19 @@ proprietário funciona de ponta a ponta (Fase B); o benefício de até R$ 100 es
 - Aluguel baixo: até ~R$ 101,94 o que sobra cobrar fica abaixo de R$ 5 e o benefício **não se aplica**
   (nunca é inflado).
 
-### Decisões que precisam de você
-1. Aluguel até ~R$ 101,94 não usa o benefício (mínimo de R$ 5 do gateway). Aceita, ou prefere outra regra?
-2. O abatimento é só do aluguel (a taxa de 3% do locatário continua). Confirma?
-3. Taxa de 2% congelada no aceite: aceita que ela continue valendo na locação já aceita se o Premium acabar?
-4. Tolerância de renovação do Premium: hoje 24 h de continuidade e 3 dias antes de cancelar a recorrência.
+### Decisões tomadas em 08/10/2026 (aplicadas — migração `0037`)
+1. Aluguel até ~R$ 101,94 não usa o benefício (mínimo de R$ 5 do gateway) — aceito.
+2. O abatimento é só do aluguel — aceito.
+3. **A taxa segue o Premium:** quem perde o Premium volta a pagar 3% nas próximas mensalidades das
+   locações em andamento (e volta a 2% se assinar de novo). A manutenção por minuto ajusta a locação,
+   avisa o proprietário e troca o split da recorrência no Asaas (`PUT /subscriptions` com
+   `updatePendingPayments` — **não validado no Asaas real**). O locatário continua pagando o mesmo.
+4. Tolerância de renovação (24 h de continuidade, 3 dias antes de cancelar a recorrência) — aceita.
+5. **Mais rigidez contra contas duplicadas:** um Premium vivo por pessoa (mesmo e-mail canônico,
+   telefone ou documento bloqueia a segunda conta, no banco); benefício de R$ 100 bloqueado entre
+   contas vinculadas (inclui locação paga no sentido inverso) e exige telefone verificado.
+   Limite honesto: duas pessoas diferentes (CPFs, e-mails e telefones diferentes) agindo juntas não
+   são detectáveis por estes sinais.
 
 ## Fases 7 e 8 — ⬜ não implementadas
 

@@ -264,9 +264,9 @@ export default async function FinanceiroPage() {
         <div className="flex items-start gap-3 rounded-[var(--radius-card)] border border-dashed p-4">
           <Wallet className="size-4 mt-0.5 shrink-0 text-[var(--content-subtle)]" aria-hidden />
           <p className="text-[0.8125rem] text-[var(--content-muted)] leading-relaxed">
-            Valores exibidos aqui são calculados pelo servidor a partir da taxa vigente no
-            momento em que cada solicitação foi aceita — nunca digitados manualmente. A taxa
-            de uma locação não muda depois do aceite.
+            Valores exibidos aqui são calculados pelo servidor — nunca digitados manualmente. A
+            taxa de cada locação é a do aceite e só muda com o seu Premium: se ele acabar, as
+            próximas mensalidades voltam à taxa padrão; se você assinar de novo, voltam à reduzida.
           </p>
         </div>
       </main>

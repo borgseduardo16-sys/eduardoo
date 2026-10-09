@@ -75,6 +75,12 @@ async function main() {
     await sql`INSERT INTO auth.users (id, email) VALUES (${id}, ${`${tag}-${nome}@exemplo.invalid`})`;
     await sql`UPDATE profiles SET role='owner', full_name=${`Beneficio ${nome}`} WHERE id=${id}`;
   }
+  // O benefício exige telefone verificado (um por conta — o banco garante a unicidade).
+  let n = 0;
+  for (const id of [ids.locatario, ids.locatario2, ids.cartao, ids.teste, ids.semPremium]) {
+    n++;
+    await sql`UPDATE profiles SET phone = ${`+55279${String(Date.now()).slice(-7)}${n}`}, phone_verified_at = now() WHERE id = ${id}`;
+  }
   testbed = await startTestbed();
   Object.assign(process.env, {
     ASAAS_API_BASE_URL: `${testbed.url}/v3`, ASAAS_API_KEY: testbed.asaasApiKey, ASAAS_ENV: 'sandbox',
@@ -199,7 +205,7 @@ async function main() {
   // Outra conta com o MESMO CPF no mesmo período: a identidade já usou o direito.
   const eI = await espaco('ident', 30000);
   const bkI = await aceitoPara(ids.locatario2, eI);
-  const dec = await b.decideFirstMonthBenefit({ renterId: ids.locatario2, cpfCnpj: cpfLocatario, monthlyRentCents: 30000, totalChargedCents: 30900 });
+  const dec = await b.decideFirstMonthBenefit({ renterId: ids.locatario2, ownerId: ids.dono, cpfCnpj: cpfLocatario, monthlyRentCents: 30000, totalChargedCents: 30900 });
   expect('trocar de conta com o mesmo CPF não dá novo benefício', dec, { kind: 'not_eligible', reason: 'identity_used' });
   void bkI;
   const [hash] = await sql<{ h: string }[]>`SELECT identity_hash AS h FROM premium_benefits WHERE id=${ben!.id}`;
@@ -207,9 +213,37 @@ async function main() {
 
   // Locação pequena: o que sobraria cobrar é menor que o mínimo do gateway.
   const eP = await espaco('pequeno', 8000);
-  const dP = await b.decideFirstMonthBenefit({ renterId: ids.locatario2, cpfCnpj: '39053344705', monthlyRentCents: 8000, totalChargedCents: 8240 });
+  const dP = await b.decideFirstMonthBenefit({ renterId: ids.locatario2, ownerId: ids.dono, cpfCnpj: '39053344705', monthlyRentCents: 8000, totalChargedCents: 8240 });
   expect('aluguel de R$ 80: o benefício não se aplica por causa do mínimo do gateway (nunca é inflado)', dP, { kind: 'not_applied', reason: 'below_gateway_minimum' });
   void eP;
+
+  secao('6b. Contas vinculadas e telefone (mais rigidez contra contas duplicadas)');
+  const decidir = (renter: string, owner: string) => b.decideFirstMonthBenefit({ renterId: renter, ownerId: owner, cpfCnpj: '39053344705', monthlyRentCents: 30000, totalChargedCents: 30900 });
+  // locatario2 já tem benefício bloqueado por identidade? Não: usa outro CPF aqui. Começa elegível.
+  const [{ tel }] = await sql<{ tel: string }[]>`SELECT phone AS tel FROM profiles WHERE id = ${ids.locatario2}`;
+  await sql`UPDATE profiles SET phone = ${tel.replace('+55', '0')} WHERE id = ${ids.dono}`;
+  expect('locatário e proprietário com o MESMO telefone (escrito diferente): sem benefício', await decidir(ids.locatario2, ids.dono), { kind: 'not_eligible', reason: 'linked_accounts' });
+  await sql`UPDATE profiles SET phone = NULL WHERE id = ${ids.dono}`;
+  const [{ mail }] = await sql<{ mail: string }[]>`SELECT email AS mail FROM auth.users WHERE id = ${ids.locatario2}`;
+  const [usuario, dominio] = mail.split('@');
+  await sql`UPDATE auth.users SET email = ${`${usuario!.toUpperCase()}+outra@${dominio}`} WHERE id = ${ids.dono}`;
+  expect('mesmo e-mail com "+etiqueta" e maiúsculas: sem benefício', await decidir(ids.locatario2, ids.dono), { kind: 'not_eligible', reason: 'linked_accounts' });
+  await sql`UPDATE auth.users SET email = ${`${tag}-dono@exemplo.invalid`} WHERE id = ${ids.dono}`;
+  const [g1] = await sql<{ a: string; b2: string }[]>`SELECT public.canonical_email('Fulano.Silva+mp@gmail.com') AS a, public.canonical_email('fulanosilva@googlemail.com') AS b2`;
+  expect('no Gmail, pontos e "+etiqueta" não criam outra identidade', g1!.a, g1!.b2);
+  const [inv] = await sql<{ id: string }[]>`
+    INSERT INTO bookings (reference, space_id, renter_id, owner_id, status, start_date, monthly_rent_cents, renter_fee_bps, owner_fee_bps,
+                          renter_fee_cents, owner_fee_cents, total_charged_cents, owner_payout_cents, activated_at)
+    SELECT ${`MP-INV${String(Date.now()).slice(-5)}`}, ${eS}, ${ids.dono}, ${ids.semPremium}, 'requested', (now() AT TIME ZONE 'America/Sao_Paulo')::date,
+           30000, 300, 300, 900, 900, 30900, 29100, now()
+    RETURNING id`;
+  expect('o proprietário já alugou (pagou) do locatário — "rodízio" entre contas: vínculo detectado',
+    (await sql<{ m: string | null }[]>`SELECT public.premium_accounts_linked(${ids.semPremium}, ${ids.dono}) AS m`)[0]!.m, 'locação no sentido inverso');
+  await sql`DELETE FROM bookings WHERE id = ${inv!.id}`;
+  await sql`UPDATE profiles SET phone_verified_at = NULL WHERE id = ${ids.locatario2}`;
+  expect('sem telefone verificado: sem benefício', await decidir(ids.locatario2, ids.dono), { kind: 'not_eligible', reason: 'phone_unverified' });
+  await sql`UPDATE profiles SET phone_verified_at = now() WHERE id = ${ids.locatario2}`;
+  expect('sem vínculo e com telefone verificado: elegível', (await decidir(ids.locatario2, ids.dono)).kind, 'apply');
 
   secao('7. Carência do cartão (7 dias)');
   const cicloDe = async (u: string) => (await sql<{ c: string | null }[]>`SELECT public.premium_benefit_cycle_id(${u}) AS c`)[0]!.c;

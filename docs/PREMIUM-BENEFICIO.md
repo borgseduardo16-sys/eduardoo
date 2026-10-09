@@ -49,23 +49,26 @@ proxy) e a validação **não foi feita**. Cada item abaixo precisa ser exercita
    lida e **não foi confirmado**; a rota **reprova** em qualquer dúvida.
 5. O evento que confirma que a transferência "pousou" não está confirmado: por isso a
    transferência fica `sent`, nunca `confirmed`, até haver um evento confirmado.
+6. (Fase B, taxa que segue o Premium) `PUT /v3/subscriptions/{id}` aceita trocar o `split` da
+   recorrência com `updatePendingPayments: true`, alcançando a cobrança já gerada e ainda não paga.
+   Se não alcançar, a mensalidade já gerada sai com o split antigo e o razão (que usa o valor da
+   locação) divergiria do que o Asaas repassou nessa única cobrança.
 
 > Regra do projeto: **se o sandbox contradisser qualquer item, PARE e informe exatamente qual —
 > não invente alternativa.** O script para no primeiro passo que falha e imprime a resposta.
 
-## Pontos em aberto (precisam de decisão do produto)
+## Decisões do produto (08/10/2026)
 
-1. **Aluguel baixo.** Como o abatimento é `min(R$ 100, aluguel)` e a taxa de 3% do locatário
-   fica, o que sobra cobrar é menor que R$ 5 (mínimo do gateway) para aluguéis até ~R$ 101,94.
-   Hoje o benefício **não se aplica** nesses casos (R$ 80 e R$ 100 incluídos) — a tela deve
-   dizer isso; o exemplo "R$ 80 consome R$ 80" **não acontece** com esta regra.
-2. O benefício abate só o **aluguel**, não a taxa do locatário. Confirmar.
-3. Contas "claramente vinculadas" ao proprietário: só dá para comparar o CPF do locatário
-   entre contas Premium; o CPF do proprietário não é guardado localmente.
-4. Contestação (chargeback) depois do consumo: a operação é identificável (benefício ↔ locação
-   ↔ cobrança ↔ transferência ↔ ciclo do Premium), mas **não há desfazimento automático**.
-5. A UI do checkout ainda **não mostra** o abatimento (a flag está desligada; ao ligar, a tela
-   precisa dizer o valor abatido e, quando não se aplica, o motivo).
+1. **Aluguel baixo:** até ~R$ 101,94 o que sobra cobrar fica abaixo de R$ 5 e o benefício **não se
+   aplica** — aceito. A tela do checkout precisa dizer isso quando a flag for ligada.
+2. O benefício abate só o **aluguel**; a taxa do locatário continua — aceito.
+3. **Contas vinculadas — mais rígido:** sem benefício quando locatário e proprietário têm o mesmo e-mail
+   canônico (minúsculas, sem "+etiqueta", Gmail sem pontos), o mesmo telefone, o mesmo documento, ou já
+   houve locação paga no sentido inverso; o locatário precisa de **telefone verificado** (único por conta).
+   E uma pessoa não mantém **dois Premium vivos** em contas diferentes (mesmo e-mail, telefone ou
+   documento) — o banco recusa (`premium_memberships_linked_account`).
+4. Contestação depois do consumo: a operação é rastreável ponta a ponta; **não há desfazimento automático**.
+5. A UI do checkout ainda **não mostra** o abatimento (a flag está desligada).
 
 ## Para ligar (só depois de validar)
 

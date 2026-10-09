@@ -1,11 +1,16 @@
 import 'server-only';
-import { inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { platformSettings } from '@/db/schema';
+import { auditLogs, bookings, platformSettings, subscriptions } from '@/db/schema';
+import { isIntegrationConfigured } from '@/lib/env';
+import { insertNotification } from '@/lib/notifications/dispatch';
+import * as asaas from '@/lib/payments/asaas';
 import {
   InvalidAmountError,
   computeBookingAmounts,
   decideOwnerFee,
+  formatBps,
+  formatBRL,
   splitFitsNet,
   type FeeConfig,
   type OwnerFeePolicy,
@@ -111,3 +116,95 @@ export async function resolveBookingFees(opts: {
 }
 
 export { InvalidAmountError };
+
+// ---------------------------------------------------------------------------
+// A taxa SEGUE o Premium (decisão de 08/10/2026)
+// ---------------------------------------------------------------------------
+
+export type FeeSyncResult = { changed: number; splitsUpdated: number; splitsFailed: number };
+
+/**
+ * Recalcula a taxa do proprietário das locações vivas com o Premium dele COMO ESTÁ AGORA: o Premium
+ * acabou → as próximas mensalidades voltam a 3%; voltou → 2% (respeitando o piso). Muda a linha da
+ * locação (o banco confere) e avisa o proprietário; a recorrência no Asaas é acertada em seguida por
+ * `syncSubscriptionSplits`. O valor do locatário nunca muda. Mensalidade já paga não é recalculada.
+ */
+export async function syncOwnerFeesWithPremium(): Promise<FeeSyncResult> {
+  const vivas = await db
+    .select({
+      id: bookings.id, ownerId: bookings.ownerId, monthlyRentCents: bookings.monthlyRentCents,
+      ownerFeeBps: bookings.ownerFeeBps, renterFeeBps: bookings.renterFeeBps, reference: bookings.reference,
+    })
+    .from(bookings)
+    .where(inArray(bookings.status, ['approved', 'awaiting_payment', 'active', 'past_due']));
+
+  const cache = new Map<string, ResolvedFees>();
+  let changed = 0;
+  for (const b of vivas) {
+    const chave = `${b.ownerId}:${b.monthlyRentCents}`;
+    let taxas = cache.get(chave);
+    if (!taxas) {
+      taxas = await resolveBookingFees({ ownerId: b.ownerId, monthlyRentCents: b.monthlyRentCents });
+      cache.set(chave, taxas);
+    }
+    if (taxas.ownerFeeBps === b.ownerFeeBps) continue;
+    const valores = computeBookingAmounts(b.monthlyRentCents, { renterFeeBps: b.renterFeeBps, ownerFeeBps: taxas.ownerFeeBps });
+    const subiu = taxas.ownerFeeBps > b.ownerFeeBps;
+    const mudou = await db.transaction(async (tx) => {
+      const r = await tx
+        .update(bookings)
+        .set({ ownerFeeBps: valores.ownerFeeBps, ownerFeeCents: valores.ownerFeeCents, ownerPayoutCents: valores.ownerPayoutCents, updatedAt: new Date() })
+        .where(and(eq(bookings.id, b.id), eq(bookings.ownerFeeBps, b.ownerFeeBps)))
+        .returning({ id: bookings.id });
+      if (r.length === 0) return false;
+      await tx.insert(auditLogs).values({
+        actorId: null, actorRole: 'system', action: 'booking.owner_fee_changed', entityType: 'booking', entityId: b.id,
+        metadata: { fromBps: b.ownerFeeBps, toBps: valores.ownerFeeBps, reason: subiu ? 'premium_ended' : 'premium_active' },
+      });
+      await insertNotification(tx, {
+        userId: b.ownerId, type: 'premium_changed',
+        title: subiu ? 'Sua taxa voltou para a padrão' : 'Taxa reduzida do Premium aplicada',
+        body: subiu
+          ? `Sem o Premium ativo, as próximas mensalidades da locação ${b.reference} têm taxa de serviço de ${formatBps(valores.ownerFeeBps)}: você receberá ${formatBRL(valores.ownerPayoutCents)} por mês.`
+          : `Com o Premium ativo, as próximas mensalidades da locação ${b.reference} têm taxa de serviço de ${formatBps(valores.ownerFeeBps)}: você receberá ${formatBRL(valores.ownerPayoutCents)} por mês.`,
+        linkPath: `/reservas/${b.id}`,
+        data: { bookingId: b.id, ownerFeeBps: valores.ownerFeeBps },
+        dedupeKey: `owner_fee:${b.id}:${valores.ownerFeeBps}:${new Date().toISOString().slice(0, 10)}`,
+      });
+      return true;
+    });
+    if (mudou) changed++;
+  }
+  return { changed, splitsUpdated: 0, splitsFailed: 0 };
+}
+
+/**
+ * Acerta o split da recorrência no Asaas quando o repasse da locação mudou (`gateway_owner_payout_cents`
+ * diferente de `owner_payout_cents`). Idempotente: só grava o novo valor depois que o Asaas aceitou.
+ */
+export async function syncSubscriptionSplits(): Promise<{ updated: number; failed: number }> {
+  if (!isIntegrationConfigured('payments')) return { updated: 0, failed: 0 };
+  const pendentes = (await db.execute(sql`
+    SELECT s.id, s.provider_subscription_id AS sub, b.owner_payout_cents AS payout, opa.provider_wallet_id AS wallet
+      FROM subscriptions s
+      JOIN bookings b ON b.id = s.booking_id
+      LEFT JOIN owner_payout_accounts opa ON opa.owner_id = b.owner_id
+     WHERE s.status IN ('pending_authorization', 'active', 'past_due')
+       AND s.provider_subscription_id IS NOT NULL
+       AND s.gateway_owner_payout_cents IS DISTINCT FROM b.owner_payout_cents
+     LIMIT 50`)) as unknown as { id: string; sub: string; payout: number; wallet: string | null }[];
+  let updated = 0;
+  let failed = 0;
+  for (const p of pendentes) {
+    if (!p.wallet) { failed++; continue; }
+    try {
+      await asaas.updateSubscriptionSplit(p.sub, asaas.splitForOwner(p.wallet, p.payout));
+      await db.update(subscriptions).set({ gatewayOwnerPayoutCents: p.payout, updatedAt: new Date() }).where(eq(subscriptions.id, p.id));
+      updated++;
+    } catch (err) {
+      failed++;
+      console.error('[taxa] não consegui atualizar o split no Asaas (tenta de novo no próximo minuto):', p.sub, err instanceof asaas.AsaasError ? err.body : err);
+    }
+  }
+  return { updated, failed };
+}

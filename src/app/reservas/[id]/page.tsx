@@ -105,7 +105,7 @@ export default async function ReservaPage({
   const pedidoAberto = pedidosEncerramento.find((r) => r.status === 'pending') ?? null;
 
   // O proprietário que ainda não respondeu vê a taxa de AGORA (é a que o aceite vai gravar, com o Premium
-  // dele como estiver); depois do aceite, o que vale é o valor congelado da locação.
+  // dele como estiver); depois do aceite, o valor da locação — que a manutenção ajusta se o Premium acabar ou voltar.
   let taxaDoDonoBps = b.ownerFeeBps;
   let repasseDoDono = { netCents: b.ownerPayoutCents, feeCents: b.ownerFeeCents };
   let taxaReduzidaPeloPremium = false;

@@ -118,7 +118,8 @@ export default async function TaxasPage() {
                 A taxa de {formatBps(owner.premiumBps)} do Premium vale para aluguéis a partir de{' '}
                 {formatBRL(owner.premiumMinRentCents)}/mês, porque abaixo disso o custo fixo do pagamento não cabe numa
                 taxa menor. Nesses aluguéis vale a taxa de {formatBps(owner.standardBps)}. A taxa de cada locação é
-                definida quando o proprietário aceita o pedido e não muda depois. A taxa de quem aluga não muda com o
+                calculada quando o proprietário aceita o pedido e acompanha o Premium dele: se o Premium acabar, as
+                próximas mensalidades voltam a {formatBps(owner.standardBps)}. A taxa de quem aluga não muda com o
                 Premium.
               </p>
             )}

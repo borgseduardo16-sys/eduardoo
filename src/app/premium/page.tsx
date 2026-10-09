@@ -70,7 +70,7 @@ function beneficios(v: {
               (taxaReduzida
                 ? ` Em um aluguel de ${formatBRLShort(exemploCents)}, você recebe ${formatBRLShort(liquidoPremium)} em vez de ${formatBRLShort(liquidoPadrao)}.`
                 : '') +
-              ` Abaixo de ${formatBRL(v.taxa.premiumMinRentCents)} vale a taxa padrão. A taxa de cada locação é definida quando você aceita o pedido e não muda depois. A taxa de quem aluga não muda.`,
+              ` Abaixo de ${formatBRL(v.taxa.premiumMinRentCents)} vale a taxa padrão. A taxa acompanha o seu Premium: se ele acabar, as próximas mensalidades das suas locações voltam a ${formatBps(v.taxa.standardBps)}. A taxa de quem aluga não muda.`,
             disponivel: true,
           },
         ]
@@ -319,7 +319,7 @@ function PainelDaConta({
               {visao.financialEligible ? (
                 <span className="text-[var(--content-muted)]">
                   {formatBps(taxa.premiumBps)} nos aluguéis a partir de {formatBRL(taxa.premiumMinRentCents)} (em vez de{' '}
-                  {formatBps(taxa.standardBps)}), decidida quando você aceita cada pedido.
+                  {formatBps(taxa.standardBps)}) enquanto o Premium estiver ativo. Se ele acabar, as próximas mensalidades voltam a {formatBps(taxa.standardBps)}.
                 </span>
               ) : (
                 <span className="text-[var(--content-muted)]">

@@ -314,7 +314,8 @@ fica ativa quando o **webhook do Asaas** confirma o pagamento.
 - **Assinatura do Premium:** R$ 119,90/mês, recorrência PRÓPRIA no Asaas, **sem split** (receita da
   plataforma; lançamentos `charge_captured`/`gateway_fee` com `premium_charge_id`, titular nulo).
 - **Taxa do proprietário Premium:** 2% (em vez de 3%) a partir de R$ 50 de aluguel; decidida no
-  servidor, congelada no aceite, conferida pelo banco. O split continua limitado ao líquido da cobrança
+  servidor no aceite e depois acompanha o Premium (acabou → 3% nas próximas mensalidades, com o split
+  da recorrência atualizado no Asaas), conferida pelo banco. O split continua limitado ao líquido da cobrança
   (por isso o piso). Taxa do locatário inalterada (3%).
 - **Benefício do primeiro mês (desligado):** a primeira cobrança do Premium locatário perde até
   R$ 100 e o split; a plataforma transfere o repasse inteiro da conta principal. Ver

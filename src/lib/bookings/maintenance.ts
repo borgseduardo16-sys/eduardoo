@@ -10,6 +10,7 @@ import { notifyWaitlistIfAvailable } from '@/lib/waitlist/notify';
 import { brTime } from '@/lib/time';
 import { runPremiumMaintenance, type PremiumMaintenanceSummary } from '@/lib/premium/maintenance';
 import { processTransferOutbox } from '@/lib/premium/benefit';
+import { syncOwnerFeesWithPremium, syncSubscriptionSplits } from './fees';
 import {
   PAYMENT_EXPIRING_NOTICE_HOURS,
   PAYMENT_WINDOW_NOTICE_MINUTES,
@@ -414,7 +415,7 @@ export async function sweepExpiredBookings(): Promise<number> {
   return n;
 }
 
-export type MaintenanceSummary = { released: number; notices: number; waitlist: number; outbox: OutboxResult; premium: PremiumMaintenanceSummary; transfers: { sent: number; failed: number } };
+export type MaintenanceSummary = { released: number; notices: number; waitlist: number; outbox: OutboxResult; premium: PremiumMaintenanceSummary; transfers: { sent: number; failed: number }; ownerFees: { changed: number; splitsUpdated: number; splitsFailed: number } };
 
 /** Tudo junto: o agendador chama isto (e o diário, como rede de segurança). */
 export async function runBookingMaintenance(): Promise<MaintenanceSummary> {
@@ -426,5 +427,9 @@ export async function runBookingMaintenance(): Promise<MaintenanceSummary> {
   const premium = await runPremiumMaintenance();
   // Fila de transferências do benefício do primeiro mês: não faz nada com a feature flag desligada.
   const transfers = await processTransferOutbox();
-  return { released: Number(linha?.n ?? 0), notices, waitlist, outbox, premium, transfers };
+  // A taxa do proprietário segue o Premium: quem perdeu volta a 3% nas próximas mensalidades (e o split no Asaas acompanha).
+  const taxas = await syncOwnerFeesWithPremium();
+  const splits = await syncSubscriptionSplits();
+  const ownerFees = { changed: taxas.changed, splitsUpdated: splits.updated, splitsFailed: splits.failed };
+  return { released: Number(linha?.n ?? 0), notices, waitlist, outbox, premium, transfers, ownerFees };
 }

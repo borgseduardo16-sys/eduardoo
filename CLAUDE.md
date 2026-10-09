@@ -57,8 +57,13 @@ Produto real em construção (marketplace de espaços ociosos), não protótipo.
 - Concessão do admin é **modo teste/suporte**: não dá benefício financeiro (taxa de 2%, R$ 100) a menos
   que a concessão tenha a marca de teste financeiro (`premium_financial_active()`).
 - **Taxa do proprietário:** 3% → 2% só com Premium pago e aluguel ≥ R$ 50 (`fees.premium_min_rent_cents`).
-  Quem decide é `resolveBookingFees` (`src/lib/bookings/fees.ts`); congelada no aceite; o gatilho
-  `bookings_guard_price_fee` confere. A taxa do locatário não muda.
+  Quem decide é `resolveBookingFees` (`src/lib/bookings/fees.ts`); decidida no aceite e depois **segue o
+  Premium** (`syncOwnerFeesWithPremium` na manutenção: acabou → 3% nas próximas mensalidades; voltou → 2%;
+  o split no Asaas acompanha via `syncSubscriptionSplits`). O gatilho `bookings_guard_price_fee` confere.
+  A taxa do locatário não muda.
+- **Um Premium por pessoa:** outra conta com o mesmo e-mail canônico, telefone ou documento não abre um
+  segundo Premium (`premium_memberships_linked_account`); o benefício de R$ 100 não vale entre contas
+  vinculadas (`premium_accounts_linked`) e exige telefone verificado.
 - **Benefício do primeiro mês (até R$ 100) está atrás de feature flag DESLIGADA**
   (`premium.first_month_benefit_enabled`). Não foi validado no Asaas real. Não ligue, não "conserte" por
   suposição: se o sandbox contradisser algo, **pare e pergunte** (ver o documento acima).

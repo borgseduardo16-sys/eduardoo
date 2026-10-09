@@ -37,7 +37,7 @@ export function identityHash(cpfCnpj: string): string {
 
 export type BenefitDecision =
   | { kind: 'off' }
-  | { kind: 'not_eligible'; reason: 'no_premium_cycle' | 'already_used' | 'identity_used' }
+  | { kind: 'not_eligible'; reason: 'no_premium_cycle' | 'already_used' | 'identity_used' | 'linked_accounts' | 'phone_unverified' }
   | { kind: 'not_applied'; reason: 'below_gateway_minimum' }
   | {
       kind: 'apply';
@@ -53,6 +53,7 @@ export type BenefitDecision =
  */
 export async function decideFirstMonthBenefit(opts: {
   renterId: string;
+  ownerId: string;
   cpfCnpj: string;
   monthlyRentCents: number;
   totalChargedCents: number;
@@ -64,6 +65,13 @@ export async function decideFirstMonthBenefit(opts: {
   const [ciclo] = (await ex.execute(sql`
     SELECT public.premium_benefit_cycle_id(${opts.renterId}::uuid) AS id`)) as unknown as { id: string | null }[];
   if (!ciclo?.id) return { kind: 'not_eligible', reason: 'no_premium_cycle' };
+
+  // Contas vinculadas (mesmo e-mail, telefone, documento ou locação no sentido inverso): sem benefício.
+  const [vinculo] = (await ex.execute(sql`
+    SELECT public.premium_accounts_linked(${opts.renterId}::uuid, ${opts.ownerId}::uuid) AS motivo,
+           (SELECT phone_verified_at IS NOT NULL FROM profiles WHERE id = ${opts.renterId}) AS telefone`)) as unknown as { motivo: string | null; telefone: boolean }[];
+  if (vinculo?.motivo) return { kind: 'not_eligible', reason: 'linked_accounts' };
+  if (!vinculo?.telefone) return { kind: 'not_eligible', reason: 'phone_unverified' };
 
   const [vivo] = await ex
     .select({ id: premiumBenefits.id })

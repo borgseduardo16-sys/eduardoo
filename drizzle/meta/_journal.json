@@ -260,6 +260,13 @@
       "when": 1791460156786,
       "tag": "0036_premium_beneficio_primeiro_mes",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791545573652,
+      "tag": "0037_taxa_segue_premium_e_contas_vinculadas",
+      "breakpoints": true
     }
   ]
 }

@@ -46,6 +46,12 @@ export const subscriptions = pgTable(
 
     /** Valor cobrado por ciclo, congelado da reserva. */
     amountCents: integer('amount_cents').notNull(),
+    /**
+     * Repasse ao proprietário configurado HOJE no split da recorrência do gateway (0037). Quando a taxa
+     * do proprietário muda (o Premium dele acabou ou voltou), a manutenção atualiza o split no Asaas e
+     * grava o novo valor aqui; enquanto difere de `bookings.owner_payout_cents`, há atualização pendente.
+     */
+    gatewayOwnerPayoutCents: integer('gateway_owner_payout_cents'),
     /** Dia do vencimento (1..28 — evita meses curtos). */
     billingDay: integer('billing_day').notNull(),
     nextDueDate: date('next_due_date'),

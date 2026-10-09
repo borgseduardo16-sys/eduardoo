@@ -654,6 +654,27 @@ export async function startTestbed(port = 0): Promise<Testbed> {
             status = pagamento
               ? json(res, 200, pagamento)
               : json(res, 404, { errors: [{ code: 'not_found', description: 'cobranca nao encontrada' }] });
+          } else if (req.method === 'PUT' && /^\/v3\/subscriptions\/[^/]+$/.test(rota)) {
+            // DUBLÊ: troca o split da recorrência e, com updatePendingPayments, das cobranças pendentes.
+            const id = rota.split('/').pop()!;
+            const existente = asaasSubscriptions.get(id);
+            const corpo = JSON.parse((await lerCorpo(req)).toString() || '{}') as {
+              split?: { walletId: string; fixedValue?: number }[]; updatePendingPayments?: boolean;
+            };
+            if (!existente || existente.status !== 'ACTIVE') {
+              status = json(res, 404, { errors: [{ code: 'not_found', description: 'assinatura nao encontrada' }] });
+            } else if (corpo.split?.some((x) => !walletExiste(x.walletId))) {
+              status = json(res, 400, { errors: [{ code: 'invalid_wallet', description: 'walletId do split nao existe' }] });
+            } else {
+              const nova = { ...existente, split: corpo.split ?? existente.split };
+              asaasSubscriptions.set(id, nova);
+              if (corpo.updatePendingPayments) {
+                for (const pg of asaasPayments.values()) {
+                  if (pg.subscription === id && ['PENDING', 'OVERDUE'].includes(pg.status)) asaasPayments.set(pg.id, { ...pg, split: nova.split });
+                }
+              }
+              status = json(res, 200, nova);
+            }
           } else if (req.method === 'GET' && rota === '/v3/finance/balance') {
             status = json(res, 200, { balance: asaasBalance.value });
           } else if (req.method === 'POST' && rota === '/v3/transfers') {

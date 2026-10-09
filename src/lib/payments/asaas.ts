@@ -408,3 +408,15 @@ export async function updatePaymentValueAndSplit(
     body: JSON.stringify({ value: input.valueCents / 100, split: input.split }),
   });
 }
+
+/**
+ * Troca o split da RECORRÊNCIA de uma locação (`PUT /v3/subscriptions/{id}`), também nas cobranças
+ * ainda pendentes (`updatePendingPayments`). Usado quando a taxa do proprietário muda porque o Premium
+ * dele acabou (volta a 3%) ou voltou (2%). NÃO validado no Asaas real — ver docs/PREMIUM-BENEFICIO.md.
+ */
+export async function updateSubscriptionSplit(providerSubscriptionId: string, split: AsaasSplitItem[]): Promise<AsaasSubscription> {
+  return asaasFetch<AsaasSubscription>(`/subscriptions/${encodeURIComponent(providerSubscriptionId)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ split, updatePendingPayments: true }),
+  });
+}

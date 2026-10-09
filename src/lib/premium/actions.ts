@@ -33,6 +33,9 @@ import { getPremiumOverview } from './queries';
  * reembolso proporcional.
  */
 
+const CONTA_VINCULADA =
+  'Já existe uma assinatura Premium em outra conta com o mesmo e-mail, telefone ou documento. O Premium é um por pessoa.';
+
 export type PremiumActionState = { ok: boolean; message?: string; needsCpf?: boolean };
 
 const SEM_PAGAMENTOS =
@@ -87,6 +90,15 @@ async function abrirAssinatura(
     }
 
     if (!isIntegrationConfigured('payments')) return { ok: false, message: SEM_PAGAMENTOS };
+
+    // Uma pessoa, um Premium: outra conta com o mesmo e-mail, telefone ou documento já tem Premium vivo.
+    // O banco também trava (`premium_memberships_linked_account`); conferir ANTES evita criar recorrência no gateway.
+    const [vinculada] = (await tx.execute(sql`
+      SELECT 1 AS ok FROM premium_memberships pm
+       WHERE pm.user_id <> ${user.id} AND pm.status::text IN ('pending_payment', 'active')
+         AND public.premium_accounts_linked(${user.id}::uuid, pm.user_id) IN ('mesmo e-mail', 'mesmo telefone', 'mesmo documento')
+       LIMIT 1`)) as unknown as { ok: number }[];
+    if (vinculada) return { ok: false, message: CONTA_VINCULADA };
 
     const cliente = await ensureAsaasCustomer(user, cpfCnpj);
     if (!cliente.ok) return { ok: false, message: cliente.message, needsCpf: cliente.needsCpf };
