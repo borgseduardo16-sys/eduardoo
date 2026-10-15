@@ -1,0 +1,15 @@
+{
+  "title": "Kelle Garcia — Cerimonial em Três Lagoas, MS",
+  "description": "Cerimonial e assessoria de casamentos e eventos em Três Lagoas – MS. Do primeiro café ao último brinde: simule o seu evento online e fale com a Kelle pelo WhatsApp.",
+  "themeColor": "#f7f2ea",
+  "faviconCor": "#b08d57",
+  "faviconLetra": "K",
+  "fonts": ["cormorant", "pinyon"],
+  "imagens": {
+    "pier": { "arquivo": "img/pier.jpg", "largura": 1600 },
+    "sorriso": { "arquivo": "img/sorriso.jpg" },
+    "preparacao": { "arquivo": "img/preparacao.jpg" },
+    "flores": { "arquivo": "img/flores.jpg" },
+    "luzes": { "arquivo": "img/luzes.jpg" }
+  }
+}

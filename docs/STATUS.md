@@ -2211,3 +2211,11 @@ Fotos reais (8), motivo do arco, ritmo escuro/claro, dia→noite guiado pela rol
 → WhatsApp; sem preço, sem capacidade. Listas de tipos/serviços são o PADRÃO de cerimoniais — ajustar quando o cliente mandar os serviços.
 Pendências: serviços/capacidade/política de reserva, número de WhatsApp (assumido = telefone), logo, Instagram, nota do Google (não visível no
 print) e a licença das 2 fotos com marca d'água do fotógrafo Welliton Barbosa (créditos exibidos na galeria).
+
+### Site do cliente: Kelle Garcia — cerimonial (`sites/kelle`)
+Modelo novo "revista de casamento" (referências: sites editoriais de wedding planners — creme e sálvia, nome em tipografia grande,
+formulário em etapas). Cormorant Garamond + Pinyon Script embutidas (novas no build). Molduras em arco/oval, monograma KG em SVG, selo de
+cera em CSS, serviços como cartões de convite, hero desktop em que o arco cresce até a tela inteira e o nome se abre, capítulos do grande
+dia com revelação em oval. Simulador de evento em 5 etapas → WhatsApp (testado). `pnpm site kelle` → zip/index.html (~1,25 MB).
+Pendências: nome completo do perfil ("Kelle Garcia - Atualle A…" cortado no print), serviços e pacotes reais (os 4 cartões são o padrão
+de cerimonial), WhatsApp = telefone (assumido), autorização dos casais e crédito do fotógrafo, número de avaliações do Google.
