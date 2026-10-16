@@ -2219,3 +2219,12 @@ cera em CSS, serviços como cartões de convite, hero desktop em que o arco cres
 dia com revelação em oval. Simulador de evento em 5 etapas → WhatsApp (testado). `pnpm site kelle` → zip/index.html (~1,25 MB).
 Pendências: nome completo do perfil ("Kelle Garcia - Atualle A…" cortado no print), serviços e pacotes reais (os 4 cartões são o padrão
 de cerimonial), WhatsApp = telefone (assumido), autorização dos casais e crédito do fotógrafo, número de avaliações do Google.
+
+### Site do cliente: Jéssica Fernanda — cerimonialista (`sites/jessica`)
+Araras – SP (print do Google de 16/10/2026: Av. Zurita, 2, Jardim Belvedere; (19) 99434-0896). Modelo "álbum": creme da própria logo (recortada
+em círculo), ouro champagne, Marcellus + Cormorant itálico + Great Vibes (novas fontes no build), fotos verticais em arcos e ovais.
+Hero com colunas de fotos que correm em sentidos opostos (CSS), medalhão com a logo real e texto girando, portfólio em carrossel (arraste/setas),
+serviços em abas com foto, processo com linha que se preenche, simulador de evento em 5 etapas → WhatsApp (testado). Modo leve no celular: colunas paradas.
+`pnpm site jessica` → zip/index.html (~1,5 MB). Pendências: serviços/pacotes reais (4 cartões são o padrão de cerimonial), @ do Instagram,
+horário (Google marca "Aberto 24 horas"; o site não afirma horário), WhatsApp = telefone, autorização dos casais para as fotos.
+Aprendizado: `.papel{position:relative}` anulava `absolute` (CSS sem camada vence o Tailwind) — usar `:not(.absolute)`.

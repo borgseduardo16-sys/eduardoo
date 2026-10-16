@@ -1,0 +1,18 @@
+{
+  "title": "Jéssica Fernanda — Cerimonialista em Araras, SP",
+  "description": "Cerimonialista em Araras – SP: assessoria e cerimonial para casamentos e eventos, com cuidado em cada detalhe. Simule o seu evento online e fale com a Jéssica pelo WhatsApp.",
+  "themeColor": "#fbf6ee",
+  "faviconCor": "#a8803f",
+  "faviconLetra": "J",
+  "fonts": ["marcellus", "cormorant", "greatvibes"],
+  "imagens": {
+    "ipe": { "arquivo": "img/noivado-ipe.jpg", "largura": 1100 },
+    "cachorro": { "arquivo": "img/casal-cachorro.jpg", "largura": 1100 },
+    "veu": { "arquivo": "img/noiva-veu.jpg", "largura": 1100 },
+    "bolhas": { "arquivo": "img/bolhas.jpg", "largura": 1100 },
+    "escadaria": { "arquivo": "img/escadaria.jpg", "largura": 1100 },
+    "encantado": { "arquivo": "img/encantado.jpg", "largura": 1100 },
+    "igreja": { "arquivo": "img/igreja.jpg", "largura": 1100 },
+    "logo": { "arquivo": "img/logo.png", "largura": 520, "qualidade": 90 }
+  }
+}

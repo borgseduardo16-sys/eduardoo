@@ -1,0 +1,92 @@
+@import "tailwindcss" source(none);
+@source "./App.tsx";
+@source "./partes.tsx";
+@source "./orcamento.tsx";
+@source "../_kit";
+@source "../../src/components/motion";
+@import "../_kit/kit.css";
+
+@theme {
+  --font-marcel: "Marcellus", Georgia, serif;
+  --font-serif: "Cormorant Garamond", Georgia, serif;
+  --font-script: "Great Vibes", cursive;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --color-papel: #fbf6ee;
+  --color-linho: #f1e8da;
+  --color-blush: #ecd5ca;
+  --color-tinta: #2b2420;
+  --color-noite: #231c18;
+  --color-cacau: #4d3b30;
+  --color-ouro: #a8803f;
+  --color-ouro-claro: #dcc28c;
+  --color-pedra: #7d7167;
+}
+
+.jes { background: var(--color-papel); color: var(--color-tinta); }
+.jes ::selection { background: rgb(236 213 202 / 0.95); }
+html:has(.jes) { background: #fbf6ee; }
+
+.papel:not(.absolute):not(.fixed) { position: relative; }
+.papel::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5; mix-blend-mode: multiply; border-radius: inherit;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .55  0 0 0 0 .47  0 0 0 0 .38  0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.arco { border-radius: 999px 999px 18px 18px; }
+.oval { border-radius: 50%; }
+
+/* ---- HERO: colunas de fotos que correm em sentidos opostos ---- */
+.col { display: flex; flex-direction: column; will-change: transform; }
+.col > .grupo { display: flex; flex-direction: column; gap: 1rem; padding-bottom: 1rem; }
+@keyframes sobe { to { transform: translate3d(0, -50%, 0); } }
+@keyframes desce { from { transform: translate3d(0, -50%, 0); } to { transform: translate3d(0, 0, 0); } }
+.col-sobe { animation: sobe 70s linear infinite; }
+.col-desce { animation: desce 80s linear infinite; }
+.col-sobe2 { animation: sobe 90s linear infinite; }
+.mascara-v { mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 88%, transparent 100%); }
+@keyframes surge { from { opacity: 0; transform: translateY(40px) scale(.97); } to { opacity: 1; transform: none; } }
+.surge { animation: surge 1.4s var(--ease-out-soft) backwards; }
+@keyframes aparece { from { opacity: 0; transform: scale(.85) rotate(-6deg); } to { opacity: 1; transform: none; } }
+.aparece { animation: aparece 1.6s var(--ease-out-soft) .2s backwards; }
+
+/* ---- Selo/medalhão girando devagar ---- */
+@keyframes gira { to { transform: rotate(360deg); } }
+.gira { animation: gira 36s linear infinite; transform-origin: 50% 50%; }
+
+/* ---- Carrossel do portfólio ---- */
+.trilho-s { display: flex; gap: 1.25rem; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; padding: 0 max(1.25rem, calc((100vw - 80rem) / 2 + 2.5rem)); -webkit-overflow-scrolling: touch; }
+.trilho-s::-webkit-scrollbar { display: none; }
+.card-p { scroll-snap-align: center; flex: 0 0 auto; width: min(74vw, 24rem); }
+.card-p .moldura { transition: transform .8s var(--ease-out-soft), box-shadow .8s var(--ease-out-soft); }
+@media (hover: hover) { .card-p:hover .moldura { transform: translateY(-10px); box-shadow: 0 50px 80px -40px rgb(43 36 32 / .55); } }
+
+/* ---- Serviços em abas ---- */
+.aba { transition: padding .5s var(--ease-out-soft), color .3s; }
+.aba[aria-selected="true"] { padding-left: 1.25rem; }
+.painel-foto { transition: opacity .7s, transform 1.2s var(--ease-out-soft); opacity: 0; transform: scale(1.06); }
+.painel-foto.ativo { opacity: 1; transform: scale(1); }
+
+/* ---- Faixa de foto com parallax ---- */
+.faixa-foto { transform: translate3d(0, calc((var(--p, .5) - .5) * -14%), 0) scale(1.15); }
+
+.fio-v { transform-origin: top; transform: scaleY(var(--p, 0)); }
+
+@keyframes entra { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+.etapa { animation: entra .5s var(--ease-out-soft) both; }
+@keyframes entra-v { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+.etapa.volta { animation-name: entra-v; }
+.faq summary { list-style: none; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq .corpo { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s var(--ease-out-soft); }
+.faq[open] .corpo { grid-template-rows: 1fr; }
+.faq .corpo > div { overflow: hidden; }
+.faq[open] .seta { transform: rotate(45deg); }
+
+/* modo leve / sem JS / movimento reduzido: colunas paradas, sem efeitos */
+html.lite .col-sobe, html.lite .col-desce, html.lite .col-sobe2, html:not(.js) .col-sobe, html:not(.js) .col-desce, html:not(.js) .col-sobe2 { animation: none !important; }
+html.lite .surge, html.lite .aparece, html:not(.js) .surge, html:not(.js) .aparece { animation: none !important; }
+html.lite .faixa-foto, html:not(.js) .faixa-foto { transform: none !important; }
+html.lite .gira { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .col-sobe, .col-desce, .col-sobe2, .surge, .aparece, .gira { animation: none !important; }
+}
