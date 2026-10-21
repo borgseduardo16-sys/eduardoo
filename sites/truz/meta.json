@@ -1,0 +1,17 @@
+{
+  "title": "Truz, Truz, Surpresa — Decoração de Festas em Barcelos",
+  "description": "Decoração de festas e eventos em Barcelos, Braga, Guimarães e Viana do Castelo: aniversários, batizados e celebrações com cenários, mesas e lembranças feitos à medida. Peça o seu orçamento online.",
+  "themeColor": "#fbf7f0",
+  "faviconCor": "#4b7392",
+  "faviconLetra": "T",
+  "fonts": ["fraunces", "parisienne"],
+  "imagens": {
+    "duarte": { "arquivo": "img/urso-balao.jpg", "largura": 1200 },
+    "joao": { "arquivo": "img/urso-arco.jpg", "largura": 1200 },
+    "lua": { "arquivo": "img/lua-nuvens.jpg", "largura": 1200 },
+    "mesa": { "arquivo": "img/mesa-verde.jpg", "largura": 1000 },
+    "caixa": { "arquivo": "img/caixa-batizado.jpg", "largura": 1000 },
+    "cartao": { "arquivo": "img/cartao-desejos.jpg", "largura": 1000 },
+    "lembrancas": { "arquivo": "img/lembrancas.jpg", "largura": 1000 }
+  }
+}

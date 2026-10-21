@@ -2228,3 +2228,12 @@ serviços em abas com foto, processo com linha que se preenche, simulador de eve
 `pnpm site jessica` → zip/index.html (~1,5 MB). Pendências: serviços/pacotes reais (4 cartões são o padrão de cerimonial), @ do Instagram,
 horário (Google marca "Aberto 24 horas"; o site não afirma horário), WhatsApp = telefone, autorização dos casais para as fotos.
 Aprendizado: `.papel{position:relative}` anulava `absolute` (CSS sem camada vence o Tailwind) — usar `:not(.absolute)`.
+
+## Site do cliente: Truz, Truz, Surpresa (`sites/truz`)
+
+Decoração de festas em Barcelos (PT), português de Portugal. HTML único: `pnpm site truz` → `sites/truz/dist/truz.html`, `index.html` e `truz-netlify.zip`.
+
+- Conceito "bater à porta": porta em arco que bate duas vezes, abre e revela o cenário; balões SVG flutuantes; galeria com filtros e ampliação; serviços; processo; simulador de orçamento de 5 passos (envia por WhatsApp, sem cálculo de preço); contacto, "Como chegar" e FAQ.
+- Modo leve no telemóvel (porta e balões desligados), sem texto escondido sem JS (verificado), sem erros de consola nem scroll horizontal; simulador testado ponta a ponta em desktop e telemóvel.
+- Fotos reais enviadas (7). Nada de preços, depoimentos ou horários inventados. Nota 4,8 (20 avaliações) é a do perfil Google.
+- **Pendências a confirmar com o cliente:** nome comercial completo; "Viana" assumido como Viana do Castelo; serviços reais (os 4 cartões são genéricos); horários; WhatsApp = telefone; faixas de valor em € (sugestão nossa); autorização para fotos com nomes de crianças; crédito "Vitória Fotografia" (marca de água mantida).

@@ -1,0 +1,92 @@
+@import "tailwindcss" source(none);
+@source "./App.tsx";
+@source "./partes.tsx";
+@source "./orcamento.tsx";
+@source "../_kit";
+@source "../../src/components/motion";
+@import "../_kit/kit.css";
+
+@theme {
+  --font-fr: "Fraunces", Georgia, serif;
+  --font-script: "Parisienne", cursive;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --color-creme: #fbf7f0;
+  --color-areia: #f1e8d8;
+  --color-mimo: #f3e1d8;
+  --color-azul: #bcd5e8;
+  --color-azul-claro: #e3eff8;
+  --color-azul-esc: #4b7392;
+  --color-caramelo: #b98a52;
+  --color-ouro: #c9a45c;
+  --color-salvia: #8aa08b;
+  --color-tinta: #2f2a26;
+  --color-noite: #26211d;
+  --color-pedra: #7b7168;
+}
+
+.tz { background: var(--color-creme); color: var(--color-tinta); }
+.tz ::selection { background: rgb(188 213 232 / 0.8); }
+html:has(.tz) { background: #fbf7f0; }
+
+.papel:not(.absolute):not(.fixed) { position: relative; }
+.papel::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .5; mix-blend-mode: multiply; border-radius: inherit;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.75' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .55  0 0 0 0 .47  0 0 0 0 .38  0 0 0 .09 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.arco { border-radius: 999px 999px 22px 22px; }
+
+/* ---- HERO: a porta (arco) bate duas vezes ("truz, truz") e abre, revelando a surpresa ---- */
+@keyframes bate { 0%,100% { transform: translateX(0) rotate(0); } 20% { transform: translateX(-3px) rotate(-.5deg); } 40% { transform: translateX(3px) rotate(.5deg); } 60% { transform: translateX(-3px) rotate(-.5deg); } 80% { transform: translateX(2px); } }
+@keyframes abre-e { to { transform: translateX(-102%); } }
+@keyframes abre-d { to { transform: translateX(102%); } }
+.porta { animation: bate .9s ease-in-out .5s 2 both; }
+.folha { position: absolute; top: 0; bottom: 0; width: 50.5%; background: linear-gradient(160deg, #fff9ef, #efe3cf); box-shadow: inset 0 0 0 1px rgb(201 164 92 / .55), inset 0 0 0 7px #fbf7f0, inset 0 0 0 8px rgb(201 164 92 / .4); }
+.folha-e { left: 0; animation: abre-e 1.5s cubic-bezier(.76,0,.24,1) 2.5s forwards; }
+.folha-d { right: 0; animation: abre-d 1.5s cubic-bezier(.76,0,.24,1) 2.5s forwards; }
+.puxador { position: absolute; top: 52%; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #f3dc9f, #c9a45c 60%, #8f6d2a); box-shadow: 0 2px 4px rgb(0 0 0 / .3); }
+@keyframes balao-fala { 0% { opacity: 0; transform: translateY(8px) scale(.8); } 15%,80% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-6px); } }
+.fala { animation: balao-fala 2.6s ease-out .4s both; }
+@keyframes revela-foto { from { transform: scale(1.18); } to { transform: scale(1); } }
+.revela-foto { animation: revela-foto 3.6s var(--ease-out-soft) 2.3s backwards; }
+
+/* ---- Balões que flutuam ---- */
+@keyframes flutua { 0%,100% { transform: translate3d(0,0,0) rotate(var(--r, 0deg)); } 50% { transform: translate3d(0,-14px,0) rotate(calc(var(--r, 0deg) + 2deg)); } }
+.flutua { animation: flutua var(--d, 7s) ease-in-out var(--a, 0s) infinite; }
+@keyframes sobe-balao { from { transform: translate3d(0, 105vh, 0); } to { transform: translate3d(0, -20vh, 0); } }
+
+/* ---- Galeria em colunas + lightbox ---- */
+.colunas { columns: 1; column-gap: 1rem; }
+@media (min-width: 640px) { .colunas { columns: 2; } }
+@media (min-width: 1024px) { .colunas { columns: 3; column-gap: 1.25rem; } }
+.item-g { break-inside: avoid; margin-bottom: 1.25rem; }
+.item-g .foto-g { transition: transform 1s var(--ease-out-soft); }
+@media (hover: hover) { .item-g:hover .foto-g { transform: scale(1.06); } }
+dialog.lb { margin: auto; max-width: none; max-height: none; width: 100vw; height: 100dvh; border: 0; padding: 0; background: rgb(24 20 17 / .94); color: #fbf7f0; }
+dialog.lb::backdrop { background: rgb(24 20 17 / .94); }
+@keyframes lb-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+.lb[open] .lb-foto { animation: lb-in .5s var(--ease-out-soft); }
+
+/* ---- Serviços: cartões com selo ---- */
+.cartao-s { transition: transform .6s var(--ease-out-soft), box-shadow .6s var(--ease-out-soft); }
+@media (hover: hover) { .cartao-s:hover { transform: translateY(-8px); box-shadow: 0 40px 70px -36px rgb(75 115 146 / .45); } }
+
+.fio { transform-origin: left; transform: scaleX(var(--p, 0)); }
+
+@keyframes entra { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+.etapa { animation: entra .5s var(--ease-out-soft) both; }
+@keyframes entra-v { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+.etapa.volta { animation-name: entra-v; }
+.faq summary { list-style: none; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq .corpo { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s var(--ease-out-soft); }
+.faq[open] .corpo { grid-template-rows: 1fr; }
+.faq .corpo > div { overflow: hidden; }
+.faq[open] .seta { transform: rotate(45deg); }
+
+/* modo leve / sem JS / movimento reduzido: a porta já nasce aberta e nada anima */
+html.lite .folha, html:not(.js) .folha { display: none; }
+html.lite .porta, html.lite .fala, html.lite .revela-foto, html:not(.js) .porta, html:not(.js) .fala, html:not(.js) .revela-foto { animation: none !important; }
+html.lite .flutua, html:not(.js) .flutua { animation: none; }
+html:not(.js) .fala { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .folha { display: none; } .porta, .fala, .revela-foto, .flutua { animation: none !important; } }
