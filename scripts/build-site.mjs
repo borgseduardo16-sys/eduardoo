@@ -103,6 +103,10 @@ const FONTES = {
     ['Instrument Serif', 'normal', '400', 'instrument-normal-400-latin.woff2'],
     ['Instrument Serif', 'italic', '400', 'instrument-italic-400-latin.woff2'],
   ],
+  bodoni: [
+    ['Bodoni Moda', 'normal', '400 700', 'bodoni-normal-latin.woff2'],
+    ['Bodoni Moda', 'italic', '400 700', 'bodoni-italic-latin.woff2'],
+  ],
   marcellus: [['Marcellus', 'normal', '400', 'marcellus-normal-400-latin.woff2']],
   greatvibes: [['Great Vibes', 'normal', '400', 'greatvibes-normal-400-latin.woff2']],
   'plus-jakarta': [['Plus Jakarta Sans', 'normal', '200 800', path.join('..', '..', '..', 'standalone', 'assets', 'plus-jakarta-sans-latin.woff2')]],
@@ -216,7 +220,7 @@ const favicon = 'data:image/svg+xml,' + encodeURIComponent(
 );
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const saida = `<!doctype html>
-<html lang="pt-BR">
+<html lang="${meta.lang ?? 'pt-BR'}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">

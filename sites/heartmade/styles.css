@@ -1,0 +1,117 @@
+@import "tailwindcss" source(none);
+@source "./App.tsx";
+@source "./partes.tsx";
+@source "./proposta.tsx";
+@source "../_kit";
+@source "../../src/components/motion";
+@import "../_kit/kit.css";
+
+@theme {
+  --font-bd: "Bodoni Moda", Didot, "Times New Roman", serif;
+  --font-cg: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --color-marfim: #f5f0e6;
+  --color-linho: #ebe3d3;
+  --color-oliva: #3d4528;
+  --color-musgo: #5b6439;
+  --color-floresta: #1c2216;
+  --color-noite: #10140d;
+  --color-ouro: #b4955a;
+  --color-ouro-claro: #dcc796;
+  --color-terracota: #b6552f;
+  --color-tinta: #24261f;
+  --color-pedra: #66645a;
+}
+
+.hm { background: var(--color-marfim); color: var(--color-tinta); }
+.hm ::selection { background: #dcc796; color: #24261f; }
+html:has(.hm) { background: #f5f0e6; }
+
+/* grão de película por cima das fotos */
+.filme:not(.absolute) { position: relative; }
+.filme::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .6; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .5  0 0 0 0 .5  0 0 0 0 .5  0 0 0 .35 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* ---- Coração que se desenha ---- */
+@keyframes traco { to { stroke-dashoffset: 0; } }
+.desenha path { stroke-dasharray: 1; stroke-dashoffset: 1; animation: traco 2.4s cubic-bezier(.65,0,.35,1) forwards; }
+.desenha path:nth-child(2) { animation-delay: .35s; }
+.desenha path:nth-child(3) { animation-delay: .7s; }
+html.lite .desenha path, html:not(.js) .desenha path { animation: none; stroke-dashoffset: 0; }
+
+/* ---- Hero: provas fotográficas sobre a mesa ---- */
+.prova { box-shadow: 0 40px 80px -36px rgb(16 20 13 / .55), 0 2px 6px rgb(16 20 13 / .12); }
+.prova-1 { transform: rotate(calc(-3deg + var(--p, 0) * 5deg)) translate3d(0, calc(var(--p, 0) * -40px), 0); }
+.prova-2 { transform: rotate(calc(5deg - var(--p, 0) * 9deg)) translate3d(calc(var(--p, 0) * -30px), calc(var(--p, 0) * -120px), 0); }
+.prova-3 { transform: rotate(calc(-8deg + var(--p, 0) * 6deg)) translate3d(0, calc(var(--p, 0) * -200px), 0); }
+html.lite .prova-1, html.lite .prova-2, html.lite .prova-3 { transform: none; }
+@keyframes cai { from { opacity: 0; transform: translateY(-40px) rotate(-12deg); } }
+.cai { animation: cai 1.3s var(--ease-out-soft) backwards; }
+html.lite .cai { animation: none; }
+
+/* ---- Dia → noite (desktop: as duas luzes no mesmo quadro; telemóvel: uma a seguir à outra) ---- */
+html.js:not(.lite) .dn-palco { position: absolute; inset: 0; }
+html.js:not(.lite) .dn-noite { opacity: clamp(0, (var(--p, 0) - .38) * 3.2, 1); }
+html.js:not(.lite) .dn-foto { transform: scale(calc(1.12 - var(--p, 0) * .12)); }
+html.js:not(.lite) .dn-t1 { opacity: clamp(0, 1 - (var(--p, 0) - .3) * 4, 1); transform: translate3d(0, calc(var(--p, 0) * -60px), 0); }
+html.js:not(.lite) .dn-t2 { opacity: clamp(0, (var(--p, 0) - .5) * 4, 1); transform: translate3d(0, calc((1 - var(--p, 0)) * 60px), 0); }
+html.lite .dn-sec, html:not(.js) .dn-sec { height: auto !important; }
+html.lite .dn-sec > div, html:not(.js) .dn-sec > div { position: relative !important; height: auto !important; }
+
+/* ---- Rolo de filme ---- */
+.pelicula { background-color: #0d0f0b; }
+.furos { height: 18px; background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='34' height='18'><rect x='9' y='3' width='16' height='12' rx='2.5' fill='%23f5f0e6' fill-opacity='.88'/></svg>") repeat-x left center; }
+@media (min-width: 768px) {
+  .trilho { transform: translate3d(calc(var(--p, 0) * var(--curso, -200vw)), 0, 0); will-change: transform; }
+}
+.quadro-foto { transform: scale(1.1) translate3d(calc((var(--p, 0) - .5) * -5%), 0, 0); }
+html.lite .quadro-foto { transform: none !important; }
+html.lite .rolador { overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding-left: 1.25rem; scrollbar-width: none; }
+html.lite .rolador::-webkit-scrollbar { display: none; }
+html.lite .rolador .trilho > * { scroll-snap-align: start; }
+html:not(.lite) .rolador { overflow: hidden; }
+.barra { transform-origin: left; transform: scaleX(var(--p, 0)); }
+html.lite .barra { display: none; }
+
+/* ---- Serviços: imagem fixa que troca ---- */
+.serv-foto { transition: opacity .9s var(--ease-out-soft), transform 1.4s var(--ease-out-soft); }
+.serv-item { transition: opacity .6s var(--ease-out-soft); }
+@media (min-width: 1024px) { html.js:not(.lite) .serv-item:not([data-ativo="1"]) { opacity: .32; } }
+
+/* ---- Estilos: provas que trocam ---- */
+@keyframes entra-prova { from { opacity: 0; transform: translateY(24px) rotate(var(--r0, 0deg)); } }
+.troca { animation: entra-prova .9s var(--ease-out-soft) backwards; }
+
+/* ---- Simulador ---- */
+@keyframes etapa-in { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+@keyframes etapa-volta { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+.etapa { animation: etapa-in .55s var(--ease-out-soft); }
+.etapa.volta { animation-name: etapa-volta; }
+.faq summary::-webkit-details-marker { display: none; }
+
+/* ---- Manifesto palavra a palavra ---- */
+html.lite .pal, html:not(.js) .pal { opacity: 1 !important; }
+
+/* ---- Vela: brilho que respira ---- */
+@keyframes respira { 0%, 100% { opacity: .55; } 50% { opacity: .85; } }
+.vela { animation: respira 4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .trilho { transform: none !important; }
+  html:not(.lite) .rolador { overflow-x: auto; }
+  .desenha path { animation: none; stroke-dashoffset: 0; }
+}
+
+/* ---- Blocos só para desktop / só para telemóvel (ou sem JS) ---- */
+.so-lite { display: none; }
+html.lite .so-lite, html:not(.js) .so-lite { display: block; }
+html.lite .so-desk, html:not(.js) .so-desk { display: none; }
+.so-lite-i { display: none; }
+html.lite .so-lite-i, html:not(.js) .so-lite-i { display: inline; }
+html.lite .so-desk-i, html:not(.js) .so-desk-i { display: none; }
+html:not(.js) .rolador { overflow-x: auto; }
+html:not(.js) [data-progress="stick"] { height: auto !important; }
+html:not(.js) [data-progress="stick"] > div { position: relative !important; height: auto !important; }

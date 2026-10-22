@@ -1,0 +1,59 @@
+{
+  "lang": "pt-PT",
+  "title": "Heartmade — Weddings & Events · Casamentos e eventos na Madeira",
+  "description": "Heartmade: planeamento, decoração e coordenação de casamentos e eventos no Funchal, Madeira. Wedding planning, design and coordination in Madeira. Peça a sua proposta online.",
+  "themeColor": "#f5f0e6",
+  "faviconCor": "#3d4528",
+  "faviconLetra": "H",
+  "fonts": [
+    "bodoni",
+    "cormorant"
+  ],
+  "imagens": {
+    "pergola": {
+      "arquivo": "img/pergola.jpg",
+      "largura": 960,
+      "qualidade": 66
+    },
+    "noite": {
+      "arquivo": "img/noite.jpg",
+      "largura": 960,
+      "qualidade": 66
+    },
+    "dia": {
+      "arquivo": "img/dia.jpg",
+      "largura": 960,
+      "qualidade": 66
+    },
+    "igreja": {
+      "arquivo": "img/igreja.jpg",
+      "largura": 960,
+      "qualidade": 66
+    },
+    "boasvindas": {
+      "arquivo": "img/boas-vindas.jpg",
+      "largura": 960,
+      "qualidade": 66
+    },
+    "mesaverde": {
+      "arquivo": "img/mesa-verde.jpg",
+      "largura": 960,
+      "qualidade": 66
+    },
+    "hortensias": {
+      "arquivo": "img/hortensias.jpg",
+      "largura": 960,
+      "qualidade": 66
+    },
+    "campestre": {
+      "arquivo": "img/campestre.jpg",
+      "largura": 1290,
+      "qualidade": 66
+    },
+    "loja": {
+      "arquivo": "img/loja.jpg",
+      "largura": 1100,
+      "qualidade": 66
+    }
+  }
+}
