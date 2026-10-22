@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowRight, ArrowUpRight, Globe, MapPin, Phone, Plus, Star } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUpRight, MapPin, Phone, Plus, Star } from 'lucide-react';
 import { Marquee } from '../_kit/ui';
 import { Reveal, RevealGroup, RevealItem } from '@/components/motion/reveal';
 import { Magnetic } from '@/components/motion/magnetic';
@@ -204,7 +204,6 @@ export default function App() {
               <dl className="mt-10 divide-y divide-grafite/10 border-y border-grafite/10 text-[0.9375rem]">
                 <div className="flex items-start gap-4 py-5"><MapPin className="mt-0.5 size-5 shrink-0 text-musgo" aria-hidden /><dt className="sr-only">Morada</dt><dd>{EMPRESA.morada}<br />{EMPRESA.codigo}, Portugal</dd></div>
                 <div className="flex items-center gap-4 py-5"><Phone className="size-5 shrink-0 text-musgo" aria-hidden /><dt className="sr-only">Telefone</dt><dd><a href={EMPRESA.telefoneLink} className="hover:text-musgo">{EMPRESA.telefone}</a></dd></div>
-                <div className="flex items-center gap-4 py-5"><Globe className="size-5 shrink-0 text-musgo" aria-hidden /><dt className="sr-only">Site</dt><dd><a href={EMPRESA.siteUrl} target="_blank" rel="noopener noreferrer" className="hover:text-musgo">{EMPRESA.site}</a></dd></div>
               </dl>
               <div className="mt-9 flex flex-wrap gap-3">
                 <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer" className="inline-flex h-12 items-center gap-2 rounded-full bg-grafite px-6 text-sm font-medium text-gesso transition-transform hover:-translate-y-0.5"><IconeWhats className="size-5" />WhatsApp</a>

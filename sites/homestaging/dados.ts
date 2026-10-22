@@ -12,8 +12,6 @@ export const EMPRESA = {
   whatsapp: '351927497765',
   morada: 'Rua de Júlio Dinis 849',
   codigo: '4050-326 Porto',
-  site: '5dhomestaging.com',
-  siteUrl: 'https://5dhomestaging.com',
   nota: '5,0',
   avaliacoes: 30,
 };
