@@ -2237,3 +2237,11 @@ Decoração de festas em Barcelos (PT), português de Portugal. HTML único: `pn
 - Modo leve no telemóvel (porta e balões desligados), sem texto escondido sem JS (verificado), sem erros de consola nem scroll horizontal; simulador testado ponta a ponta em desktop e telemóvel.
 - Fotos reais enviadas (7). Nada de preços, depoimentos ou horários inventados. Nota 4,8 (20 avaliações) é a do perfil Google.
 - **Pendências a confirmar com o cliente:** nome comercial completo; "Viana" assumido como Viana do Castelo; serviços reais (os 4 cartões são genéricos); horários; WhatsApp = telefone; faixas de valor em € (sugestão nossa); autorização para fotos com nomes de crianças; crédito "Vitória Fotografia" (marca de água mantida).
+
+## Site do cliente: 5D Home Staging & Healthy Homes (`sites/homestaging`)
+
+Home staging no Porto, português de Portugal. HTML único: `pnpm site homestaging` → `sites/homestaging/dist/homestaging.html`, `index.html` e `homestaging-netlify.zip`. Fonte nova no kit: Instrument Serif (`instrument`).
+
+- Abertura com o logótipo a desenhar-se; hero em que a rolagem faz o antes → depois da mesma cozinha (no telemóvel, botão Antes/Depois); manifesto que acende palavra a palavra; projetos num trilho horizontal (no telemóvel, deslizar com o dedo); serviços com foto que segue o cursor; método; nota Google; pedido de proposta em 5 passos (aceita telefone estrangeiro, email e língua de contacto) enviado por WhatsApp; contacto e FAQ.
+- Testado: sem erros de consola, sem scroll horizontal, sem pedidos externos; simulador ponta a ponta em desktop e telemóvel.
+- **Pendências a confirmar com o cliente:** serviços e método (textos gerais de home staging); o que é exatamente o "Healthy Homes"; WhatsApp = telefone; horários (só se viu "Fecha 19:00"); logótipo redesenhado a partir da marca de água (trocar pelo ficheiro oficial). A foto da sala com sofá cinzento não foi usada: parece imagem de banco, não um projeto da empresa.

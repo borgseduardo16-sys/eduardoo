@@ -1,0 +1,17 @@
+{
+  "title": "5D Home Staging & Healthy Homes — Home staging e decoração de interiores no Porto",
+  "description": "Home staging e decoração de interiores no Porto: preparamos casas para vender, arrendar ou viver melhor. 5,0 no Google. Peça a sua proposta online.",
+  "themeColor": "#f3efe8",
+  "faviconCor": "#1d1f1d",
+  "faviconLetra": "5",
+  "fonts": ["instrument"],
+  "imagens": {
+    "antes": { "arquivo": "img/cozinha-antes.jpg", "largura": 1290 },
+    "depois": { "arquivo": "img/cozinha-depois.jpg", "largura": 1290 },
+    "wc": { "arquivo": "img/wc.jpg", "largura": 1290 },
+    "lareira": { "arquivo": "img/sala-lareira.jpg", "largura": 1290 },
+    "estudio": { "arquivo": "img/estudio.jpg", "largura": 1290 },
+    "mezanine": { "arquivo": "img/mezanine.jpg", "largura": 1290 },
+    "luz": { "arquivo": "img/sala-luz.jpg", "largura": 1290 }
+  }
+}

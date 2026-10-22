@@ -99,6 +99,10 @@ const FONTES = {
   ],
   pinyon: [['Pinyon Script', 'normal', '400', 'pinyon-normal-400-latin.woff2']],
   parisienne: [['Parisienne', 'normal', '400', 'parisienne-normal-400-latin.woff2']],
+  instrument: [
+    ['Instrument Serif', 'normal', '400', 'instrument-normal-400-latin.woff2'],
+    ['Instrument Serif', 'italic', '400', 'instrument-italic-400-latin.woff2'],
+  ],
   marcellus: [['Marcellus', 'normal', '400', 'marcellus-normal-400-latin.woff2']],
   greatvibes: [['Great Vibes', 'normal', '400', 'greatvibes-normal-400-latin.woff2']],
   'plus-jakarta': [['Plus Jakarta Sans', 'normal', '200 800', path.join('..', '..', '..', 'standalone', 'assets', 'plus-jakarta-sans-latin.woff2')]],
