@@ -1,0 +1,72 @@
+ANTES DE COLAR: troque [LINK] pelo link da sua página de vendas (ex.: https://SEU-PROJETO.pages.dev)
+e troque [PASTA] pelo caminho da pasta "facebook" no seu computador (ex.: C:\Users\voce\Downloads\facebook).
+
+======================== COPIE DAQUI PARA BAIXO ========================
+
+Você vai criar e montar uma PÁGINA do Facebook (não um perfil pessoal) para a minha marca WashReady,
+voltada para o público dos Estados Unidos. Todo o conteúdo da página deve ficar em INGLÊS.
+
+Link da página de vendas: [LINK]
+Pasta com os arquivos no meu computador: [PASTA]
+
+REGRAS (siga sempre):
+- NÃO crie conta pessoal nova. Use a conta do Facebook que já está aberta e crie uma Página a partir dela.
+- A página deve ficar ANÔNIMA em relação ao meu perfil pessoal:
+  * NÃO convide amigos (pule/ignore toda etapa "Invite friends" ou "Convidar amigos").
+  * NÃO compartilhe nada da página no meu perfil pessoal ou no meu feed.
+  * NÃO adicione a página como "local de trabalho" no meu perfil.
+  * NÃO conecte WhatsApp nem número de telefone.
+- Se aparecer tela de senha, login, código de verificação ou confirmação de identidade: PARE e me peça
+  para fazer. Nunca digite senha.
+- NÃO faça pagamento, NÃO impulsione posts e NÃO crie anúncios.
+- Quando abrir a janela para escolher um arquivo do computador e você não conseguir selecionar sozinho,
+  PARE e me diga exatamente qual arquivo eu devo escolher (nome e pasta). Eu escolho e você continua.
+- Antes de cada publicação, confira se o texto colado está certo.
+
+PASSO 1: CRIAR A PÁGINA
+Vá em facebook.com/pages/create e preencha:
+- Page name: WashReady
+- Category: Software (se pedir uma segunda categoria: Product/Service)
+- Bio: Professional estimates, contracts & invoices for pressure washing businesses. One-time payment.
+Clique em criar. Nas etapas seguintes:
+- Website: [LINK]
+- Email, telefone, endereço, horário: deixe em branco (pule). É um negócio online.
+- Profile picture: arquivo [PASTA]\1-foto-perfil.png
+- Cover photo: arquivo [PASTA]\2-capa.jpg (centralize; o texto deve ficar visível)
+- Convidar amigos: PULE.
+- Conectar WhatsApp: PULE.
+- Notificações/convites: desligue o que for opcional e conclua.
+
+PASSO 2: AJUSTES DA PÁGINA
+- Username (@): tente "washreadykit". Se estiver em uso, tente "washready.kit", depois "getwashready",
+  depois "washreadyapp". Me diga qual ficou.
+- Botão de ação: "Add action button" → "Learn more" (ou "Visit website"/"Shop now") → link: [LINK]
+- Seção "About"/"Sobre", se houver campo de descrição maior, cole:
+  WashReady is a ready-made business kit for pressure washing and soft wash pros: estimates, service
+  agreements, damage waivers and invoices with your own logo, as fillable PDF and Word, plus pricing
+  tools and text scripts. Use it right from your phone. One-time payment, no subscription. 7-day
+  money-back guarantee.
+
+PASSO 3: PUBLICAR OS 9 POSTS (CARROSSÉIS)
+Publique COMO A PÁGINA WashReady (confira que está no modo da página, não no meu perfil pessoal).
+Publique na ordem: post-1 primeiro, depois post-2, e assim por diante até post-9.
+O post-9 é o último publicado, então fica no topo da página.
+Para cada post N (1 a 9):
+- Crie uma publicação com as 3 fotos da pasta [PASTA]\carrosseis\post-N, nesta ordem: foto-1.jpg, foto-2.jpg e foto-3.jpg.
+- Texto: copie o conteúdo do arquivo [PASTA]\carrosseis\post-N\legenda.txt e troque [LINK] pelo link
+  da página de vendas. Se você não conseguir abrir o arquivo .txt, me peça e eu colo o texto.
+- Publique para "Public"/"Público".
+- Espere a publicação terminar antes de começar a próxima.
+
+PASSO 4: CONFERÊNCIA FINAL
+Abra a página como visitante e confira:
+- foto de perfil e capa aparecem;
+- bio e link aparecem;
+- o botão leva para [LINK];
+- os 9 posts estão lá, com o post-9 no topo.
+No final, me mande um resumo com:
+- o link da página e o @ que ficou;
+- se algo não deu certo e o motivo.
+
+(Opcional, só se eu pedir: conectar a conta do Instagram da WashReady à página em Settings > Linked
+accounts > Instagram. Isso pede login do Instagram, então pare e eu faço.)

@@ -1,0 +1,29 @@
+PÁGINA DO FACEBOOK · WASHREADY
+================================
+
+O QUE TEM NA PASTA
+- 1-foto-perfil.png ...... foto de perfil (logo WashReady, 1080x1080)
+- 2-capa.jpg ............. capa da página (1640x624)
+- carrosseis/post-1 a post-9
+    cada um com foto-1, foto-2, foto-3 e legenda.txt (em inglês, já adaptada para o Facebook)
+    ORDEM: publique o post-1 primeiro e o post-9 por último, para o post-9 ficar no topo.
+- PROMPT-EXTENSAO.txt .... o prompt para a extensão do Claude no Chrome montar tudo
+
+COMO USAR
+1. Baixe e descompacte esta pasta no computador.
+2. Abra o PROMPT-EXTENSAO.txt e troque:
+   [LINK]  -> o link da sua página de vendas (o .pages.dev)
+   [PASTA] -> o caminho da pasta "facebook" no seu computador
+3. Abra o Facebook no Chrome, já logado na sua conta.
+4. Cole o prompt na extensão do Claude.
+   Ela vai parar quando precisar de senha ou para você escolher um arquivo.
+
+SOBRE O ANONIMATO (leia)
+- Uma Página do Facebook NÃO mostra quem é o dono para o público.
+- Seus amigos não ficam sabendo, a não ser que você os convide, compartilhe ou ponha a página no seu perfil.
+  O prompt manda a extensão pular tudo isso.
+- O Facebook mostra, na aba "Transparência da Página", o PAÍS de quem administra (vai aparecer Brasil).
+  Não aparece seu nome nem seu perfil. Isso é padrão e não dá para esconder.
+  É normal: muitas marcas gringas são administradas de outros países.
+- NÃO crie um perfil pessoal falso para isso. O Facebook bane perfis falsos, e a conta de anúncios vai junto.
+  A Página criada a partir da sua conta é o jeito certo, e é dela que você vai precisar para anunciar.
