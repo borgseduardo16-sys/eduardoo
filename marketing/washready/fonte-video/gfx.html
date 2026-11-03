@@ -1,0 +1,44 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+@font-face{font-family:A;font-weight:900;src:url(../ads/archivo-latin-900-normal.woff2)}
+@font-face{font-family:A;font-weight:800;src:url(../ads/archivo-latin-800-normal.woff2)}
+@font-face{font-family:I;font-weight:500;src:url(../ads/inter-latin-500-normal.woff2)}
+@font-face{font-family:I;font-weight:700;src:url(../ads/inter-latin-700-normal.woff2)}
+*{box-sizing:border-box;margin:0}body{background:transparent}
+.cap{display:inline-block;margin:20px;font-family:A;font-weight:900;font-size:64px;line-height:1.08;letter-spacing:-.01em;color:#fff;background:rgba(10,20,34,.78);padding:16px 30px 20px;border-radius:22px;max-width:960px;text-align:center}
+.cap b{color:#ff8a4c;font-weight:900}
+.end{position:relative;width:1080px;background:#0f1f33;color:#fff;overflow:hidden;font-family:I}
+.e916{height:1920px}.e45{height:1350px}
+.brand{display:flex;align-items:center;justify-content:center;gap:12px;font-family:A;font-weight:900;font-size:40px}
+.brand svg{width:48px;height:48px}.brand em{font-style:normal;color:#6ea8ff}
+.end h2{font-family:A;font-weight:900;font-size:76px;line-height:1.02;letter-spacing:-.025em;text-align:center;margin:34px auto 0;max-width:900px}
+.end h2 span{color:#ff8a4c}
+.phone{margin:48px auto 0;width:430px;padding:14px;border-radius:64px;background:#05080d;box-shadow:0 0 0 3px #2b3a4f,0 60px 90px -30px rgba(0,0,0,.8)}
+.phone img{display:block;width:100%;border-radius:50px}
+.price{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:18px;white-space:nowrap;background:#d9541e;color:#fff;border-radius:18px;padding:22px 34px;font-family:A;font-weight:900;font-size:50px;box-shadow:0 24px 50px -16px rgba(0,0,0,.7)}
+.price small{font-family:I;font-weight:700;font-size:28px;border-left:2px solid rgba(255,255,255,.5);padding-left:18px}
+.guar{position:absolute;left:0;right:0;text-align:center;font-weight:700;font-size:28px;color:#c9d4e3}
+.e916 .top{padding-top:250px}.e916 .price{top:1440px}.e916 .guar{top:1570px}
+.e916 .phone{height:690px;overflow:hidden;border-bottom-left-radius:0;border-bottom-right-radius:0;padding-bottom:0;-webkit-mask-image:linear-gradient(#000 75%,transparent)}
+.e45 .top{padding-top:70px}.e45 h2{font-size:64px;margin-top:24px}.e45 .phone{width:360px;height:560px;overflow:hidden;margin-top:36px;-webkit-mask-image:linear-gradient(#000 70%,transparent)}
+.e45 .price{top:1100px}.e45 .guar{top:1228px}
+</style></head><body>
+<div id="caps"></div>
+<section class="end e916" id="end916"><div class="top">
+  <div class="brand"><svg viewBox="0 0 100 100"><path d="M50 6C50 6 82 41 82 63a32 32 0 0 1-64 0C18 41 50 6 50 6z" fill="#3b82f6"/><path d="M36 64.5l9.5 9.5L66 52.5" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg><b>Wash<em>Ready</em></b></div>
+  <h2>Customers take you seriously when it looks like <span>this.</span></h2>
+  <div class="phone"><img src="app/estimate-top.png"></div></div>
+  <div class="price">From $27 <small>One-time payment</small></div>
+  <div class="guar">7-day money-back guarantee</div>
+</section>
+<section class="end e45" id="end45"><div class="top">
+  <div class="brand"><svg viewBox="0 0 100 100"><path d="M50 6C50 6 82 41 82 63a32 32 0 0 1-64 0C18 41 50 6 50 6z" fill="#3b82f6"/><path d="M36 64.5l9.5 9.5L66 52.5" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg><b>Wash<em>Ready</em></b></div>
+  <h2>Customers take you seriously when it looks like <span>this.</span></h2>
+  <div class="phone"><img src="app/estimate-top.png"></div></div>
+  <div class="price">From $27 <small>One-time payment</small></div>
+  <div class="guar">7-day money-back guarantee</div>
+</section>
+<script>
+const CAPS = ["Job's done...", "but how do I charge for this", "like a <b>real business?</b>", "Oh wait.", "<b>I got this.</b>", "Estimate.", "Service agreement.", "Invoice.", "<b>My logo</b> on every one.", "Sent before I even", "pack up the <b>truck.</b>"];
+document.getElementById('caps').innerHTML = CAPS.map((c, i) => `<div><span class="cap" id="c${i}">${c}</span></div>`).join('');
+</script>
+</body></html>
