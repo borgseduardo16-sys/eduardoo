@@ -1,0 +1,132 @@
+INSTRUÇÕES COMPLETAS · CAMPANHA WASHREADY NA META (Facebook + Instagram)
+Leia tudo antes de começar. Fale comigo em português. Os anúncios ficam em INGLÊS.
+Não preciso editar nada neste arquivo: tudo o que você precisa está aqui.
+
+ARQUIVOS DESTA PASTA (pasta "washready-anuncios", normalmente em Downloads)
+- 1-video-feed-4x5.mp4 ............. anúncio 1, para Feeds e Explorar
+- 1-video-stories-reels-9x16.mp4 ... anúncio 1, para Stories e Reels
+- 2-prancheta-feed-4x5.jpg ......... anúncio 2, para Feeds e Explorar
+- 2-prancheta-stories-reels-9x16.jpg anúncio 2, para Stories e Reels
+- 3-pov-feed-4x5.jpg ............... anúncio 3, para Feeds e Explorar
+- 3-pov-stories-reels-9x16.jpg ..... anúncio 3, para Stories e Reels
+
+REGRAS (siga sempre)
+- Identidade dos anúncios: SEMPRE a Página do Facebook "WashReady" e o Instagram da WashReady.
+  NUNCA use meu perfil pessoal.
+- Senha, login, código ou verificação de identidade: PARE e me peça.
+- Forma de pagamento ou cartão: PARE. Eu cadastro.
+- NÃO publique sem eu aprovar o resumo do PASSO 7. Envolve dinheiro.
+- Para enviar um arquivo, use os arquivos desta pasta. Se você não conseguir anexar sozinho na janela do
+  computador, PARE e me diga o nome exato do arquivo (da lista acima) para eu escolher. Depois continue.
+- Se algo na tela for diferente do descrito aqui, escolha a opção equivalente. Se tiver dúvida real,
+  pergunte.
+
+PASSO 0: DESCOBRIR O LINK DA PÁGINA DE VENDAS (você mesmo)
+O link é o endereço .pages.dev do site WashReady. Procure nesta ordem:
+1) No campo "Site"/"Website" ou no botão da Página do Facebook WashReady.
+2) Na bio do Instagram da WashReady.
+3) No painel da Cloudflare (dash.cloudflare.com > Workers & Pages > projeto da WashReady > endereço .pages.dev).
+Abra o link e confira: deve abrir a página de vendas em inglês da WashReady, com os planos de $27, $57 e $67.
+Daqui para frente, SITE = esse endereço, sem barra no final (ex.: https://nome.pages.dev).
+Me diga qual link encontrou antes de seguir.
+
+PASSO 1: CONECTAR O INSTAGRAM À PÁGINA
+- O Instagram da empresa está logado em outra aba do Chrome. É o perfil com o nome WashReady e cerca de
+  900 seguidores. Me diga o @ que encontrou.
+- Conecte esse Instagram à Página WashReady: na Página, Configurações > Contas vinculadas (Linked accounts)
+  > Instagram > Conectar. Outro caminho: Meta Business Suite > Configurações > Contas do Instagram.
+- Se pedir login do Instagram, PARE e me peça.
+- Se o Instagram já estiver conectado, só confirme e siga.
+
+PASSO 2: ABRIR O GERENCIADOR DE ANÚNCIOS
+- Vá em adsmanager.facebook.com.
+- Use a conta de anúncios que tem acesso à Página WashReady. Se houver mais de uma, me pergunte qual.
+- Veja a moeda da conta (BRL ou USD) e me diga.
+
+PASSO 3: CRIAR A CAMPANHA
+- Criar > Objetivo: TRÁFEGO (Traffic). NÃO escolha Vendas, porque ainda não temos Pixel de compras.
+- Nome da campanha: WR | Launch | Traffic | US
+- Orçamento Advantage da campanha (CBO): DESLIGADO.
+- Categoria especial de anúncio: nenhuma. Teste A/B: desligado.
+
+PASSO 4: CONJUNTO DE ANÚNCIOS (um só)
+- Nome: WR | US | 20-55 | Pressure washing
+- Local da conversão: Site (Website).
+- Meta de desempenho: Maximizar visualizações da página de destino (Landing page views).
+  Se não estiver disponível, use "Maximizar cliques no link" e me avise.
+- Orçamento diário: R$ 25,00 se a conta for em BRL, ou US$ 5,00 se for em USD.
+- Programação: início hoje e término em 6 dias (marque a data de término). Gasto máximo de R$ 150 / US$ 30.
+- Público:
+  * Local: Estados Unidos (United States), "Pessoas que moram neste local".
+  * Idade: 20 a 55.
+  * Gênero: todos.
+  * Idioma: English (All).
+  * Direcionamento detalhado: Pressure washing, Power washing, Soft washing, Pressure washer,
+    Small business owners, Entrepreneurship. Adicione os que existirem.
+    Se for "Público Advantage+", coloque esses interesses como sugestão e mantenha idade mínima 20 como
+    controle. Se houver "Usar opções de público originais", prefira essa.
+- Posicionamentos: MANUAL. Deixe marcados SÓ estes:
+  Facebook: Feed, Stories, Reels.
+  Instagram: Feed, Explorar (Explore), Stories, Reels.
+  Desmarque todo o resto: Threads, Audience Network, Messenger, coluna da direita, Marketplace,
+  resultados de busca, in-stream, Apps e sites etc.
+
+PASSO 5: OS 3 ANÚNCIOS (no mesmo conjunto)
+Para todos os anúncios:
+- Identidade: Página WashReady + Instagram WashReady.
+- Formato: imagem ou vídeo único (NÃO carrossel).
+- Mídia: "Personalizar por posicionamento". O arquivo 4x5 vai em Feeds e Explorar; o 9x16 vai em
+  Stories e Reels.
+- Botão (CTA): Learn more (Saiba mais).
+- Melhorias Advantage+ do criativo: DESLIGUE TODAS (música, retoques, expansão de imagem, variações de
+  texto, sobreposições, tradução, anúncios com vários anunciantes). No vídeo, mantenha o áudio original.
+- Rastreamento: deixe o rastreamento do site ativo. Não crie Pixel sem me perguntar.
+
+--- ANÚNCIO 1 ---
+Nome: WR | Video | Job's done
+Mídia: 1-video-feed-4x5.mp4 (Feeds/Explorar) e 1-video-stories-reels-9x16.mp4 (Stories/Reels)
+Texto principal:
+Job's done. Now make the paperwork look as good as the driveway. 💧 WashReady gives you estimates, service agreements and invoices with your logo, ready to send from your phone before you pack up the truck. ✔ One-time payment, no subscription ✔ 7-day money-back guarantee. Plans from $27 👇
+Título: Look like a pro on every job
+Descrição: One-time payment · 7-day guarantee
+Link: SITE/?utm_source=meta&utm_medium=paid&utm_campaign=launch&utm_content=video
+
+--- ANÚNCIO 2 ---
+Nome: WR | Imagem | Prancheta
+Mídia: 2-prancheta-feed-4x5.jpg (Feeds/Explorar) e 2-prancheta-stories-reels-9x16.jpg (Stories/Reels)
+Texto principal:
+Your customers judge your business before you even start the machine. 💧 WashReady gives you professional estimates, service agreements and invoices with your logo, ready in minutes from your phone. ✔ One-time payment, no subscription ✔ 7-day money-back guarantee. Plans from $27 👇
+Título: Clean work deserves clean paperwork
+Descrição: One-time payment · 7-day guarantee
+Link: SITE/?utm_source=meta&utm_medium=paid&utm_campaign=launch&utm_content=prancheta
+
+--- ANÚNCIO 3 ---
+Nome: WR | Imagem | POV celular
+Mídia: 3-pov-feed-4x5.jpg (Feeds/Explorar) e 3-pov-stories-reels-9x16.jpg (Stories/Reels)
+Texto principal:
+Your work looks pro. Does your estimate? 📱 WashReady puts estimates, service agreements, damage waivers and invoices with your logo right on your phone. Fill it in, send it, done. ✔ One-time payment, no subscription ✔ 7-day money-back guarantee. Plans from $27 👇
+Título: Pro paperwork for pressure washing pros
+Descrição: One-time payment · 7-day guarantee
+Link: SITE/?utm_source=meta&utm_medium=paid&utm_campaign=launch&utm_content=pov
+
+(Em todos os links, troque SITE pelo endereço que você achou no PASSO 0.)
+
+PASSO 6: CONFERIR
+Na pré-visualização de cada anúncio, veja Feed, Stories e Reels. Confira:
+- a mídia certa em cada lugar;
+- nada cortado;
+- o texto sem erro;
+- o link abrindo a página de vendas.
+
+PASSO 7: PARAR E ME MOSTRAR O RESUMO (OBRIGATÓRIO)
+Me mostre:
+- objetivo, orçamento diário, início e fim, gasto máximo;
+- público (país, idade, idioma, interesses);
+- posicionamentos marcados;
+- os 3 anúncios com a mídia de cada posicionamento e o link final;
+- a identidade (Página e Instagram).
+Se faltar cartão, me avise aqui. Só publique quando eu escrever "pode publicar".
+
+PASSO 8: DEPOIS DE PUBLICAR
+Me diga se os anúncios ficaram "Em análise" ou "Ativos".
+Se algum for reprovado, me mostre o motivo exato e não mude nada sem me perguntar.
