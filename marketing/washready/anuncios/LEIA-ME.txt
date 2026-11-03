@@ -1,0 +1,35 @@
+ANÚNCIOS · WASHREADY (Meta: Facebook + Instagram)
+==================================================
+
+O QUE TEM NA PASTA
+- 1-video/       vídeo 4x5 (feeds) e 9x16 (stories/reels) + textos.txt
+- 2-prancheta/   imagem 4x5 e 9x16 + textos.txt
+- 3-pov/         imagem 4x5 e 9x16 + textos.txt
+- PROMPT-EXTENSAO.txt ... o prompt para a extensão do Claude no Chrome montar a campanha
+
+COMO USAR
+1. Baixe e descompacte no computador.
+2. No PROMPT-EXTENSAO.txt, troque [LINK] (sua página de vendas) e [PASTA] (caminho desta pasta).
+3. Deixe abertos no Chrome: o Facebook (já logado) e o Instagram da WashReady.
+4. Cole o prompt na extensão. Ela para nas senhas, no cartão e ANTES de publicar, para você aprovar.
+
+A CONFIGURAÇÃO (e por quê)
+- Objetivo TRÁFEGO, não Vendas. Para otimizar por vendas, a Meta precisa de um Pixel registrando
+  compras, e de umas 50 compras por semana para aprender. Com R$ 150 e sem Pixel, Vendas não funciona.
+  Tráfego leva gente qualificada para a página.
+- Orçamento: R$ 25 por dia, por 6 dias = R$ 150 no total, com data de fim para não passar disso.
+- Um conjunto só, com 3 anúncios: a Meta põe mais dinheiro no que funcionar melhor.
+- Público: EUA, 20 a 55 anos, inglês, interesse em pressure washing, soft washing e pequenos negócios.
+- Posicionamentos: só Feed, Stories e Reels (Facebook e Instagram) e o Explorar do Instagram.
+  Fora: Threads, Audience Network (gera clique ruim, de app e jogo), Messenger etc.
+- Melhorias automáticas de criativo desligadas: sem elas a Meta não mexe na arte nem tira a narração.
+
+DEPOIS DE 3 DIAS, OLHE NO GERENCIADOR
+- CTR do link acima de 1% = criativo bom.
+- Custo por visualização da página: quanto menor, melhor.
+- Se um anúncio estiver muito pior que os outros, pause só ele.
+- Vendas: confira na Cakto. Os links têm utm_content (video, prancheta, pov), então dá para saber de qual
+  anúncio veio a venda, se a Cakto mostrar a UTM.
+
+PRÓXIMO PASSO (quando quiser): instalar o Pixel da Meta na página de vendas e na Cakto. Isso permite medir
+as compras, criar públicos de quem visitou e, mais pra frente, rodar campanha de Vendas.
