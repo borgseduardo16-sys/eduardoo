@@ -3,106 +3,88 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Revenda Pronta · Produtos digitais com licença de revenda</title>
-<meta name="description" content="Produtos digitais prontos para você usar e revender. Licença de revenda inclusa, entrega imediata por e-mail.">
+<title>Revenda Pronta · Produtos digitais para revender</title>
+<meta name="description" content="Produtos digitais prontos com licença de revenda. R$ 19,90 cada, entrega na hora no e-mail.">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#fbf8f3;--card:#fff;--ink:#22302a;--mut:#5f6d65;--line:#e4e0d8;--brand:#3f5e49;--brand2:#2f4a38;--acc:#c9785b;--soft:#eef3ee}
-*{box-sizing:border-box;margin:0}html{-webkit-text-size-adjust:100%}
-body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.55;overflow-x:hidden}
-a{color:inherit}.w{max-width:1080px;margin:0 auto;padding:0 18px}
-header{padding:16px 0;border-bottom:1px solid var(--line);background:var(--bg);position:sticky;top:0;z-index:5}
-.logo{font-family:Archivo;font-weight:800;font-size:20px;color:var(--brand);text-decoration:none}.logo span{color:var(--acc)}
-.hero{padding:46px 0 26px}
-.kick{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
-h1{font-family:Archivo;font-weight:800;font-size:clamp(30px,6.4vw,50px);line-height:1.04;letter-spacing:-.02em;margin:10px 0 14px;max-width:760px}
-.lead{font-size:clamp(16px,2.6vw,19px);color:var(--mut);max-width:640px}
-.trust{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:22px;font-size:14px;font-weight:600;color:var(--brand2)}
-.trust span::before{content:"✓";display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--soft);color:var(--brand);font-size:12px;margin-right:8px}
-h2{font-family:Archivo;font-weight:800;font-size:clamp(24px,4.4vw,32px);letter-spacing:-.015em;margin:0 0 6px}
-.sub{color:var(--mut);margin-bottom:22px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:18px;padding-bottom:40px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden;display:flex;flex-direction:column}
-.cover{aspect-ratio:16/10;position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:18px;color:#fff}
-.cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top}
-.cover b{position:relative;font-family:Archivo;font-weight:800;font-size:25px;line-height:1.05;max-width:85%}
-.cover i{position:absolute;top:16px;right:18px;font-style:normal;font-size:38px}
-.c-plan{background:var(--brand)}.c-3d{background:#2b4c6f}.c-kw{background:#5b4a8a}.c-xl{background:#1f7a4f}.c-guia{background:var(--brand2)}
+:root{--bg:#0a0a12;--card:#14141f;--card2:#1b1b2a;--ink:#fff;--mut:#a9a9c2;--line:#2a2a3d;--green:#22e57a;--green2:#16c766;--yel:#ffd60a;--pur:#8b5cf6;--pink:#ff4d8d}
+*{box-sizing:border-box;margin:0}html{-webkit-text-size-adjust:100%;background:var(--bg)}
+body{font-family:Poppins,system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5;overflow-x:hidden}
+a{color:inherit}.w{max-width:1100px;margin:0 auto;padding:0 16px}
+.bar{background:var(--yel);color:#111;text-align:center;font-weight:800;font-size:13px;padding:9px 12px;letter-spacing:.02em}
+header{padding:16px 0}.logo{font-weight:900;font-size:22px;text-decoration:none;letter-spacing:-.02em}.logo span{color:var(--green)}
+.hero{position:relative;padding:28px 0 34px;text-align:center;overflow:hidden}
+.hero::before{content:"";position:absolute;width:640px;height:640px;left:50%;top:-260px;transform:translateX(-50%);background:radial-gradient(circle,rgba(139,92,246,.35),transparent 65%);pointer-events:none}
+.pill{position:relative;display:inline-block;background:rgba(34,229,122,.12);color:var(--green);border:1px solid rgba(34,229,122,.35);font-weight:700;font-size:13px;padding:6px 14px;border-radius:999px}
+h1{position:relative;font-weight:900;font-size:clamp(32px,7.6vw,60px);line-height:1.04;letter-spacing:-.03em;margin:16px auto 14px;max-width:860px;text-transform:uppercase}
+h1 em{font-style:normal;color:var(--yel)}h1 u{text-decoration:none;color:var(--green)}
+.lead{position:relative;font-size:clamp(16px,2.8vw,19px);color:var(--mut);max-width:620px;margin:0 auto}
+.cta{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:24px;min-height:56px;padding:0 30px;border-radius:14px;background:var(--green);color:#06210f;font-weight:900;font-size:18px;text-decoration:none;text-transform:uppercase;box-shadow:0 10px 30px -8px rgba(34,229,122,.6)}
+.trust{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:22px}
+.trust span{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600}
+h2{font-weight:900;font-size:clamp(24px,5vw,36px);letter-spacing:-.02em;text-transform:uppercase;text-align:center}
+h2 em{font-style:normal;color:var(--green)}
+.sub{color:var(--mut);text-align:center;margin:6px 0 24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:18px;padding-bottom:44px}
+.card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden;display:flex;flex-direction:column}
+.card.top{border:2px solid var(--yel);box-shadow:0 0 0 4px rgba(255,214,10,.12),0 20px 50px -20px rgba(255,214,10,.35)}
+.rib{position:absolute;z-index:2;top:14px;left:14px;background:var(--yel);color:#111;font-weight:900;font-size:12.5px;padding:6px 12px;border-radius:8px;letter-spacing:.03em;text-transform:uppercase;box-shadow:0 6px 16px -4px rgba(0,0,0,.6)}
+.cover{aspect-ratio:4/3;position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:18px}
+.cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.cover::after{content:"";position:absolute;inset:45% 0 0;background:linear-gradient(transparent,rgba(0,0,0,.72))}.cover .ph{z-index:1}
+.cover .ph{position:relative;font-weight:900;font-size:27px;line-height:1.02;text-transform:uppercase;letter-spacing:-.02em;text-shadow:0 3px 14px rgba(0,0,0,.4)}
+.cover .ph small{display:block;font-size:44px;margin-bottom:6px}
+.g1{background:#5b2bd9}.g2{background:#e0245e}.g3{background:#0d9f5f}.g4{background:#1d4ed8}.g5{background:#d97706}.g6{background:#4b4b63}
 .body{padding:18px;display:flex;flex-direction:column;gap:10px;flex:1}
-.tag{align-self:flex-start;font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:var(--soft);color:var(--brand)}
-.tag.ext{background:#f3eefb;color:#5b4a8a}
-.card h3{font-family:Archivo;font-weight:800;font-size:20px;line-height:1.2}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;background:rgba(34,229,122,.12);color:var(--green)}
+.tag.ext{background:rgba(139,92,246,.16);color:#c4b5fd}
+.card h3{font-weight:800;font-size:21px;line-height:1.2;letter-spacing:-.01em}
 .card p{color:var(--mut);font-size:15px}
 details{border-top:1px solid var(--line);padding-top:10px;font-size:14.5px}
-summary{cursor:pointer;font-weight:600;color:var(--brand);list-style:none}summary::-webkit-details-marker{display:none}
-summary::after{content:" +";}details[open] summary::after{content:" −"}
-details ul{margin:10px 0 2px 18px;color:var(--ink)}details li{margin-bottom:4px}
-.note{font-size:13px;color:var(--mut);background:#faf6ff;border:1px solid #ebe3f7;border-radius:10px;padding:10px 12px}
+summary{cursor:pointer;font-weight:700;color:var(--yel);list-style:none}summary::-webkit-details-marker{display:none}
+summary::after{content:" ▾"}details[open] summary::after{content:" ▴"}
+details ul{margin:10px 0 2px 18px}details li{margin-bottom:5px;color:#e4e4f0}
+.note{font-size:13px;color:#d6ccff;background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);border-radius:12px;padding:10px 12px}
 .buy{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px}
-.price{font-family:Archivo;font-weight:800;font-size:26px;color:var(--ink)}.price small{display:block;font-family:Inter;font-weight:500;font-size:12px;color:var(--mut)}
-.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 22px;border-radius:12px;background:var(--acc);color:#fff;font-weight:700;text-decoration:none;font-size:16px;white-space:nowrap}
-.btn:hover{background:#b8674b}.btn.off{background:#c9cdc9;pointer-events:none}
-.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:14px;margin:20px 0 44px}
-.step{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
-.step b{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--brand);color:#fff;font-family:Archivo;margin-bottom:10px}
-.faq details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
-.faq summary{color:var(--ink)}.faq p{margin-top:8px;color:var(--mut);font-size:15px}
-footer{border-top:1px solid var(--line);margin-top:30px;padding:26px 0 40px;font-size:13px;color:var(--mut)}
+.price{font-weight:900;font-size:30px;letter-spacing:-.02em;color:var(--green)}.price small{display:block;font-weight:500;font-size:12px;color:var(--mut);letter-spacing:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:52px;padding:0 22px;border-radius:14px;background:var(--green);color:#06210f;font-weight:900;text-decoration:none;font-size:16px;text-transform:uppercase;white-space:nowrap}
+.btn:hover{background:var(--green2)}.btn.off{background:#34344a;color:#8b8ba6;pointer-events:none}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:14px;margin:22px 0 50px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px}
+.step b{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--yel);color:#111;font-weight:900;font-size:18px;margin-bottom:12px}
+.step strong{font-size:17px}.step p{color:var(--mut);font-size:14.5px;margin-top:4px}
+.faq{max-width:760px}.faq details{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 16px;margin-bottom:10px}
+.faq summary{color:#fff}.faq p{margin-top:8px;color:var(--mut);font-size:15px}
+footer{border-top:1px solid var(--line);margin-top:34px;padding:26px 0 40px;font-size:13px;color:#7c7c96;text-align:center}
 </style>
 </head>
 <body>
+<div class="bar">🔥 TODOS OS PRODUTOS POR R$ 19,90 · LICENÇA DE REVENDA INCLUSA</div>
 <header><div class="w"><a class="logo" href="#">Revenda<span>Pronta</span></a></div></header>
 <main>
 <section class="hero"><div class="w">
-  <div class="kick">Produtos digitais com licença de revenda</div>
-  <h1>Compre uma vez. Use e revenda quantas vezes quiser.</h1>
-  <p class="lead">Produtos prontos, bem feitos e com licença de revenda inclusa. Você escolhe, paga e recebe na hora no seu e-mail.</p>
-  <div class="trust"><span>Entrega imediata por e-mail</span><span>Licença de revenda inclusa</span><span>Pagamento seguro</span><span>7 dias de garantia</span></div>
+  <span class="pill">✓ Produtos prontos com licença de revenda</span>
+  <h1>Compre uma vez e <em>revenda</em> <u>quantas vezes quiser</u></h1>
+  <p class="lead">Produtos digitais prontos para você usar e revender. Pagou, recebeu na hora no seu e-mail.</p>
+  <a class="cta" href="#produtos">Ver os produtos 👇</a>
+  <div class="trust"><span>⚡ Entrega na hora</span><span>📄 Licença inclusa</span><span>🔒 Pagamento seguro</span><span>🛡️ 7 dias de garantia</span></div>
 </div></section>
 
 <section class="w" id="produtos">
-  <h2>Escolha o seu produto</h2>
-  <p class="sub">Cada produto custa R$ 19,90, pagamento único.</p>
+  <h2>Escolha o seu <em>produto</em></h2>
+  <p class="sub">R$ 19,90 cada · pagamento único</p>
   <div class="grid">
 
-    <article class="card">
-      <div class="cover c-xl"><i>📊</i><b>Pack de Planilhas para Empreendedores</b></div>
-      <div class="body"><span class="tag">Licença de revenda</span>
-        <h3>Pack de Planilhas para Empreendedores</h3>
-        <p>3 planilhas prontas em Excel (abrem no Google Planilhas) para organizar dinheiro, preço e vendas.</p>
-        <details><summary>Ver o que vem</summary><ul>
-          <li>Controle financeiro pessoal com resumo do ano e gráfico</li>
-          <li>Precificação para confeitaria e artesanato: preço e lucro por unidade</li>
-          <li>Controle de vendas e estoque com aviso de reposição</li>
-          <li>Instruções de uso e licença de revenda</li></ul></details>
-        <div class="buy"><div class="price">R$ 19,90<small>pagamento único</small></div><a class="btn" data-checkout="planilhas" href="#">Comprar</a></div>
-      </div>
-    </article>
-
-    <article class="card">
-      <div class="cover c-plan"><img src="img/planner.jpg" alt="Capa do Planner 2027" loading="lazy"></div>
-      <div class="body"><span class="tag">Licença de revenda</span>
-        <h3>Planner 2027 para imprimir</h3>
-        <p>24 páginas em PDF A4 com o ano inteiro organizado, já com os feriados nacionais de 2027.</p>
-        <details><summary>Ver o que vem</summary><ul>
-          <li>Calendário anual e 12 páginas mensais com feriados</li>
-          <li>Metas do ano por área da vida</li>
-          <li>Planejamento semanal e diário</li>
-          <li>Rastreador de hábitos, finanças do mês, tarefas e revisão do mês</li>
-          <li>Licença de revenda</li></ul></details>
-        <div class="buy"><div class="price">R$ 19,90<small>pagamento único</small></div><a class="btn" data-checkout="planner" href="#">Comprar</a></div>
-      </div>
-    </article>
-
-    <article class="card">
-      <div class="cover c-guia"><img src="img/guia.jpg" alt="Capa do Guia de Estudos Inteligente" loading="lazy"></div>
-      <div class="body"><span class="tag">Licença de revenda</span>
+    <article class="card top">
+      <span class="rib">⭐ Mais recomendado</span>
+      <div class="cover g1"><img src="img/guia.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>📚</small>Guia de Estudos Inteligente</div></div>
+      <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Ebook + modelos</span></div>
         <h3>Guia de Estudos Inteligente</h3>
-        <p>Ebook com os métodos de estudo que funcionam, um plano de 30 dias e modelos para imprimir.</p>
+        <p>Os métodos de estudo que funcionam, um plano de 30 dias e modelos para imprimir.</p>
         <details><summary>Ver o que vem</summary><ul>
-          <li>Revisão ativa, revisão espaçada e Pomodoro explicados na prática</li>
-          <li>Como montar o cronograma, fazer resumos, mapas mentais e flashcards</li>
+          <li>Revisão ativa, revisão espaçada e Pomodoro na prática</li>
+          <li>Cronograma, resumos, mapas mentais e flashcards</li>
           <li>Como estudar para provas e controlar a ansiedade</li>
           <li>Plano de 30 dias + cronograma semanal, tabela de revisões e checklist de prova</li>
           <li>Licença de revenda</li></ul></details>
@@ -110,9 +92,10 @@ footer{border-top:1px solid var(--line);margin-top:30px;padding:26px 0 40px;font
       </div>
     </article>
 
-    <article class="card">
-      <div class="cover c-3d"><i>🖨️</i><b>Pack de Arquivos para Impressão 3D</b></div>
-      <div class="body"><span class="tag">Licença de revenda</span>
+    <article class="card top">
+      <span class="rib">⭐ Mais recomendado</span>
+      <div class="cover g2"><img src="img/impressao3d.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>🖨️</small>Pack Impressão 3D</div></div>
+      <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Arquivos 3D</span></div>
         <h3>Pack de Arquivos para Impressão 3D</h3>
         <p>Arquivos prontos para imprimir e vender peças impressas em 3D.</p>
         <details><summary>Ver o que vem</summary><ul>
@@ -123,8 +106,51 @@ footer{border-top:1px solid var(--line);margin-top:30px;padding:26px 0 40px;font
     </article>
 
     <article class="card">
-      <div class="cover c-kw"><i>🎓</i><b>Curso: Sua Primeira Venda na Kiwify</b></div>
-      <div class="body"><span class="tag ext">Produto de terceiros</span>
+      <div class="cover g3"><img src="img/mensagens.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>💬</small>74 Mensagens Prontas para Vender</div></div>
+      <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Copiar e colar</span></div>
+        <h3>Pack de Mensagens Prontas para Vender</h3>
+        <p>74 mensagens para WhatsApp, direct e grupos: do primeiro contato ao pós-venda.</p>
+        <details><summary>Ver o que vem</summary><ul>
+          <li>Primeiro contato e apresentação do produto</li>
+          <li>Respostas prontas para "tá caro", "vou pensar" e outras objeções</li>
+          <li>Mensagens para fechar a venda e para quem sumiu</li>
+          <li>Pós-venda, legendas para posts e divulgação em grupos</li>
+          <li>Licença de revenda</li></ul></details>
+        <div class="buy"><div class="price">R$ 19,90<small>pagamento único</small></div><a class="btn" data-checkout="mensagens" href="#">Comprar</a></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="cover g4"><img src="img/planilhas.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>📊</small>Pack de Planilhas</div></div>
+      <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Excel e Google Planilhas</span></div>
+        <h3>Pack de Planilhas para Empreendedores</h3>
+        <p>3 planilhas prontas para organizar o dinheiro, o preço e as vendas.</p>
+        <details><summary>Ver o que vem</summary><ul>
+          <li>Controle financeiro pessoal com resumo do ano e gráfico</li>
+          <li>Precificação para confeitaria e artesanato: preço e lucro por unidade</li>
+          <li>Controle de vendas e estoque com aviso de reposição</li>
+          <li>Instruções de uso e licença de revenda</li></ul></details>
+        <div class="buy"><div class="price">R$ 19,90<small>pagamento único</small></div><a class="btn" data-checkout="planilhas" href="#">Comprar</a></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="cover g5"><img src="img/planner.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>📅</small>Planner 2027</div></div>
+      <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">PDF para imprimir</span></div>
+        <h3>Planner 2027 para imprimir</h3>
+        <p>24 páginas com o ano inteiro organizado e os feriados nacionais de 2027.</p>
+        <details><summary>Ver o que vem</summary><ul>
+          <li>Calendário anual e 12 páginas mensais com feriados</li>
+          <li>Metas do ano, planejamento semanal e diário</li>
+          <li>Rastreador de hábitos, finanças do mês, tarefas e revisão</li>
+          <li>Licença de revenda</li></ul></details>
+        <div class="buy"><div class="price">R$ 19,90<small>pagamento único</small></div><a class="btn" data-checkout="planner" href="#">Comprar</a></div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="cover g6"><img src="img/kiwify.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>🎓</small>Curso Primeira Venda na Kiwify</div></div>
+      <div class="body"><div class="tags"><span class="tag ext">Produto de terceiros</span></div>
         <h3>Curso: Sua Primeira Venda na Kiwify</h3>
         <p>Curso simples e direto para quem quer fazer a primeira venda de um produto digital.</p>
         <p class="note">Este curso <b>não foi produzido por mim</b>. É um material de terceiros com direito de revenda, revendido conforme a licença original.</p>
@@ -136,31 +162,32 @@ footer{border-top:1px solid var(--line);margin-top:30px;padding:26px 0 40px;font
 </section>
 
 <section class="w">
-  <h2>Como funciona</h2>
+  <h2>Como <em>funciona</em></h2>
   <div class="steps">
-    <div class="step"><b>1</b><strong>Escolha o produto</strong><p class="sub" style="margin:4px 0 0">Clique em "Comprar" no produto que você quer.</p></div>
-    <div class="step"><b>2</b><strong>Pague com segurança</strong><p class="sub" style="margin:4px 0 0">Pix ou cartão, no checkout seguro.</p></div>
-    <div class="step"><b>3</b><strong>Receba no e-mail</strong><p class="sub" style="margin:4px 0 0">O acesso chega na hora, com a licença de revenda.</p></div>
+    <div class="step"><b>1</b><strong>Escolha o produto</strong><p>Clique em "Comprar" no produto que você quer.</p></div>
+    <div class="step"><b>2</b><strong>Pague no Pix ou cartão</strong><p>Checkout seguro, leva menos de 2 minutos.</p></div>
+    <div class="step"><b>3</b><strong>Receba e revenda</strong><p>O acesso chega na hora no e-mail, com a licença de revenda.</p></div>
   </div>
 </section>
 
 <section class="w faq">
-  <h2 style="margin-bottom:16px">Perguntas frequentes</h2>
-  <details><summary>Posso mesmo revender?</summary><p>Sim. Os produtos com a etiqueta "Licença de revenda" vêm com um documento que explica o que você pode fazer: usar, revender pelo preço que quiser e colocar a sua marca. Só não é permitido distribuir de graça em massa.</p></details>
-  <details><summary>Como recebo o produto?</summary><p>Assim que o pagamento é aprovado, você recebe no e-mail o link para baixar os arquivos.</p></details>
-  <details><summary>E se eu não gostar?</summary><p>Você tem 7 dias de garantia. Peça o reembolso pela própria plataforma de pagamento.</p></details>
-  <details><summary>Vou ganhar dinheiro com certeza?</summary><p>Não existe garantia de ganhos. O produto está pronto e a licença é sua, mas o resultado depende de como você divulga e vende.</p></details>
-  <details><summary>Preciso ter CNPJ ou experiência?</summary><p>Para comprar e usar, não. Para revender, veja as regras da plataforma que você vai usar para vender.</p></details>
+  <h2 style="margin-bottom:18px">Dúvidas</h2>
+  <details><summary>Posso mesmo revender?</summary><p>Sim. Os produtos com a etiqueta "Licença de revenda" vêm com um documento que explica o que você pode fazer: usar, revender pelo preço que quiser e colocar a sua marca. Só não pode distribuir de graça em massa.</p></details>
+  <details><summary>Como recebo o produto?</summary><p>Assim que o pagamento é aprovado, você recebe no e-mail o link para baixar.</p></details>
+  <details><summary>E se eu não gostar?</summary><p>Você tem 7 dias de garantia. É só pedir o reembolso pela plataforma de pagamento.</p></details>
+  <details><summary>Vou ganhar dinheiro com certeza?</summary><p>Não existe garantia de ganhos. O produto é pronto e a licença é sua, mas o resultado depende de como você divulga e vende.</p></details>
+  <details><summary>Preciso de CNPJ ou experiência?</summary><p>Para comprar e usar, não. Para revender, veja as regras da plataforma em que você vai vender.</p></details>
 </section>
 </main>
-<footer><div class="w">© RevendaPronta · Produtos digitais. Não prometemos ganhos: os resultados de revenda dependem de cada pessoa. Imagens meramente ilustrativas do conteúdo.</div></footer>
+<footer><div class="w">© RevendaPronta · Produtos digitais. Não prometemos ganhos: os resultados de revenda dependem de cada pessoa.</div></footer>
 <script>
 // links de checkout da Cakto: cole cada link entre as aspas
 const CHECKOUT = {
-  planilhas: '',
-  planner: '',
   guia: '',
   impressao3d: '',
+  mensagens: '',
+  planilhas: '',
+  planner: '',
   kiwify: '',
 };
 const utm = location.search.slice(1);
