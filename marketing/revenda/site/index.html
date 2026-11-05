@@ -31,7 +31,7 @@ h2 em{font-style:normal;color:var(--green)}
 .card.top{border:2px solid var(--yel);box-shadow:0 0 0 4px rgba(255,214,10,.12),0 20px 50px -20px rgba(255,214,10,.35)}
 .rib{position:absolute;z-index:2;top:14px;left:14px;background:var(--yel);color:#111;font-weight:900;font-size:12.5px;padding:6px 12px;border-radius:8px;letter-spacing:.03em;text-transform:uppercase;box-shadow:0 6px 16px -4px rgba(0,0,0,.6)}
 .cover{aspect-ratio:4/3;position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:18px}
-.cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.cover::after{content:"";position:absolute;inset:45% 0 0;background:linear-gradient(transparent,rgba(0,0,0,.72))}.cover .ph{z-index:1}
+.cover img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.cover::after{content:"";position:absolute;inset:45% 0 0;background:linear-gradient(transparent,rgba(0,0,0,.72))}.cover .ph{z-index:1}.cover:has(img) .ph small{display:none}
 .cover .ph{position:relative;font-weight:900;font-size:27px;line-height:1.02;text-transform:uppercase;letter-spacing:-.02em;text-shadow:0 3px 14px rgba(0,0,0,.4)}
 .cover .ph small{display:block;font-size:44px;margin-bottom:6px}
 .g1{background:#5b2bd9}.g2{background:#e0245e}.g3{background:#0d9f5f}.g4{background:#1d4ed8}.g5{background:#d97706}.g6{background:#4b4b63}
@@ -78,7 +78,7 @@ footer{border-top:1px solid var(--line);margin-top:34px;padding:26px 0 40px;font
 
     <article class="card top">
       <span class="rib">⭐ Mais recomendado</span>
-      <div class="cover g1"><img src="img/guia.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>📚</small>Guia de Estudos Inteligente</div></div>
+      <div class="cover g1"><img src="img/guia.jpg" alt="" onerror="this.remove()"><div class="ph"><small>📚</small>Guia de Estudos Inteligente</div></div>
       <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Ebook + modelos</span></div>
         <h3>Guia de Estudos Inteligente</h3>
         <p>Os métodos de estudo que funcionam, um plano de 30 dias e modelos para imprimir.</p>
@@ -94,7 +94,7 @@ footer{border-top:1px solid var(--line);margin-top:34px;padding:26px 0 40px;font
 
     <article class="card top">
       <span class="rib">⭐ Mais recomendado</span>
-      <div class="cover g2"><img src="img/impressao3d.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>🖨️</small>Pack Impressão 3D</div></div>
+      <div class="cover g2"><img src="img/impressao3d.jpg" alt="" onerror="this.remove()"><div class="ph"><small>🖨️</small>Pack Impressão 3D</div></div>
       <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Arquivos 3D</span></div>
         <h3>Pack de Arquivos para Impressão 3D</h3>
         <p>Arquivos prontos para imprimir e vender peças impressas em 3D.</p>
@@ -106,7 +106,7 @@ footer{border-top:1px solid var(--line);margin-top:34px;padding:26px 0 40px;font
     </article>
 
     <article class="card">
-      <div class="cover g3"><img src="img/mensagens.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>💬</small>74 Mensagens Prontas para Vender</div></div>
+      <div class="cover g3"><img src="img/mensagens.jpg" alt="" onerror="this.remove()"><div class="ph"><small>💬</small>74 Mensagens Prontas para Vender</div></div>
       <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Copiar e colar</span></div>
         <h3>Pack de Mensagens Prontas para Vender</h3>
         <p>74 mensagens para WhatsApp, direct e grupos: do primeiro contato ao pós-venda.</p>
@@ -121,7 +121,7 @@ footer{border-top:1px solid var(--line);margin-top:34px;padding:26px 0 40px;font
     </article>
 
     <article class="card">
-      <div class="cover g4"><img src="img/planilhas.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>📊</small>Pack de Planilhas</div></div>
+      <div class="cover g4"><img src="img/planilhas.jpg" alt="" onerror="this.remove()"><div class="ph"><small>📊</small>Pack de Planilhas</div></div>
       <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">Excel e Google Planilhas</span></div>
         <h3>Pack de Planilhas para Empreendedores</h3>
         <p>3 planilhas prontas para organizar o dinheiro, o preço e as vendas.</p>
@@ -135,7 +135,7 @@ footer{border-top:1px solid var(--line);margin-top:34px;padding:26px 0 40px;font
     </article>
 
     <article class="card">
-      <div class="cover g5"><img src="img/planner.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>📅</small>Planner 2027</div></div>
+      <div class="cover g5"><img src="img/planner.jpg" alt="" onerror="this.remove()"><div class="ph"><small>📅</small>Planner 2027</div></div>
       <div class="body"><div class="tags"><span class="tag">Licença de revenda</span><span class="tag">PDF para imprimir</span></div>
         <h3>Planner 2027 para imprimir</h3>
         <p>24 páginas com o ano inteiro organizado e os feriados nacionais de 2027.</p>
@@ -149,7 +149,7 @@ footer{border-top:1px solid var(--line);margin-top:34px;padding:26px 0 40px;font
     </article>
 
     <article class="card">
-      <div class="cover g6"><img src="img/kiwify.jpg" alt="" loading="lazy" onerror="this.remove()"><div class="ph"><small>🎓</small>Curso Primeira Venda na Kiwify</div></div>
+      <div class="cover g6"><img src="img/kiwify.jpg" alt="" onerror="this.remove()"><div class="ph"><small>🎓</small>Curso Primeira Venda na Kiwify</div></div>
       <div class="body"><div class="tags"><span class="tag ext">Produto de terceiros</span></div>
         <h3>Curso: Sua Primeira Venda na Kiwify</h3>
         <p>Curso simples e direto para quem quer fazer a primeira venda de um produto digital.</p>
