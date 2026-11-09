@@ -1,0 +1,79 @@
+INSTRUÇÕES COMPLETAS · CADASTRAR OS PRODUTOS DE REVENDA NA CAKTO
+Fale comigo em português. Leia tudo antes de começar. Não precisa editar nada neste arquivo.
+
+ARQUIVOS DESTA PASTA ("revenda-cakto", normalmente em Downloads)
+- guia-capa.jpg ......... imagem do produto "Guia de Estudos Inteligente"
+- guia-entrega.zip ...... arquivo que o comprador recebe
+- mensagens-capa.jpg .... imagem do produto "74 Mensagens Prontas para Vender"
+- mensagens-entrega.zip . arquivo que o comprador recebe
+- planilhas-capa.jpg .... imagem do produto "Pack de Planilhas para Empreendedores"
+- planilhas-entrega.zip . arquivo que o comprador recebe
+- planner-capa.jpg ...... imagem do produto "Planner 2027 para Imprimir"
+- planner-entrega.zip ... arquivo que o comprador recebe
+
+REGRAS
+- Senha, login, código ou verificação: PARE e me peça.
+- Para enviar um arquivo, use os desta pasta. Se não conseguir anexar sozinho, PARE e me diga o nome exato do
+  arquivo para eu escolher.
+- NÃO apague nenhum produto existente. NÃO mexa em produtos da WashReady (Starter, Pro, Complete).
+- Antes de salvar uma mudança de preço, confira o valor digitado.
+- Se a tela da Cakto for diferente do descrito, escolha a opção equivalente. Em dúvida real, pergunte.
+
+PASSO 1: AJUSTAR OS 2 PRODUTOS QUE JÁ EXISTEM (NÃO criar de novo)
+a) Pack de impressão 3D (já cadastrado; hoje está R$ 15,90): mude o preço para R$ 18,90.
+b) Curso Primeira Venda na Kiwify (já cadastrado): mude o preço para R$ 18,90.
+Nos dois, em Pagamento, deixe ATIVOS todos os métodos disponíveis: Pix, cartão de crédito e boleto.
+Se algum dos dois não existir, me avise e NÃO crie.
+
+PASSO 2: CRIAR 4 PRODUTOS NOVOS
+Para cada produto abaixo:
+- Tipo: produto digital, pagamento único.
+- Nome, descrição e imagem: como abaixo.
+- Preço: R$ 18,90.
+- Métodos de pagamento: TODOS ativos (Pix, cartão de crédito, boleto).
+- Garantia: 7 dias.
+- Entrega/conteúdo: suba o arquivo .zip de entrega do produto (área de membros da Cakto, ou "arquivo para
+  download"). Se a Cakto não aceitar o .zip, me avise antes de tentar outra forma.
+- E-mail de entrega/obrigado: "Obrigado pela compra! Seu acesso está liberado. Baixe o arquivo, leia a Licença
+  de Revenda que vem junto e bons negócios!"
+
+--- PRODUTO 1 ---
+Nome: Guia de Estudos Inteligente (Revenda Autorizada)
+Imagem: guia-capa.jpg · Entrega: guia-entrega.zip
+Descrição:
+Ebook completo com os métodos de estudo que funcionam: revisão ativa, revisão espaçada, Pomodoro, cronograma, resumos, mapas mentais e flashcards, como estudar para provas e controlar a ansiedade. Inclui plano de 30 dias e modelos para imprimir (cronograma semanal, tabela de revisões e checklist de prova). Revenda autorizada: você pode usar, colocar sua marca e vender para os seus clientes.
+
+--- PRODUTO 2 ---
+Nome: 74 Mensagens Prontas para Vender (Revenda Autorizada)
+Imagem: mensagens-capa.jpg · Entrega: mensagens-entrega.zip
+Descrição:
+74 mensagens prontas para copiar e colar no WhatsApp, no direct e em grupos: primeiro contato, apresentação do produto, respostas para "tá caro" e "vou pensar", fechamento, acompanhamento de quem sumiu, pós-venda, legendas para posts e divulgação em grupos. Revenda autorizada: você pode usar, colocar sua marca e vender para os seus clientes.
+
+--- PRODUTO 3 ---
+Nome: Pack de Planilhas para Empreendedores (Revenda Autorizada)
+Imagem: planilhas-capa.jpg · Entrega: planilhas-entrega.zip
+Descrição:
+3 planilhas prontas em Excel (abrem no Google Planilhas): controle financeiro pessoal com resumo do ano e gráfico, precificação para confeitaria e artesanato (preço e lucro por unidade) e controle de vendas e estoque com aviso de reposição. Revenda autorizada: você pode usar, colocar sua marca e vender para os seus clientes.
+
+--- PRODUTO 4 ---
+Nome: Planner 2027 para Imprimir (Revenda Autorizada)
+Imagem: planner-capa.jpg · Entrega: planner-entrega.zip
+Descrição:
+Planner 2027 em PDF A4 com 24 páginas: calendário anual, 12 páginas mensais com os feriados nacionais de 2027, metas do ano, planejamento semanal e diário, rastreador de hábitos, finanças do mês, lista de tarefas e revisão do mês. Revenda autorizada: você pode usar, colocar sua marca e vender para os seus clientes.
+
+PASSO 3: CONFERIR
+Para cada um dos 6 produtos (os 4 novos + 3D + Kiwify), abra o checkout e confira:
+- preço R$ 18,90;
+- Pix, cartão e boleto aparecendo;
+- nome e imagem certos.
+NÃO faça compras.
+
+PASSO 4: ME MANDAR O RESUMO
+Me mande os 6 LINKS DE CHECKOUT, um por linha, assim:
+guia: (link)
+mensagens: (link)
+planilhas: (link)
+planner: (link)
+impressao3d: (link)
+kiwify: (link)
+E me diga se algo não deu certo e por quê.
