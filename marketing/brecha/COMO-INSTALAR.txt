@@ -1,0 +1,54 @@
+BRECHA · COMO COLOCAR NO AR (Cloudflare + Cakto)
+================================================
+
+ARQUIVOS
+- brecha-site.zip ..... o app (sobe na Cloudflare Pages)
+- brecha-banco.sql .... os comandos do banco (cola no console do D1)
+
+PASSO 1 · BANCO (D1)
+1. Cloudflare > Storage & Databases > D1 > Create. Nome: brecha
+2. Abra o banco > aba Console > cole TODO o conteúdo de brecha-banco.sql > Execute.
+
+PASSO 2 · SITE (Pages)
+1. Workers & Pages > Create > Pages > Upload assets. Nome do projeto: brecha (ou brechaapp, se estiver em uso).
+2. Envie o brecha-site.zip > Deploy.
+
+PASSO 3 · LIGAR O BANCO E AS VARIÁVEIS (Settings do projeto)
+a) Bindings > Add > D1 database: Variable name = DB, banco = brecha
+b) Variables and Secrets (marque como Secret os dois primeiros):
+   - CAKTO_SECRET ....... a chave secreta do webhook da Cakto (passo 4)
+   - ADMIN_EMAIL ........ o SEU e-mail. Crie a conta no app com esse e-mail: você vira admin,
+                          usa o app sem gastar crédito e acessa /admin.
+   - CHECKOUT_INICIAL ... link do checkout "Brecha Inicial"
+   - CHECKOUT_PRO ....... link do checkout "Brecha Pro"
+   - CHECKOUT_ELITE ..... link do checkout "Brecha Elite"
+   - SUPPORT_EMAIL ...... (opcional) e-mail de suporte
+c) Bindings e variáveis só valem num deploy NOVO: Deployments > Create deployment > envie o mesmo zip.
+
+PASSO 4 · CAKTO
+1. Crie 3 produtos (pagamento único):
+   - "Brecha Inicial" R$ 14,90   (o nome PRECISA ter "Inicial")
+   - "Brecha Pro"     R$ 29,90   (o nome PRECISA ter "Pro")
+   - "Brecha Elite"   R$ 49,90   (o nome PRECISA ter "Elite")
+   Entrega / página de obrigado: https://SEU-PROJETO.pages.dev/app
+2. Webhook NOVO (Integrações > Webhooks), separado do da WashReady:
+   - URL: https://SEU-PROJETO.pages.dev/api/webhook/cakto
+   - Eventos: Compra aprovada, Reembolso, Chargeback
+   - Produtos: marque SÓ os 3 da Brecha (não marque os da WashReady: "WashReady Pro" também tem "Pro" no nome)
+   - Copie a chave secreta para CAKTO_SECRET e faça o deploy novo.
+
+COMO FUNCIONA A COMPRA
+- O cliente cria a conta e compra com o MESMO e-mail. Os créditos entram sozinhos.
+- Se ele comprar antes de criar a conta, os créditos ficam guardados e entram quando ele criar.
+- Reembolso ou chargeback tira os créditos daquela compra que ainda não foram usados.
+
+PAINEL (/admin)
+- Visão geral: estoque de ideias novas, quantos dias ainda dura e o alerta de "hora de alimentar".
+- Alimentar ideias: cole o lote em JSON (o botão "Ver exemplo" mostra o formato).
+- Ideias: lista e remover.
+- Clientes: dar plano ou créditos na mão, e gerar link de nova senha (cliente esqueceu a senha).
+- Cakto: últimos avisos de compra.
+
+ANTES DE DIVULGAR
+O app começa com o banco de ideias VAZIO. Alimente primeiro (o prompt da extensão eu mando quando você pedir).
+Faça um teste: libere um plano para um e-mail seu na aba Clientes e gere uma ideia.
