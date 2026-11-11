@@ -1,0 +1,96 @@
+INSTRUÇÕES COMPLETAS · COLOCAR O APP BRECHA NO AR (Cloudflare + Cakto)
+Fale comigo em português. Leia tudo antes de começar. Não precisa editar nada neste arquivo.
+
+ARQUIVOS DESTA PASTA ("brecha-instalar", normalmente em Downloads)
+- brecha-site.zip ............ o app (sobe na Cloudflare Pages)
+- brecha-banco.sql ........... os comandos do banco de dados
+- capa-brecha-inicial.jpg .... imagem do produto "Brecha Inicial"
+- capa-brecha-pro.jpg ........ imagem do produto "Brecha Pro"
+- capa-brecha-elite.jpg ...... imagem do produto "Brecha Elite"
+
+REGRAS
+- Senha, login, código ou verificação: PARE e me peça. NUNCA digite senha por mim.
+- Para enviar um arquivo, use os desta pasta. Se não conseguir anexar sozinho, PARE e me diga o nome exato.
+- NÃO apague nada que já existe. NÃO mexa nos projetos/produtos/webhooks da WashReady nem nos produtos de revenda.
+- Se a tela for diferente do descrito, escolha a opção equivalente. Em dúvida real, pergunte.
+- Anote num bloco de notas, durante o trabalho: o endereço do site, os 3 links de checkout e a chave secreta do
+  webhook. Você vai precisar deles nos passos seguintes. A chave secreta NÃO deve ser mostrada no resumo final.
+
+PASSO 0: PERGUNTE MEU E-MAIL DE ADMIN
+Pergunte qual e-mail eu quero usar como dono (admin) do app. Chame de ADMIN.
+
+PASSO 1: BANCO DE DADOS (Cloudflare D1)
+1. dash.cloudflare.com > Storage & Databases > D1 SQL Database > Create. Nome: brecha
+2. Abra o banco > aba Console. Abra o arquivo brecha-banco.sql, copie TODO o conteúdo, cole no console e clique em
+   Execute. (Se não conseguir ler o arquivo, PARE e me peça para colar o texto.)
+3. Confira que apareceram as tabelas: users, sessions, orders, ideas, deliveries, settings, webhook_log.
+
+PASSO 2: SITE (Cloudflare Pages)
+1. Workers & Pages > Create > Pages > Upload assets (Direct Upload).
+2. Nome do projeto: brecha. Se já estiver em uso, tente brechaapp, depois brecha-ideias. Me diga qual ficou.
+3. Envie o brecha-site.zip > Deploy.
+4. Anote o endereço: https://NOME.pages.dev (chame de SITE).
+
+PASSO 3: PRODUTOS NA CAKTO (3 produtos novos)
+Para cada um: produto digital, pagamento único, TODOS os métodos de pagamento disponíveis ativos (Pix, cartão,
+carteiras digitais...), imagem conforme abaixo, nome do produtor = "Brecha".
+Página de obrigado / entrega / link de acesso: SITE/app
+Se a Cakto exigir conteúdo (área de membros), crie uma aula "Acessar o Brecha" com o texto:
+"Seus créditos já estão na sua conta. Acesse SITE e entre (ou crie a conta) com o MESMO e-mail desta compra."
+
+--- PRODUTO 1 ---
+Nome: Brecha Inicial          (o nome PRECISA conter a palavra "Inicial")
+Preço: R$ 14,90 · Imagem: capa-brecha-inicial.jpg
+Descrição: 4 ideias de produtos digitais com potencial de venda e pouca concorrência, com preço sugerido, roteiro do anúncio, onde divulgar e orçamento diário sugerido. Os créditos não vencem.
+
+--- PRODUTO 2 ---
+Nome: Brecha Pro              (o nome PRECISA conter a palavra "Pro")
+Preço: R$ 29,90 · Imagem: capa-brecha-pro.jpg
+Descrição: 12 ideias (10 + 2 de bônus) de produtos digitais com pouca concorrência, com roteiro, preço sugerido, orçamento diário, plano de divulgação de 7 dias e calculadora de lucro. Os créditos não vencem.
+
+--- PRODUTO 3 ---
+Nome: Brecha Elite            (o nome PRECISA conter a palavra "Elite")
+Preço: R$ 49,90 · Imagem: capa-brecha-elite.jpg
+Descrição: 25 ideias de produtos digitais com pouca concorrência, tudo do plano Pro, ideias novas antes de todo mundo e 3 ideias exclusivas entregues só para você. Os créditos não vencem.
+
+Anote os 3 links de checkout.
+
+PASSO 4: WEBHOOK NOVO NA CAKTO (só da Brecha)
+1. Integrações > Webhooks > criar NOVO (não edite o da WashReady).
+2. URL: SITE/api/webhook/cakto
+3. Eventos: Compra aprovada, Reembolso e Chargeback.
+4. Produtos: marque SÓ Brecha Inicial, Brecha Pro e Brecha Elite. (Atenção: "WashReady Pro" também tem "Pro" no nome;
+   não marque.)
+5. Copie a chave secreta (secret) do webhook.
+
+PASSO 5: LIGAR TUDO NO SITE (Cloudflare > projeto do Brecha > Settings)
+a) Bindings > Add > D1 database: Variable name = DB (maiúsculo), banco = brecha.
+b) Variables and Secrets > Add:
+   - CAKTO_SECRET = a chave secreta do passo 4 (tipo Secret)
+   - ADMIN_EMAIL = o e-mail ADMIN do passo 0 (tipo Secret)
+   - CHECKOUT_INICIAL = link do checkout Brecha Inicial
+   - CHECKOUT_PRO = link do checkout Brecha Pro
+   - CHECKOUT_ELITE = link do checkout Brecha Elite
+c) IMPORTANTE: isso só vale num deploy NOVO. Deployments > Create deployment > envie o brecha-site.zip de novo.
+
+PASSO 6: CONTA DE ADMIN
+1. Abra SITE/criar-conta e digite o e-mail ADMIN.
+2. PARE e me peça para digitar a senha e clicar em "Criar conta". Eu faço essa parte.
+3. Depois que eu criar, abra SITE/admin. Deve aparecer o "Painel" (Visão geral, Alimentar ideias, Ideias, Clientes,
+   Cakto). Se aparecer, o banco e o admin estão ligados.
+
+PASSO 7: TESTES (sem compras)
+1. Na Cakto, no webhook novo, clique em enviar evento de teste.
+2. No SITE/admin, aba "Cakto", atualize: deve aparecer um aviso. O teste da Cakto usa um produto genérico, então o
+   normal é aparecer "produto nao reconhecido". Isso prova que a ligação funciona. Se aparecer "chave secreta
+   invalida", a CAKTO_SECRET está errada: confira e faça deploy novo.
+3. Abra SITE (página inicial) e SITE/app/planos logado: confira que os 3 botões de compra abrem os checkouts certos.
+
+PASSO 8: RESUMO PARA MIM
+Me diga:
+- o endereço do site;
+- os 3 links de checkout;
+- o resultado do teste do webhook;
+- o que não deu certo e por quê.
+NÃO mostre a chave secreta.
+Lembrete: o banco de ideias começa vazio. Antes de divulgar, ele precisa ser alimentado (faremos depois).
