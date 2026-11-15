@@ -1,0 +1,73 @@
+INSTRUÇÕES · ANÚNCIO DO PACK DE IMPRESSÃO 3D NA META (Facebook + Instagram)
+Fale comigo em português. O anúncio é em português (público: Brasil). Leia tudo antes de começar.
+
+O VÍDEO
+O criativo em vídeo eu mando junto com esta pasta (é um arquivo de vídeo vertical, 9:16).
+Se você não conseguir anexar o vídeo sozinho, PARE e me peça para escolher o arquivo.
+
+REGRAS
+- Senha, login, código ou verificação: PARE e me peça.
+- Forma de pagamento / adicionar crédito: PARE. Eu faço.
+- NÃO publique nada sem eu aprovar o resumo do PASSO 6.
+- NÃO mexa em campanhas que já existem (pause nada, apague nada).
+- Se a tela for diferente do descrito, escolha a opção equivalente. Em dúvida real, pergunte.
+
+PASSO 1: CONTA CERTA
+1. Abra adsmanager.facebook.com.
+2. A conta aberta pode estar ERRADA. Me mostre a lista de contas de anúncios disponíveis (canto superior esquerdo)
+   e PARE: eu digo qual usar.
+3. Me diga a moeda da conta (BRL ou USD).
+
+PASSO 2: CRÉDITO
+Abra Faturamento / Configurações de pagamento dessa conta e me diga se tem forma de pagamento ou saldo.
+PARE para eu adicionar o crédito. Só continue quando eu disser "pode seguir".
+
+PASSO 3: CAMPANHA
+- Criar > Objetivo: TRÁFEGO (Traffic).
+- Nome: Pack 3D | Revenda | Trafego
+- Orçamento Advantage da campanha (CBO): DESLIGADO. Teste A/B: desligado. Categoria especial: nenhuma.
+
+PASSO 4: CONJUNTO DE ANÚNCIOS
+- Nome: Pack 3D | BR | 18-45
+- Local da conversão: Site. Meta: Maximizar visualizações da página de destino
+  (se não tiver, "Maximizar cliques no link" e me avise).
+- Orçamento DIÁRIO: R$ 45,00 (se a conta for em USD, me pergunte o valor).
+- Programação: começa AGORA (assim que aprovado). Data de término: daqui a 2 dias.
+- Público:
+  * Local: Brasil. Idade: 18 a 45. Gênero: todos. Idioma: Português.
+  * Direcionamento detalhado (adicione os que existirem): Impressão 3D, Impressora 3D, Modelagem 3D, Maker,
+    Empreendedorismo, Renda extra.
+  * EXCLUIR: crie um público personalizado "Conta profissional do Instagram" > "Todos que seguiram ou
+    interagiram com esta conta" (365 dias), com a conta do Instagram que EU escolher no passo 5, e coloque esse
+    público em EXCLUIR. (Assim meus seguidores não recebem o anúncio.) Se não der para criar, me avise e siga.
+- Posicionamentos: MANUAL. Marque SÓ: Instagram Reels, Instagram Stories, Facebook Reels, Facebook Stories.
+  Desmarque todo o resto (Feed, Explorar, Threads, Audience Network, Messenger, etc.).
+
+PASSO 5: ANÚNCIO
+- Identidade: me mostre as Páginas do Facebook e contas do Instagram disponíveis e PARE: eu escolho quais usar.
+- Formato: imagem ou vídeo único. Mídia: o vídeo que eu mandei (o mesmo vídeo para todos os posicionamentos).
+- Melhorias Advantage+ do criativo / otimizações: DESLIGUE TODAS (música, retoques, legendas automáticas,
+  variações de texto, tradução etc.). O vídeo já está pronto e o áudio original tem que ser mantido.
+- Nome do anúncio: Pack 3D | Video 1
+- Texto principal:
+🖨️ +1.600 modelos e +150 mil arquivos de impressão 3D com REVENDA AUTORIZADA.
+Você não precisa ter impressora: você revende o ARQUIVO, como produto seu, pelo preço que quiser.
+✔ Pagamento único ✔ Entrega na hora ✔ Licença de revenda inclusa
+👉 Toque em Saiba mais.
+- Título: Pack 3D com revenda autorizada
+- Descrição: Pagamento único · entrega na hora
+- Botão: Saiba mais
+- Link: https://pay.cakto.com.br/3cwasna_1248516?utm_source=meta&utm_medium=paid&utm_campaign=pack3d&utm_content=video1
+
+PASSO 6: PARAR E ME MOSTRAR O RESUMO (OBRIGATÓRIO)
+Me mostre:
+- a conta de anúncios, o objetivo, o orçamento diário, o início e o fim;
+- o público, incluindo a exclusão de seguidores;
+- os posicionamentos marcados;
+- a identidade (Página e Instagram);
+- a prévia do anúncio no Reels e no Stories;
+- o link final.
+Só clique em PUBLICAR quando eu escrever "pode publicar".
+
+PASSO 7: DEPOIS DE PUBLICAR
+Me diga se ficou "Em análise" ou "Ativo". Se for reprovado, me mostre o motivo exato e não altere nada sem perguntar.
