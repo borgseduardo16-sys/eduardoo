@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Meta Pixel -->
+<script>
+!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '2102484987303548');
+fbq('track', 'PageView');
+fbq('track', 'ViewContent', {content_name: 'Biblioteca Central 3D', content_type: 'product', value: 16.90, currency: 'BRL'});
+</script>
+<!-- Fim do Meta Pixel -->
+<title>Biblioteca Central 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Pack de impressão 3D com revenda autorizada: +1.700 modelos e +150 mil arquivos STL. De R$36,90 por R$29,90.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Poppins:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: bancada de impressao — faixa de promo fixa, hero em duas colunas (texto | celular),
+   vitrine em duas esteiras opostas, a conta do revendedor em sequencia, oferta e duvidas. */
+:root {
+  color-scheme: dark;
+  --bg: #0d0e0c;          /* carvao com leve vies para o verde da marca */
+  --surface: #161814;
+  --surface-2: #1d201a;
+  --line: #2a2e25;
+  --fg: #f2f4ee;
+  --muted: #a3a99a;
+  --lime: #e0fa1a;        /* filamento: a cor da marca nos anuncios */
+  --lime-ink: #10120a;
+  --red: #ff3b30;         /* so para o preco promocional */
+  --font-display: "Unbounded", "Poppins", system-ui, sans-serif;
+  --font-body: "Poppins", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius: 18px;
+  --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+  --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background-color: var(--bg);
+  /* linhas de camada, como uma peca impressa vista de perto */
+  background-image: repeating-linear-gradient(0deg, rgba(224,250,26,0.018) 0 1px, transparent 1px 6px);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--red); }
+img, video { max-width: 100%; display: block; }
+a { color: inherit; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0; text-wrap: pretty; }
+.wrap { width: 100%; max-width: 1120px; margin: 0 auto; padding-left: var(--gutter-l); padding-right: var(--gutter-r); }
+section { padding-block: clamp(56px, 9vw, 104px); }
+.eyebrow { font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--lime); }
+.h2 { font-family: var(--font-display); font-weight: 800; font-size: clamp(1.6rem, 4.2vw, 2.5rem); line-height: 1.12; letter-spacing: -0.02em; }
+.lead { color: var(--muted); font-size: 1.05rem; max-width: 62ch; }
+:focus-visible { outline: 3px solid var(--lime); outline-offset: 3px; border-radius: 8px; }
+
+/* ---------- faixa de promocao ---------- */
+.promo {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--red); color: #fff;
+}
+.promo .wrap { display: flex; align-items: center; justify-content: center; gap: 10px 18px; flex-wrap: wrap; padding-block: 9px; font-weight: 700; font-size: 0.92rem; text-align: center; }
+.promo s { opacity: 0.8; font-weight: 500; }
+.promo .tag { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.1em; background: rgba(0,0,0,0.22); padding: 3px 8px; border-radius: 6px; }
+
+/* ---------- botao de compra ---------- */
+.buy {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 60px; padding: 0 30px; border-radius: 14px;
+  background: var(--lime); color: var(--lime-ink);
+  font-family: var(--font-body); font-weight: 800; font-size: 1.08rem; letter-spacing: 0.01em; text-decoration: none;
+  box-shadow: 0 0 0 0 rgba(224,250,26,0.5), 0 14px 32px rgba(224,250,26,0.18);
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+  animation: ring 2.4s ease-out infinite;
+}
+.buy:hover { transform: translateY(-2px); }
+.buy svg { width: 22px; height: 22px; }
+@keyframes ring { 0% { box-shadow: 0 0 0 0 rgba(224,250,26,0.45), 0 14px 32px rgba(224,250,26,0.18); } 70%,100% { box-shadow: 0 0 0 16px rgba(224,250,26,0), 0 14px 32px rgba(224,250,26,0.18); } }
+
+.trust { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--muted); font-size: 0.86rem; }
+.trust span { display: inline-flex; align-items: center; gap: 7px; }
+.trust svg { width: 18px; height: 18px; color: var(--lime); flex: none; }
+
+/* ---------- hero ---------- */
+.hero { padding-block: clamp(36px, 6vw, 72px) clamp(40px, 6vw, 64px); }
+.hero .wrap { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); gap: clamp(28px, 5vw, 64px); align-items: center; }
+.hero-copy { display: grid; gap: 22px; min-width: 0; }
+.badge-rev {
+  justify-self: start; display: inline-flex; align-items: center; gap: 8px;
+  border: 1.5px solid var(--lime); color: var(--lime); border-radius: 999px; padding: 6px 14px;
+  font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.badge-rev svg { width: 16px; height: 16px; }
+.hero h1 { font-family: var(--font-display); font-weight: 800; font-size: clamp(2rem, 5.6vw, 3.6rem); line-height: 1.04; letter-spacing: -0.03em; }
+.hero h1 em { font-style: normal; color: var(--lime); }
+.hero .lead { font-size: 1.12rem; }
+.nums { display: flex; flex-wrap: wrap; gap: 10px; }
+.num { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; display: grid; }
+.num b { font-family: var(--font-display); font-size: 1.35rem; line-height: 1.1; color: var(--fg); font-variant-numeric: tabular-nums; }
+.num small { color: var(--muted); font-size: 0.8rem; }
+
+.price { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; }
+.price .old { color: var(--muted); font-size: 1.05rem; }
+.price .old s { text-decoration-color: var(--red); text-decoration-thickness: 2px; }
+.price .new { font-family: var(--font-display); font-weight: 800; font-size: clamp(2.6rem, 7vw, 3.6rem); line-height: 1; color: var(--red); letter-spacing: -0.03em; animation: pulse 1.6s ease-in-out infinite; transform-origin: left center; font-variant-numeric: tabular-nums; }
+.price .off { background: var(--red); color: #fff; font-weight: 800; font-size: 0.9rem; padding: 5px 10px; border-radius: 8px; }
+.price .once { width: 100%; color: var(--muted); font-size: 0.86rem; }
+@keyframes pulse { 0%, 100% { transform: scale(1); text-shadow: 0 0 0 rgba(255,59,48,0); } 50% { transform: scale(1.045); text-shadow: 0 0 28px rgba(255,59,48,0.55); } }
+
+.phone-stage { position: relative; justify-self: center; width: min(330px, 78vw); }
+.phone-stage::before { content: ""; position: absolute; inset: -14%; background: radial-gradient(closest-side, rgba(224,250,26,0.22), transparent); z-index: 0; }
+.phone {
+  position: relative; z-index: 1;
+  padding: 11px; border-radius: 46px;
+  background: linear-gradient(145deg, #3a3d36, #121410 40%, #0b0c09 70%, #2b2e27);
+  box-shadow: 0 40px 80px rgba(0,0,0,0.6), 0 0 0 1.5px rgba(255,255,255,0.07);
+  transform: perspective(1400px) rotateY(-12deg) rotateX(5deg);
+}
+.phone video { width: 100%; aspect-ratio: 540 / 1074; object-fit: cover; border-radius: 36px; background: #000; }
+.phone-tag { position: absolute; z-index: 2; left: -18px; bottom: 16%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; font-family: var(--font-mono); font-size: 0.78rem; color: var(--lime); box-shadow: 0 14px 30px rgba(0,0,0,0.5); }
+
+/* ---------- vitrine (duas esteiras) ---------- */
+.vitrine-head { display: grid; gap: 12px; text-align: center; justify-items: center; margin-bottom: 36px; }
+.belts { display: grid; gap: 18px; max-width: 1120px; margin: 0 auto;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14%, #000 86%, transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 14%, #000 86%, transparent 100%);
+  overflow: hidden; }
+.belt { display: flex; width: max-content; gap: 16px; animation: belt 95s linear infinite; }
+.belt.rev { animation-direction: reverse; animation-duration: 105s; }
+.belts:hover .belt { animation-play-state: paused; }
+@keyframes belt { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.item { flex: none; width: 200px; display: grid; gap: 8px; }
+.item img { width: 200px; height: auto; aspect-ratio: 420 / 480; object-fit: cover; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); }
+.item span { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vitrine-foot { text-align: center; margin-top: 30px; color: var(--muted); font-size: 0.95rem; }
+.vitrine-foot b { color: var(--fg); }
+
+/* ---------- a conta ---------- */
+.conta { background: var(--surface); border-block: 1px solid var(--line); }
+.conta .wrap { display: grid; gap: 36px; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; counter-reset: s; }
+.step { position: relative; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px 22px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.step::before { counter-increment: s; content: "0" counter(s); font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+.step .v { font-family: var(--font-display); font-weight: 800; font-size: 1.7rem; line-height: 1.1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.step .v.red { color: var(--red); }
+.step .v.lime { color: var(--lime); }
+.step p { color: var(--muted); font-size: 0.95rem; }
+
+/* ---------- duas formas ---------- */
+.ways { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 34px; }
+.way { border: 1px solid var(--line); border-radius: var(--radius); padding: 26px; display: grid; gap: 12px; background: linear-gradient(160deg, var(--surface-2), var(--bg) 70%); min-width: 0; }
+.way h3 { font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; }
+.way p { color: var(--muted); }
+.way .file { font-family: var(--font-mono); font-size: 0.8rem; color: var(--lime); }
+
+/* ---------- beneficios ---------- */
+.benefits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 28px; margin-top: 34px; }
+.benefit { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 14px; padding-block: 16px; border-top: 1px solid var(--line); }
+.benefit svg { width: 28px; height: 28px; color: var(--lime); margin-top: 2px; }
+.benefit b { display: block; font-weight: 700; }
+.benefit span { color: var(--muted); font-size: 0.93rem; }
+
+/* ---------- oferta ---------- */
+.offer { display: grid; justify-items: center; }
+.offer-card {
+  width: 100%; max-width: 620px; text-align: center; display: grid; gap: 22px; justify-items: center;
+  border: 2px solid var(--lime); border-radius: 26px; padding: clamp(26px, 5vw, 44px);
+  background: radial-gradient(120% 90% at 50% 0%, rgba(224,250,26,0.10), transparent 60%), var(--surface);
+  box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+}
+.offer-card .price { justify-content: center; }
+.offer-card .price .new { transform-origin: center; }
+.offer-card .buy { width: 100%; }
+.checklist { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; text-align: left; width: 100%; max-width: 420px; }
+.checklist li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; }
+.checklist svg { width: 22px; height: 22px; color: var(--lime); margin-top: 2px; }
+.seals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; width: 100%; }
+.seal { border: 1px solid var(--line); border-radius: 14px; padding: 14px 8px; display: grid; justify-items: center; gap: 6px; background: var(--bg); }
+.seal svg { width: 26px; height: 26px; color: var(--lime); }
+.seal b { font-size: 0.86rem; line-height: 1.25; }
+.seal span { font-size: 0.75rem; color: var(--muted); }
+
+/* ---------- duvidas ---------- */
+.faq { display: grid; gap: 10px; margin-top: 30px; max-width: 760px; }
+.faq details { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.faq summary { cursor: pointer; list-style: none; padding: 18px 20px; font-weight: 700; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; color: var(--lime); font-family: var(--font-mono); font-size: 1.2rem; line-height: 1; }
+.faq details[open] summary::after { content: "−"; }
+.faq details p { padding: 0 20px 18px; color: var(--muted); }
+
+footer { border-top: 1px solid var(--line); padding-block: 30px 110px; color: var(--muted); font-size: 0.85rem; }
+footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+
+/* ---------- barra de compra fixa no celular ---------- */
+.mbar { display: none; }
+@media (max-width: 760px) {
+  .hero .wrap { grid-template-columns: minmax(0, 1fr); }
+  .phone-stage { width: min(280px, 72vw); }
+  .phone { transform: none; }
+  .phone-tag { left: -8px; }
+  .steps, .ways, .benefits { grid-template-columns: minmax(0, 1fr); }
+  .item, .item img { width: 150px; }
+  .belts { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 9%, #000 91%, transparent 100%); }
+  .seals { grid-template-columns: minmax(0, 1fr); }
+  .seal { grid-template-columns: 32px minmax(0, 1fr); justify-items: start; text-align: left; padding: 12px 14px; column-gap: 12px; }
+  .seal svg { grid-row: span 2; align-self: center; }
+  .hero .buy { width: 100%; }
+  .mbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px var(--gutter-r) calc(10px + env(safe-area-inset-bottom, 0px)) var(--gutter-l);
+    background: rgba(13,14,12,0.94); border-top: 1px solid var(--line); backdrop-filter: blur(10px);
+  }
+  .mbar .p { display: grid; line-height: 1.15; }
+  .mbar s { color: var(--muted); font-size: 0.78rem; }
+  .mbar b { color: var(--red); font-family: var(--font-display); font-size: 1.35rem; }
+  .mbar .buy { min-height: 50px; padding: 0 20px; font-size: 0.98rem; animation: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .belt, .price .new, .buy { animation: none; }
+  .belts { overflow-x: auto; -webkit-mask-image: none; mask-image: none; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+<body>
+<noscript><img height="1" width="1" style="display:none" alt="" src="https://www.facebook.com/tr?id=2102484987303548&ev=PageView&noscript=1"></noscript>
+
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m8 12 2.6 2.6L16 9"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.7 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h9.2a1 1 0 0 0 1-.8L20 8H6.2"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8l-9-5-9 5v8l9 5 9-5z"/><path d="m3.3 7.5 8.7 5 8.7-5M12 22V12.5"/></symbol>
+  <symbol id="i-files" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 16h4"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M4 4l16 16"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></symbol>
+</svg>
+
+<div class="promo" role="region" aria-label="Promoção">
+  <div class="wrap">
+    <span class="tag">PROMOÇÃO DE LANÇAMENTO</span>
+    <span>de <s>R$36,90</s> por R$29,90</span>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="hero-copy">
+      <span class="badge-rev"><svg><use href="#i-check"/></svg>Revenda autorizada</span>
+      <h1>Compre uma vez. <em>Revenda quantas vezes quiser.</em></h1>
+      <p class="lead">O pack de impressão 3D com mais de 1.700 modelos e 150 mil arquivos prontos pra imprimir. Venda arquivo por arquivo ou o pack completo, e fique com todo o lucro.</p>
+      <div class="nums" aria-label="O que vem no pack">
+        <div class="num"><b>+1.700</b><small>modelos</small></div>
+        <div class="num"><b>+150 mil</b><small>arquivos STL</small></div>
+        <div class="num"><b>1x</b><small>pagamento único</small></div>
+      </div>
+      <div class="price" aria-label="Preço: de 36 reais e 90 centavos por 16 reais e 90 centavos">
+        <span class="old">de <s>R$36,90</s></span>
+        <span class="new">R$29,90</span>
+        <span class="off">-54%</span>
+      </div>
+      <a class="buy" href="https://pay.cakto.com.br/3cwasna_1248516" data-buy><svg><use href="#i-cart"/></svg>Quero meu pack com revenda</a>
+      <div class="trust">
+        <span><svg><use href="#i-lock"/></svg>Compra segura pela Cakto</span>
+        <span><svg><use href="#i-shield"/></svg>Garantia de 7 dias</span>
+        <span><svg><use href="#i-chat"/></svg>Suporte 24 horas</span>
+      </div>
+    </div>
+    <div class="phone-stage">
+      <div class="phone">
+        <video src="media/catalogo.mp4" poster="media/catalogo-poster.jpg" autoplay muted loop playsinline preload="metadata" aria-label="Catálogo de modelos rolando no celular"></video>
+      </div>
+      <div class="phone-tag">+1.700 modelos.stl</div>
+    </div>
+  </div>
+</header>
+
+<section class="vitrine" aria-labelledby="vitrine-t">
+  <div class="wrap vitrine-head">
+    <span class="eyebrow">Uma amostra do pack</span>
+    <h2 class="h2" id="vitrine-t">Chaveiros, fidgets, decoração e muito mais</h2>
+    <p class="lead">Peças que vendem o ano todo, organizadas por categoria e prontas pra imprimir.</p>
+  </div>
+  <div class="belts">
+    <div class="belt" id="belt-1"></div>
+    <div class="belt rev" id="belt-2"></div>
+  </div>
+  <p class="wrap vitrine-foot">E esse é só o começo: são <b>mais de 1.700 modelos</b> no pack.</p>
+</section>
+
+<section class="conta" aria-labelledby="conta-t">
+  <div class="wrap">
+    <div style="display:grid;gap:12px">
+      <span class="eyebrow">A conta do revendedor</span>
+      <h2 class="h2" id="conta-t">Vendeu uma vez, já se pagou</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="v red">−R$29,90</span>
+        <p>Você compra o pack uma única vez. Sem mensalidade.</p>
+      </div>
+      <div class="step">
+        <span class="v">R$0,00</span>
+        <p>Na primeira venda, o que você investiu volta pro seu bolso.</p>
+      </div>
+      <div class="step">
+        <span class="v lime">Tudo seu</span>
+        <p>Da segunda venda em diante, cada venda é lucro. Sem estoque, sem frete e sem fornecedor.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="formas-t">
+  <div class="wrap">
+    <span class="eyebrow">Você escolhe como vender</span>
+    <h2 class="h2" id="formas-t" style="margin-top:12px">Duas formas de lucrar com o mesmo pack</h2>
+    <div class="ways">
+      <div class="way">
+        <span class="file">polvo-articulado.stl</span>
+        <h3>Arquivo por arquivo</h3>
+        <p>Escolha os modelos que mais chamam atenção e venda cada arquivo separado, pelo preço que você definir.</p>
+      </div>
+      <div class="way">
+        <span class="file">pack-completo.zip</span>
+        <h3>O pack completo</h3>
+        <p>Revenda a biblioteca inteira, com mais de 150 mil arquivos, pra quem quer tudo de uma vez.</p>
+      </div>
+    </div>
+
+    <div class="benefits">
+      <div class="benefit"><svg><use href="#i-cube"/></svg><div><b>+1.700 modelos</b><span>Chaveiros, fidgets, decoração, Natal, utilidades e mais.</span></div></div>
+      <div class="benefit"><svg><use href="#i-files"/></svg><div><b>+150 mil arquivos STL</b><span>O formato que qualquer impressora 3D abre.</span></div></div>
+      <div class="benefit"><svg><use href="#i-tag"/></svg><div><b>Revenda autorizada</b><span>Você pode revender quantas vezes quiser.</span></div></div>
+      <div class="benefit"><svg><use href="#i-box"/></svg><div><b>Sem estoque e sem frete</b><span>É produto digital: nada pra guardar nem pra enviar.</span></div></div>
+      <div class="benefit"><svg><use href="#i-grid"/></svg><div><b>Organizado por categoria</b><span>Encontre rápido o modelo que o seu cliente procura.</span></div></div>
+      <div class="benefit"><svg><use href="#i-phone"/></svg><div><b>Funciona no celular</b><span>Acesse a biblioteca de qualquer lugar.</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="oferta" class="offer" aria-labelledby="oferta-t">
+  <div class="wrap offer">
+    <div class="offer-card">
+      <span class="tag" style="font-family:var(--font-mono);font-size:.78rem;letter-spacing:.1em;background:var(--red);color:#fff;padding:5px 10px;border-radius:8px">PROMOÇÃO DE LANÇAMENTO</span>
+      <h2 class="h2" id="oferta-t">Comece a vender ainda hoje</h2>
+      <ul class="checklist">
+        <li><svg><use href="#i-check"/></svg><span>Mais de 1.700 modelos de impressão 3D</span></li>
+        <li><svg><use href="#i-check"/></svg><span>Mais de 150 mil arquivos STL</span></li>
+        <li><svg><use href="#i-check"/></svg><span>Autorização pra revender quantas vezes quiser</span></li>
+        <li><svg><use href="#i-check"/></svg><span>Venda arquivo por arquivo ou o pack completo</span></li>
+      </ul>
+      <div class="price" aria-label="Preço: de 36 reais e 90 centavos por 16 reais e 90 centavos">
+        <span class="old">de <s>R$36,90</s></span>
+        <span class="new">R$29,90</span>
+        <span class="off">-54%</span>
+        <span class="once">Pagamento único, sem mensalidade</span>
+      </div>
+      <a class="buy" href="https://pay.cakto.com.br/3cwasna_1248516" data-buy><svg><use href="#i-cart"/></svg>Quero meu pack agora</a>
+      <div class="seals">
+        <div class="seal"><svg><use href="#i-lock"/></svg><b>Compra segura</b><span>Pagamento pela Cakto</span></div>
+        <div class="seal"><svg><use href="#i-shield"/></svg><b>Garantia de 7 dias</b><span>Compre sem risco</span></div>
+        <div class="seal"><svg><use href="#i-chat"/></svg><b>Suporte 24 horas</b><span>Tire suas dúvidas</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="faq-t" style="padding-top:0">
+  <div class="wrap">
+    <span class="eyebrow">Dúvidas</span>
+    <h2 class="h2" id="faq-t" style="margin-top:12px">Perguntas frequentes</h2>
+    <div class="faq">
+      <details><summary>Preciso ter impressora 3D?</summary><p>Não. Você revende os arquivos digitais, sem precisar imprimir nada.</p></details>
+      <details><summary>Posso revender quantas vezes quiser?</summary><p>Sim. O pack vem com autorização de revenda: você pode vender cada arquivo separado ou o pack completo, quantas vezes quiser.</p></details>
+      <details><summary>Em que formato vêm os arquivos?</summary><p>Em STL, o formato padrão das impressoras 3D.</p></details>
+      <details><summary>Como recebo o acesso?</summary><p>Depois da confirmação do pagamento, o acesso é enviado para o e-mail usado na compra.</p></details>
+      <details><summary>Quais são as formas de pagamento?</summary><p>Pix ou cartão de crédito, com pagamento processado pela Cakto.</p></details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>Biblioteca Central 3D</span>
+    <span>Compra segura pela Cakto · Garantia de 7 dias · Suporte 24 horas</span>
+  </div>
+</footer>
+
+<div class="mbar" aria-label="Comprar">
+  <div class="p"><s>R$36,90</s><b>R$29,90</b></div>
+  <a class="buy" href="https://pay.cakto.com.br/3cwasna_1248516" data-buy>Quero meu pack</a>
+</div>
+
+<script>
+// Link do checkout da Cakto. Abre na mesma aba: cada aba nova a mais e uma chance do cliente se perder.
+const CHECKOUT_URL = 'https://pay.cakto.com.br/3cwasna_1248516';
+
+if (CHECKOUT_URL) {
+  // leva os parametros do anuncio (fbclid, utm_*) ate o checkout, para a venda ser atribuida ao anuncio certo
+  const params = new URLSearchParams(location.search);
+  const url = new URL(CHECKOUT_URL);
+  params.forEach((v, k) => { if (!url.searchParams.has(k)) url.searchParams.set(k, v); });
+  document.querySelectorAll('[data-buy]').forEach((a) => {
+    a.href = url.toString();
+  });
+}
+
+const ROW1 = [
+  ['polvo-articulado', 'Polvo articulado'], ['axolote', 'Axolote'], ['chaveiro-nome', 'Chaveiro com nome'],
+  ['hexagono-fidget', 'Hexágono fidget'], ['beagle-articulado', 'Beagle articulado'], ['macaron-fidget', 'Macaron fidget'],
+  ['nome-em-camadas', 'Nome em camadas'], ['cachorrinhos-croche', 'Cachorrinhos de crochê'], ['caveira', 'Caveira'],
+  ['gatinho-articulado', 'Gatinho articulado'], ['halteres', 'Halteres'], ['nome-com-borda', 'Nome com borda'],
+  ['sagrado-coracao', 'Sagrado Coração'],
+];
+const ROW2 = [
+  ['suporte-biscoitos', 'Suporte de biscoitos'], ['urso-polar-trico', 'Urso polar'], ['arvore-espiral', 'Árvore espiral'],
+  ['alce-porta-vela', 'Alce porta-vela'], ['biscoito-gengibre', 'Biscoito de gengibre'], ['expositor-giratorio', 'Expositor giratório'],
+  ['papai-noel-trico', 'Papai Noel'], ['porta-vela-arvore', 'Porta-vela árvore'], ['rena-trico', 'Rena'],
+  ['bola-de-natal', 'Bola de Natal'], ['rena-e-treno', 'Rena e trenó'], ['renas-natalinas', 'Renas natalinas'],
+  ['boneco-de-neve', 'Boneco de neve'],
+];
+
+function fill(id, items) {
+  const el = document.getElementById(id);
+  // duas copias da fileira: a animacao anda metade da largura e recomeca sem emenda
+  const html = items.map(([f, nome]) =>
+    `<figure class="item" style="margin:0"><img src="img/${f}.jpg" alt="${nome} impresso em 3D" width="420" height="480"><span>${f}.stl</span></figure>`
+  ).join('');
+  el.innerHTML = html + html.replace(/alt="[^"]*"/g, 'alt="" aria-hidden="true"');
+}
+fill('belt-1', ROW1);
+fill('belt-2', ROW2);
+</script>
+
+</body>
+</html>

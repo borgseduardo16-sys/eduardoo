@@ -1,6 +1,9 @@
 INSTRUÇÕES · ANÚNCIO DO PACK DE IMPRESSÃO 3D NA META (Facebook + Instagram)
 Fale comigo em português. O anúncio é em português (público: Brasil). Leia tudo antes de começar.
 
+ARQUIVOS DESTA PASTA
+- biblioteca-central-3d-v2.zip ... a página de vendas do Pack 3D atualizada (R$ 29,90)
+
 O VÍDEO
 O criativo em vídeo eu mando junto com esta pasta (é um arquivo de vídeo vertical, 9:16).
 Se você não conseguir anexar o vídeo sozinho, PARE e me peça para escolher o arquivo.
@@ -22,19 +25,27 @@ PASSO 2: CRÉDITO
 Abra Faturamento / Configurações de pagamento dessa conta e me diga se tem forma de pagamento ou saldo.
 Vou colocar R$ 82 de crédito (R$ 40 por dia x 2 dias + uma sobra). PARE para eu adicionar o crédito. Só continue quando eu disser "pode seguir".
 
-PASSO 2B: PIXEL (para as vendas aparecerem no Gerenciador)
-1. Abra o Gerenciador de Eventos (business.facebook.com/events_manager) na MESMA conta de negócios da conta de
-   anúncios escolhida.
-2. Veja se já existe um pixel/conjunto de dados. Se existir, me mostre o nome e PARE para eu dizer se é para usar.
-   Se não existir: Conectar fontes de dados > Web > nome "Revenda Pronta" > crie. Anote o ID do pixel (só números).
-3. Na Cakto, abra o produto do Pack de impressão 3D (checkout 3cwasna_1248516) > Pixels / Rastreamento / Integrações >
-   Facebook (Meta). Cole o ID do pixel e salve. Se houver campo de "Token da API de Conversões":
-   no Gerenciador de Eventos > Configurações do pixel > API de Conversões > Gerar token de acesso, copie e cole na
-   Cakto. NUNCA me mostre esse token no resumo.
-   Se houver opção de quais eventos disparar, deixe ativos: Visualização de página, Iniciar checkout e Compra
-   (Compra só quando o pagamento for APROVADO, inclusive Pix).
-4. Teste: abra o checkout https://pay.cakto.com.br/3cwasna_1248516 (sem comprar) e, no Gerenciador de Eventos, veja
-   se aparece atividade (PageView / InitiateCheckout). Pode levar alguns minutos. Me diga o resultado.
+PASSO 2B: PÁGINA DE VENDAS (Biblioteca Central 3D) COM O PREÇO NOVO
+Nesta pasta está biblioteca-central-3d-v2.zip: a página de vendas do Pack 3D (título "Biblioteca Central 3D",
+"Compre uma vez. Revenda quantas vezes quiser."), agora com R$ 29,90. Ela já tem o pixel da Meta instalado
+(ID 2102484987303548) e o botão de compra vai para o checkout 3cwasna_1248516.
+1. Na Cloudflare (dash.cloudflare.com > Workers & Pages), encontre o projeto que hoje publica a página
+   "Biblioteca Central 3D" (abra o .pages.dev de cada projeto até achar). Se não achar, me pergunte.
+2. Deployments > Create deployment > envie biblioteca-central-3d-v2.zip.
+3. Abra a página e confira: o preço mostra R$ 29,90 e o botão leva ao checkout. Anote o endereço (chame de PAGINA).
+
+PASSO 2C: PIXEL (para as vendas aparecerem no Gerenciador)
+1. No Gerenciador de Eventos (business.facebook.com/events_manager) da conta escolhida, procure o pixel
+   2102484987303548 (é o que já está na página). Me diga o nome dele e se ele aparece nessa conta.
+   Se ele NÃO aparecer nessa conta de negócios, PARE e me avise (não crie outro sem eu mandar).
+2. Na Cakto, abra o produto do Pack de impressão 3D (checkout 3cwasna_1248516) > Pixels / Rastreamento /
+   Integrações > Facebook (Meta). Coloque o MESMO ID 2102484987303548 e salve. Se houver campo de
+   "Token da API de Conversões": no Gerenciador de Eventos > Configurações do pixel > API de Conversões > Gerar
+   token de acesso, copie e cole na Cakto. NUNCA me mostre esse token.
+   Se houver opção de eventos, deixe ativos: Iniciar checkout e Compra (Compra só quando o pagamento for APROVADO,
+   inclusive Pix).
+3. Teste: abra PAGINA e depois clique no botão de compra (sem comprar). No Gerenciador de Eventos veja se aparecem
+   PageView e InitiateCheckout (pode levar alguns minutos). Me diga o resultado.
 
 PASSO 3: CAMPANHA
 - Criar > Objetivo: TRÁFEGO (Traffic).
@@ -61,7 +72,7 @@ PASSO 4: CONJUNTO DE ANÚNCIOS
 PASSO 5: ANÚNCIO
 - Identidade: me mostre as Páginas do Facebook e contas do Instagram disponíveis e PARE: eu escolho quais usar.
 - Formato: imagem ou vídeo único. Mídia: o vídeo que eu mandei (o mesmo vídeo para todos os posicionamentos).
-- Rastreamento: em "Eventos do site", selecione o pixel do passo 2B.
+- Rastreamento: em "Eventos do site", selecione o pixel 2102484987303548 (passo 2C).
 - Melhorias Advantage+ do criativo / otimizações: DESLIGUE TODAS (música, retoques, legendas automáticas,
   variações de texto, tradução etc.). O vídeo já está pronto e o áudio original tem que ser mantido.
 - Nome do anúncio: Pack 3D | Video 1
@@ -73,7 +84,7 @@ Você não precisa ter impressora: você revende o ARQUIVO, como produto seu, pe
 - Título: Pack 3D com revenda autorizada
 - Descrição: Pagamento único · entrega na hora
 - Botão: Saiba mais
-- Link: https://pay.cakto.com.br/3cwasna_1248516?utm_source=meta&utm_medium=paid&utm_campaign=pack3d&utm_content=video1
+- Link: PAGINA/?utm_source=meta&utm_medium=paid&utm_campaign=pack3d&utm_content=video1
 
 PASSO 6: PARAR E ME MOSTRAR O RESUMO (OBRIGATÓRIO)
 Me mostre:
@@ -82,7 +93,7 @@ Me mostre:
 - os posicionamentos marcados;
 - a identidade (Página e Instagram);
 - a prévia do anúncio no Reels e no Stories;
-- o link final e o pixel selecionado (com o resultado do teste do passo 2B).
+- o link final e o pixel selecionado (com o resultado do teste do passo 2C).
 Só clique em PUBLICAR quando eu escrever "pode publicar".
 
 PASSO 7: DEPOIS DE PUBLICAR
