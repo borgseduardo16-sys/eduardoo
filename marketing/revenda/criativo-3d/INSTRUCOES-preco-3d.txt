@@ -1,0 +1,29 @@
+INSTRUÇÕES · NOVO PREÇO DO PACK DE IMPRESSÃO 3D
+Fale comigo em português. Não precisa editar nada neste arquivo.
+
+ARQUIVO DESTA PASTA ("revenda-ajuste-3d", normalmente em Downloads)
+- revenda-pronta-site.zip ... a vitrine atualizada (Pack 3D agora aparece a R$ 29,90)
+
+REGRAS
+- Senha, login ou código: PARE e me peça.
+- NÃO mexa em nenhum outro produto, preço ou webhook.
+- Se não conseguir anexar o arquivo sozinho, PARE e me diga o nome dele para eu escolher.
+
+PASSO 1: PREÇO NA CAKTO
+1. Abra o produto do Pack de impressão 3D (é o do checkout 3cwasna_1248516; hoje está R$ 18,90).
+2. Mude o preço para R$ 28,90.
+   Motivo: a Cakto soma uns R$ 0,99 de taxa para o comprador, então ele vê cerca de R$ 29,89 no checkout,
+   batendo com os R$ 29,90 do anúncio e da vitrine.
+3. Confira que todos os métodos de pagamento continuam ativos e salve.
+4. Abra o checkout https://pay.cakto.com.br/3cwasna_1248516 (sem comprar) e me diga o valor que aparece para o
+   comprador.
+
+PASSO 2: ATUALIZAR A VITRINE (Cloudflare Pages)
+1. dash.cloudflare.com > Workers & Pages. Encontre o projeto da vitrine "Revenda Pronta" (o .pages.dev que tem a
+   página escura com os 6 produtos). Se tiver dúvida de qual é, me pergunte.
+2. Deployments > Create deployment > envie o arquivo revenda-pronta-site.zip.
+3. Abra o site e confira que o card do Pack de Impressão 3D mostra R$ 29,90 e que a faixa amarela do topo diz
+   "PRODUTOS A PARTIR DE R$ 19,90".
+
+PASSO 3: RESUMO
+Me diga o preço que apareceu no checkout, o endereço da vitrine e se algo não deu certo.
