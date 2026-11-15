@@ -2,7 +2,7 @@ INSTRUÇÕES · ANÚNCIO DO PACK DE IMPRESSÃO 3D NA META (Facebook + Instagram)
 Fale comigo em português. O anúncio é em português (público: Brasil). Leia tudo antes de começar.
 
 ARQUIVOS DESTA PASTA
-- biblioteca-central-3d-v2.zip ... a página de vendas do Pack 3D atualizada (R$ 29,90)
+- biblioteca-central-3d-v2.zip ... a página de vendas do Pack 3D atualizada (de R$ 49,90 por R$ 29,90)
 
 O VÍDEO
 O criativo em vídeo eu mando junto com esta pasta (é um arquivo de vídeo vertical, 9:16).
@@ -27,17 +27,30 @@ Vou colocar R$ 82 de crédito (R$ 40 por dia x 2 dias + uma sobra). PARE para eu
 
 PASSO 2B: PÁGINA DE VENDAS (Biblioteca Central 3D) COM O PREÇO NOVO
 Nesta pasta está biblioteca-central-3d-v2.zip: a página de vendas do Pack 3D (título "Biblioteca Central 3D",
-"Compre uma vez. Revenda quantas vezes quiser."), agora com R$ 29,90. Ela já tem o pixel da Meta instalado
-(ID 2102484987303548) e o botão de compra vai para o checkout 3cwasna_1248516.
-1. Na Cloudflare (dash.cloudflare.com > Workers & Pages), encontre o projeto que hoje publica a página
-   "Biblioteca Central 3D" (abra o .pages.dev de cada projeto até achar). Se não achar, me pergunte.
-2. Deployments > Create deployment > envie biblioteca-central-3d-v2.zip.
-3. Abra a página e confira: o preço mostra R$ 29,90 e o botão leva ao checkout. Anote o endereço (chame de PAGINA).
+"Compre uma vez. Revenda quantas vezes quiser."), agora "de R$ 49,90 por R$ 29,90". Ela já tem o pixel da Meta
+instalado (ID 2102484987303548) e o botão de compra vai para o checkout 3cwasna_1248516.
+1. Na Cloudflare (dash.cloudflare.com > Workers & Pages), procure o projeto que hoje publica a página
+   "Biblioteca Central 3D" (abra o .pages.dev de cada projeto até achar).
+2. SE ACHAR: abra o projeto > Deployments > Create deployment > envie biblioteca-central-3d-v2.zip. O endereço
+   continua o mesmo.
+   SE NÃO ACHAR (ou não der para atualizar): Create > Pages > Upload assets > nome "biblioteca-central-3d"
+   (se estiver em uso, "biblioteca-central-3d-v2") > envie biblioteca-central-3d-v2.zip > Deploy.
+   Nesse caso, use o endereço NOVO em tudo daqui pra frente.
+3. Abra a página e confira: aparece "de R$ 49,90" riscado e "R$ 29,90", e o botão leva ao checkout.
+   Anote o endereço (chame de PAGINA) e me diga qual ficou.
+
+PASSO 2B-2: PREÇO DO PRODUTO NA CAKTO
+1. Abra o produto do Pack de impressão 3D (checkout 3cwasna_1248516). Se o preço ainda não for R$ 28,90, mude para
+   R$ 28,90 (com a taxa de uns R$ 0,99 o comprador vê cerca de R$ 29,89, batendo com os R$ 29,90 da página).
+2. Se houver campo de "página de vendas" / "URL do produto", coloque PAGINA.
+3. Todos os métodos de pagamento ativos. Salve.
+4. Abra o checkout (sem comprar) e me diga o valor que aparece para o comprador.
 
 PASSO 2C: PIXEL (para as vendas aparecerem no Gerenciador)
 1. No Gerenciador de Eventos (business.facebook.com/events_manager) da conta escolhida, procure o pixel
    2102484987303548 (é o que já está na página). Me diga o nome dele e se ele aparece nessa conta.
    Se ele NÃO aparecer nessa conta de negócios, PARE e me avise (não crie outro sem eu mandar).
+   Se o pixel e a Cakto (item 2) JÁ estiverem configurados certinho, não mexa: só confirme e faça o teste do item 3.
 2. Na Cakto, abra o produto do Pack de impressão 3D (checkout 3cwasna_1248516) > Pixels / Rastreamento /
    Integrações > Facebook (Meta). Coloque o MESMO ID 2102484987303548 e salve. Se houver campo de
    "Token da API de Conversões": no Gerenciador de Eventos > Configurações do pixel > API de Conversões > Gerar
