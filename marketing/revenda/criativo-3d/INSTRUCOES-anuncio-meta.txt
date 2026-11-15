@@ -15,17 +15,9 @@ REGRAS
 - NÃO mexa em campanhas que já existem (pause nada, apague nada).
 - Se a tela for diferente do descrito, escolha a opção equivalente. Em dúvida real, pergunte.
 
-PASSO 1: CONTA CERTA
-1. Abra adsmanager.facebook.com.
-2. A conta aberta pode estar ERRADA. Me mostre a lista de contas de anúncios disponíveis (canto superior esquerdo)
-   e PARE: eu digo qual usar.
-3. Me diga a moeda da conta (BRL ou USD).
+ORDEM: faça primeiro os PASSOS A e B (página e Cakto). Depois siga do PASSO 1 em diante (anúncio).
 
-PASSO 2: CRÉDITO
-Abra Faturamento / Configurações de pagamento dessa conta e me diga se tem forma de pagamento ou saldo.
-Vou colocar R$ 82 de crédito (R$ 40 por dia x 2 dias + uma sobra). PARE para eu adicionar o crédito. Só continue quando eu disser "pode seguir".
-
-PASSO 2B: PÁGINA DE VENDAS (Biblioteca Central 3D) COM O PREÇO NOVO
+PASSO A: PUBLICAR A PÁGINA DE VENDAS NOVA NA CLOUDFLARE (Biblioteca Central 3D) COM O PREÇO NOVO
 Nesta pasta está biblioteca-central-3d-v2.zip: a página de vendas do Pack 3D (título "Biblioteca Central 3D",
 "Compre uma vez. Revenda quantas vezes quiser."), agora "de R$ 49,90 por R$ 29,90". Ela já tem o pixel da Meta
 instalado (ID 2102484987303548) e o botão de compra vai para o checkout 3cwasna_1248516.
@@ -39,12 +31,21 @@ instalado (ID 2102484987303548) e o botão de compra vai para o checkout 3cwasna
 3. Abra a página e confira: aparece "de R$ 49,90" riscado e "R$ 29,90", e o botão leva ao checkout.
    Anote o endereço (chame de PAGINA) e me diga qual ficou.
 
-PASSO 2B-2: PREÇO DO PRODUTO NA CAKTO
-1. Abra o produto do Pack de impressão 3D (checkout 3cwasna_1248516). Se o preço ainda não for R$ 28,90, mude para
-   R$ 28,90 (com a taxa de uns R$ 0,99 o comprador vê cerca de R$ 29,89, batendo com os R$ 29,90 da página).
+PASSO B: ATUALIZAR O PRODUTO NA CAKTO (preço R$ 28,90 + página nova)
+1. Abra o produto do Pack de impressão 3D (checkout 3cwasna_1248516). Hoje ele está R$ 18,90: mude para R$ 28,90 (com a taxa de uns R$ 0,99 o comprador vê cerca de R$ 29,89, batendo com os R$ 29,90 da página).
 2. Se houver campo de "página de vendas" / "URL do produto", coloque PAGINA.
 3. Todos os métodos de pagamento ativos. Salve.
 4. Abra o checkout (sem comprar) e me diga o valor que aparece para o comprador.
+
+PASSO 1: CONTA CERTA
+1. Abra adsmanager.facebook.com.
+2. A conta aberta pode estar ERRADA. Me mostre a lista de contas de anúncios disponíveis (canto superior esquerdo)
+   e PARE: eu digo qual usar.
+3. Me diga a moeda da conta (BRL ou USD).
+
+PASSO 2: CRÉDITO
+Abra Faturamento / Configurações de pagamento dessa conta e me diga se tem forma de pagamento ou saldo.
+Vou colocar R$ 82 de crédito (R$ 40 por dia x 2 dias + uma sobra). PARE para eu adicionar o crédito. Só continue quando eu disser "pode seguir".
 
 PASSO 2C: PIXEL (para as vendas aparecerem no Gerenciador)
 1. No Gerenciador de Eventos (business.facebook.com/events_manager) da conta escolhida, procure o pixel
