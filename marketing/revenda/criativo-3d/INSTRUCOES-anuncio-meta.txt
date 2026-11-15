@@ -20,7 +20,7 @@ PASSO 1: CONTA CERTA
 
 PASSO 2: CRÉDITO
 Abra Faturamento / Configurações de pagamento dessa conta e me diga se tem forma de pagamento ou saldo.
-PARE para eu adicionar o crédito. Só continue quando eu disser "pode seguir".
+Vou colocar R$ 82 de crédito (R$ 40 por dia x 2 dias + uma sobra). PARE para eu adicionar o crédito. Só continue quando eu disser "pode seguir".
 
 PASSO 3: CAMPANHA
 - Criar > Objetivo: TRÁFEGO (Traffic).
@@ -31,8 +31,9 @@ PASSO 4: CONJUNTO DE ANÚNCIOS
 - Nome: Pack 3D | BR | 18-45
 - Local da conversão: Site. Meta: Maximizar visualizações da página de destino
   (se não tiver, "Maximizar cliques no link" e me avise).
-- Orçamento DIÁRIO: R$ 45,00 (se a conta for em USD, me pergunte o valor).
-- Programação: começa AGORA (assim que aprovado). Data de término: daqui a 2 dias.
+- Orçamento DIÁRIO: R$ 40,00 (se a conta for em USD, me pergunte o valor).
+- Programação: começa AGORA (assim que aprovado). Data de término: daqui a 2 dias, para gastar no máximo uns R$ 80
+  (o crédito é de R$ 82). Se a Meta mostrar uma estimativa de gasto total acima de R$ 82, me avise antes de publicar.
 - Público:
   * Local: Brasil. Idade: 18 a 45. Gênero: todos. Idioma: Português.
   * Direcionamento detalhado (adicione os que existirem): Impressão 3D, Impressora 3D, Modelagem 3D, Maker,
@@ -61,7 +62,7 @@ Você não precisa ter impressora: você revende o ARQUIVO, como produto seu, pe
 
 PASSO 6: PARAR E ME MOSTRAR O RESUMO (OBRIGATÓRIO)
 Me mostre:
-- a conta de anúncios, o objetivo, o orçamento diário, o início e o fim;
+- a conta de anúncios, o objetivo, o orçamento diário (R$ 40), o início, o fim e o gasto máximo estimado;
 - o público, incluindo a exclusão de seguidores;
 - os posicionamentos marcados;
 - a identidade (Página e Instagram);
