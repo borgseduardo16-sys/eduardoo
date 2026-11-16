@@ -9,7 +9,9 @@ export async function buildTimelineAudio(media, tl) {
   const sink = new AudioBufferSink(media.audio);
   const sr = media.audio.sampleRate, ch = Math.min(2, media.audio.numberOfChannels || 1);
   const lens = tl.segments.map((g) => Math.max(1, Math.round(g.dur * sr))), total = lens.reduce((a, b) => a + b, 0);
-  const data = Array.from({ length: ch }, () => new Float32Array(total));
+  // escreve direto no AudioBuffer final (sem cópia extra: importante em vídeos de 20 min)
+  const out = new AudioBuffer({ length: total, numberOfChannels: ch, sampleRate: sr });
+  const data = Array.from({ length: ch }, (_, c) => out.getChannelData(c));
   let off = 0;
   for (let k = 0; k < tl.segments.length; k++) {
     const g = tl.segments[k], n = lens[k];
@@ -24,8 +26,6 @@ export async function buildTimelineAudio(media, tl) {
     for (let c = 0; c < ch; c++) for (let i = 0; i < f; i++) { const a = i / f; data[c][off + i] *= a; data[c][off + n - 1 - i] *= a; }
     off += n;
   }
-  const out = new AudioBuffer({ length: total, numberOfChannels: ch, sampleRate: sr });
-  for (let c = 0; c < ch; c++) out.copyToChannel(data[c], c);
   return out;
 }
 

@@ -45,7 +45,8 @@ O QUE VOCÊ PRECISA SABER
 - Vídeos de referência: o app aprende o RITMO (cortes por minuto e tamanho das
   pausas). Ele não copia efeitos, cores nem conteúdo. Os números ficam guardados
   só no aparelho da pessoa.
-- Modo "Editar o vídeo todo": limitado a 10 minutos nesta versão.
+- Modo "Editar o vídeo todo": até 20 minutos. Vídeos longos levam mais tempo para exportar
+  (mais ou menos o tempo do próprio vídeo) e pedem um aparelho com boa memória.
 - 720p é o padrão. 1080p e 2K aparecem com o selo "Pro" e estão liberados nesta
   versão de base. Quando o sistema de créditos entrar, é só mudar PRO_LOCKED em
   src/ui/main.js e ligar ao login/pagamento.

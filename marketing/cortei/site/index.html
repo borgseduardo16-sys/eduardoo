@@ -24,7 +24,7 @@
   </div>
   <div class="modes" role="radiogroup" aria-label="O que você quer fazer">
     <button class="mode on" data-mode="clip" role="radio" aria-checked="true"><b>Criar clipe</b><small>Acha os melhores momentos de um vídeo longo</small></button>
-    <button class="mode" data-mode="full" role="radio" aria-checked="false"><b>Editar o vídeo todo</b><small>Corta as pausas e edita o vídeo inteiro (até 10 min)</small></button>
+    <button class="mode" data-mode="full" role="radio" aria-checked="false"><b>Editar o vídeo todo</b><small>Corta as pausas e edita o vídeo inteiro (até 20 min)</small></button>
   </div>
   <label class="drop" id="drop" for="file">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -35,8 +35,8 @@
   <p class="msg err" id="homeErr" hidden></p>
   <p class="privacy">🔒 Seu vídeo não sai do seu aparelho: tudo é processado aqui mesmo, no navegador.</p>
 
-  <details class="card ref" id="refBox">
-    <summary><b>Ensinar o meu estilo de edição</b> <span class="pill" id="refPill" hidden></span><small>Opcional: envie vídeos de referência e o Cortei edita no mesmo ritmo</small></summary>
+  <details class="card ref" id="refBox" open>
+    <summary><b>Treinar com vídeos de referência</b> <span class="pill" id="refPill" hidden></span><small>Opcional: envie vídeos de referência e o Cortei edita no mesmo ritmo</small></summary>
     <p class="muted">Envie de 1 a 5 vídeos editados do jeito que você gosta. O Cortei mede o <b>ritmo</b> deles (quantos cortes por minuto e o tamanho das pausas) e usa esse ritmo nos seus vídeos. Ele não copia o conteúdo nem os efeitos.</p>
     <div class="row">
       <label class="btn ghost" for="refFiles">Escolher vídeos de referência</label>
@@ -81,6 +81,12 @@
     </div>
 
     <div class="panel">
+      <div class="card"><h3>Estilo de referência</h3>
+        <p class="muted small" id="refInfo2"></p>
+        <div class="row"><label class="btn ghost sm" for="refFiles2">Enviar vídeo de referência</label><input type="file" id="refFiles2" accept="video/*,.mkv,.mov,.mp4,.webm" multiple hidden><button class="btn ghost sm" id="refClear2" hidden>Voltar ao ritmo padrão</button></div>
+        <div class="bar" id="refBar2" hidden><i></i></div>
+      </div>
+
       <div class="card" id="momCard"><h3>Momentos encontrados</h3><div class="moments" id="moments"></div></div>
 
       <div class="card"><h3>Corte</h3>

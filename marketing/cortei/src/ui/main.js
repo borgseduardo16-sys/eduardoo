@@ -14,7 +14,7 @@ const isLocal = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const params = new URLSearchParams(location.search);
 // 1080p e 2K vão gastar créditos quando o sistema de créditos entrar; nesta versão de base ficam liberados
 const PRO_LOCKED = false;
-const FULL_MAX = 600; // modo "vídeo todo": até 10 minutos
+const FULL_MAX = 1200; // modo "vídeo todo": até 20 minutos
 
 const S = {
   mode: 'clip', media: null, A: null, analyzing: null, clipLen: 40, aspect: '9:16', framing: 'blur',
@@ -74,7 +74,7 @@ async function loadFile(file) {
   $('fileName').textContent = file.name;
   $('fileMeta').textContent = `${fmtTime(m.span)} · ${m.width}×${m.height} · ${(file.size / 1048576).toFixed(file.size > 1e9 ? 0 : 1)} MB${m.audio ? '' : ' · sem áudio'}`;
   let note = m.audioNote || '';
-  if (S.mode === 'full' && m.span > FULL_MAX) { S.mode = 'clip'; note = `Esse vídeo tem mais de 10 minutos, então o modo "editar o vídeo todo" não está disponível para ele nesta versão. Vou criar clipes dos melhores momentos. ${note}`; }
+  if (S.mode === 'full' && m.span > FULL_MAX) { S.mode = 'clip'; note = `Esse vídeo tem mais de 20 minutos, então o modo "editar o vídeo todo" não está disponível para ele nesta versão. Vou criar clipes dos melhores momentos. ${note}`; }
   say($('setupNote'), note);
   $('durStep').hidden = S.mode === 'full';
   $('btnFind').textContent = S.mode === 'full' ? 'Editar o vídeo' : 'Encontrar os melhores momentos';
@@ -348,25 +348,28 @@ $('btnSave').onclick = async () => {
 // ---------------------------------------------------------------- vídeos de referência
 function renderRefs() {
   const st = S.style;
-  $('refPill').hidden = !st; $('refClear').hidden = !st;
+  $('refPill').hidden = !st; $('refClear').hidden = !st; $('refClear2').hidden = !st;
   if (st) {
     $('refPill').textContent = 'Ritmo aprendido';
     $('refInfo').textContent = `Aprendido com ${st.refs} ${st.refs === 1 ? 'vídeo' : 'vídeos'}: ${st.avgShot ? `um corte a cada ${st.avgShot.toFixed(1).replace('.', ',')} s` : 'sem cortes de imagem detectados'}${st.maxPause != null ? ` · pausas de até ${st.maxPause.toFixed(1).replace('.', ',')} s` : ''}. Seus próximos vídeos serão editados nesse ritmo.`;
   } else $('refInfo').textContent = 'Nenhuma referência ainda: o Cortei usa o ritmo padrão.';
+  $('refInfo2').textContent = $('refInfo').textContent;
+  if (S.tl && !$('editor').hidden) recompute(false); // reedita na hora com o novo ritmo
 }
-$('refFiles').onchange = async (e) => {
+const onRefs = async (e) => {
   const files = [...e.target.files].slice(0, 5); e.target.value = ''; if (!files.length) return;
-  $('refBar').hidden = false; const out = [];
+  const bars = [$('refBar'), $('refBar2')]; bars.forEach((x) => (x.hidden = false)); const out = [];
   for (let i = 0; i < files.length; i++) {
-    $('refInfo').textContent = `Analisando a referência ${i + 1} de ${files.length}...`;
-    try { out.push(await analyzeReference(files[i], (p) => setBar($('refBar'), (i + p) / files.length))); } catch { /* arquivo que não abre é ignorado */ }
+    $('refInfo').textContent = $('refInfo2').textContent = `Analisando a referência ${i + 1} de ${files.length}...`;
+    try { out.push(await analyzeReference(files[i], (p) => bars.forEach((x) => setBar(x, (i + p) / files.length)))); } catch { /* arquivo que não abre é ignorado */ }
   }
-  $('refBar').hidden = true;
-  if (!out.length) { $('refInfo').textContent = 'Não consegui ler esses vídeos. Tente arquivos MP4.'; return; }
+  bars.forEach((x) => (x.hidden = true));
+  if (!out.length) { $('refInfo').textContent = $('refInfo2').textContent = 'Não consegui ler esses vídeos. Tente arquivos MP4.'; return; }
   S.refs = out.map(({ seconds, cuts, cutsPerMin, maxPause }) => ({ seconds, cuts, cutsPerMin, maxPause })); store.set('cortei_refs', S.refs);
   S.style = styleFromReferences(S.refs); renderRefs();
 };
-$('refClear').onclick = () => { S.refs = []; S.style = null; store.set('cortei_refs', []); renderRefs(); };
+$('refFiles').onchange = $('refFiles2').onchange = onRefs;
+$('refClear').onclick = $('refClear2').onclick = () => { S.refs = []; S.style = null; store.set('cortei_refs', []); renderRefs(); };
 renderRefs();
 
 window.__cortei = S; // usado nos testes automáticos
