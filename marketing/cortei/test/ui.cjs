@@ -1,0 +1,56 @@
+// Teste da interface inteira: enviar vídeo, analisar, editor, prévia, exportar. Uso: node ui.cjs <playwright> <video> <pasta-saida> [clip|full] [mobile]
+const { chromium, devices } = require(process.argv[2] + '/playwright-core');
+const fs = require('fs');
+const [, , , VIDEO, OUT, MODE = 'clip', MOBILE] = process.argv;
+(async () => {
+  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
+  const ctx = await b.newContext(MOBILE ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true } : { viewport: { width: 1280, height: 900 } });
+  const p = await ctx.newPage();
+  const errs = [];
+  p.on('console', (m) => { if (m.type() === 'error') { errs.push(m.text()); console.log('[console]', m.text().slice(0, 300)); } });
+  p.on('pageerror', (e) => { errs.push(String(e)); console.log('[pageerror]', String(e).slice(0, 400)); });
+  const tag = MODE + (MOBILE ? '-m' : '');
+  const shot = (n) => p.screenshot({ path: `${OUT}/ui-${tag}-${n}.png`, fullPage: false });
+  await p.goto('http://127.0.0.1:8930/');
+  await p.waitForTimeout(400); await shot('1-home');
+  const over = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  console.log('rolagem horizontal (home):', over);
+  if (MODE === 'full') await p.click('[data-mode="full"]');
+  await p.setInputFiles('#file', VIDEO);
+  await p.waitForSelector('#setup:not([hidden])'); console.log('setup:', await p.textContent('#fileMeta'));
+  if (MODE === 'clip') await p.click('#durChips [data-v="15"]');
+  await shot('2-setup');
+  await p.click('#btnFind');
+  await p.waitForSelector('#editor:not([hidden])', { timeout: 120000 });
+  await p.waitForTimeout(1500);
+  console.log('cutInfo:', await p.textContent('#cutInfo'));
+  console.log('sfxInfo:', await p.textContent('#sfxInfo'));
+  console.log('momentos:', await p.$$eval('.moment', (els) => els.map((e) => e.textContent + (e.querySelector('img').src ? ' [img]' : ' [sem img]'))));
+  await p.fill('#title', 'Ele não esperava por essa');
+  // legendas falsas para conferir o desenho (o reconhecimento de fala é testado à parte)
+  await p.evaluate(() => { const S = window.__cortei; S.sfx = 'full'; });
+  await p.click('#sfxChips [data-v="full"]');
+  await p.waitForTimeout(600); await shot('3-editor');
+  const px = await p.evaluate(() => { const c = document.getElementById('pv'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let s = 0; for (let i = 0; i < d.length; i += 400) s += d[i] + d[i + 1] + d[i + 2]; return { w: c.width, h: c.height, soma: s }; });
+  console.log('prévia:', JSON.stringify(px));
+  await p.click('#btnPlay'); await p.waitForTimeout(2500);
+  const t1 = await p.evaluate(() => Number(document.getElementById('scrub').value));
+  console.log('prévia tocando, posição após 2,5 s:', t1, '· relógio:', await p.textContent('#clock'));
+  await p.click('#btnPlay');
+  if (MODE === 'clip') { await p.click('.moment[data-i="1"]').catch(() => console.log('sem 2º momento')); await p.waitForTimeout(600); console.log('2º momento:', await p.textContent('#cutInfo')); await p.click('[data-adj="1"]'); await p.waitForTimeout(300); console.log('início +1 s:', await p.textContent('#cutInfo')); await p.click('.moment[data-i="0"]'); }
+  await p.click('#aspChips2 [data-v="1:1"]'); await p.waitForTimeout(500); await shot('4-quadrado');
+  await p.click('#aspChips2 [data-v="9:16"]');
+  await p.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); await p.waitForTimeout(300); await shot('5-editor-fim');
+  console.log('rolagem horizontal (editor):', await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth));
+  await p.click('#btnExport');
+  await p.waitForSelector('#exporting:not([hidden])'); await p.waitForTimeout(1200); await shot('6-exportando');
+  await p.waitForSelector('#done:not([hidden])', { timeout: 600000 });
+  console.log('pronto:', await p.textContent('#doneMeta'), '·', await p.textContent('#doneNote'));
+  await p.waitForTimeout(800); await shot('7-pronto');
+  const b64 = await p.evaluate(async () => { const r = window.__cortei.result; const buf = new Uint8Array(await r.blob.arrayBuffer()); let s = ''; for (let i = 0; i < buf.length; i += 32768) s += String.fromCharCode.apply(null, buf.subarray(i, i + 32768)); return { ext: r.ext, data: btoa(s) }; });
+  fs.writeFileSync(`${OUT}/ui-${tag}.${b64.ext}`, Buffer.from(b64.data, 'base64'));
+  await p.click('#btnBack'); await p.waitForSelector('#editor:not([hidden])'); console.log('voltar ao editor: ok');
+  await p.click('#btnNew'); await p.waitForSelector('#home:not([hidden])'); console.log('novo vídeo: ok');
+  console.log(errs.length ? `ERROS: ${errs.length}` : 'sem erros no console');
+  await b.close();
+})().catch((e) => { console.error('FALHOU', e); process.exit(1); });

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cortei · Clipes prontos para postar</title>
+<meta name="description" content="Envie um vídeo e receba o clipe editado: melhores momentos, cortes, zoom, legenda animada e efeitos. Tudo no seu aparelho.">
+<link rel="stylesheet" href="/assets/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Cpath d='M10 9l12 14M22 9L10 23' stroke='white' stroke-width='3.2' stroke-linecap='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<header class="top"><div class="w">
+  <a class="logo" href="/"><i><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M10 9l12 14M22 9L10 23" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" fill="none"/></svg></i>Cortei</a>
+  <button class="btn ghost sm" id="btnNew" hidden>Novo vídeo</button>
+</div></header>
+
+<main>
+<!-- 1. início -->
+<section id="home" class="w screen">
+  <div class="hero">
+    <span class="tag">Edição automática, direto no seu aparelho</span>
+    <h1>Envie o vídeo. <span>Receba o clipe pronto.</span></h1>
+    <p class="lead">O Cortei acha os melhores momentos, corta as partes paradas, coloca zoom, legenda animada e efeitos, e entrega o vídeo pronto para postar.</p>
+  </div>
+  <div class="modes" role="radiogroup" aria-label="O que você quer fazer">
+    <button class="mode on" data-mode="clip" role="radio" aria-checked="true"><b>Criar clipe</b><small>Acha os melhores momentos de um vídeo longo</small></button>
+    <button class="mode" data-mode="full" role="radio" aria-checked="false"><b>Editar o vídeo todo</b><small>Corta as pausas e edita o vídeo inteiro (até 10 min)</small></button>
+  </div>
+  <label class="drop" id="drop" for="file">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <b>Toque para escolher o vídeo</b>
+    <small>ou arraste o arquivo para cá · MP4, MOV, WebM ou MKV · sem limite de tamanho</small>
+    <input type="file" id="file" accept="video/*,.mkv,.mov,.mp4,.webm" hidden>
+  </label>
+  <p class="msg err" id="homeErr" hidden></p>
+  <p class="privacy">🔒 Seu vídeo não sai do seu aparelho: tudo é processado aqui mesmo, no navegador.</p>
+
+  <details class="card ref" id="refBox">
+    <summary><b>Ensinar o meu estilo de edição</b> <span class="pill" id="refPill" hidden></span><small>Opcional: envie vídeos de referência e o Cortei edita no mesmo ritmo</small></summary>
+    <p class="muted">Envie de 1 a 5 vídeos editados do jeito que você gosta. O Cortei mede o <b>ritmo</b> deles (quantos cortes por minuto e o tamanho das pausas) e usa esse ritmo nos seus vídeos. Ele não copia o conteúdo nem os efeitos.</p>
+    <div class="row">
+      <label class="btn ghost" for="refFiles">Escolher vídeos de referência</label>
+      <input type="file" id="refFiles" accept="video/*,.mkv,.mov,.mp4,.webm" multiple hidden>
+      <button class="btn ghost" id="refClear" hidden>Voltar ao ritmo padrão</button>
+    </div>
+    <div class="bar" id="refBar" hidden><i></i></div>
+    <p class="muted" id="refInfo"></p>
+  </details>
+
+  <div class="grid3">
+    <div class="card"><h3>Melhores momentos</h3><p>Analisa o som e a imagem do vídeo inteiro e separa os trechos mais fortes.</p></div>
+    <div class="card"><h3>Edição com cara de gente</h3><p>Cortes secos nas pausas, zoom nos momentos certos e efeitos discretos.</p></div>
+    <div class="card"><h3>Legenda animada</h3><p>Transcreve a fala no seu aparelho e você corrige qualquer palavra antes de exportar.</p></div>
+  </div>
+</section>
+
+<!-- 2. preparo -->
+<section id="setup" class="w screen narrow" hidden>
+  <div class="card filecard"><div><b id="fileName"></b><small id="fileMeta"></small></div></div>
+  <div class="step" id="durStep"><h3>Quanto tempo deve ter o clipe?</h3>
+    <div class="chips" id="durChips"></div>
+    <div class="row custom"><label for="durCustom">Outro tempo (segundos)</label><input id="durCustom" type="number" inputmode="numeric" min="5" max="180" placeholder="ex.: 45"></div>
+  </div>
+  <div class="step"><h3>Formato</h3><div class="chips" id="aspChips"></div></div>
+  <p class="msg warn" id="setupNote" hidden></p>
+  <button class="btn big full" id="btnFind">Encontrar os melhores momentos</button>
+  <div class="progress" id="anaProg" hidden><div class="bar"><i></i></div><small id="anaText">Analisando o vídeo...</small></div>
+</section>
+
+<!-- 3. editor -->
+<section id="editor" class="w screen" hidden>
+  <div class="ed">
+    <div class="stage">
+      <div class="phone" id="phone"><canvas id="pv" aria-label="Prévia do clipe"></canvas></div>
+      <div class="transport">
+        <button class="icon-btn" id="btnPlay" aria-label="Reproduzir"><svg viewBox="0 0 24 24"><path id="playIcon" d="M8 5v14l11-7z" fill="currentColor"/></svg></button>
+        <input type="range" id="scrub" min="0" max="1" step="0.01" value="0" aria-label="Posição no clipe">
+        <span id="clock">0:00 / 0:00</span>
+      </div>
+      <p class="muted small" id="pvNote">A prévia mostra a edição. Os efeitos sonoros entram no vídeo exportado.</p>
+    </div>
+
+    <div class="panel">
+      <div class="card" id="momCard"><h3>Momentos encontrados</h3><div class="moments" id="moments"></div></div>
+
+      <div class="card"><h3>Corte</h3>
+        <div id="durBox"><label class="lbl">Duração</label><div class="chips" id="durChips2"></div></div>
+        <label class="lbl">Ajustar o início</label>
+        <div class="chips"><button class="chip" data-adj="-1">−1 s</button><button class="chip" data-adj="-0.2">−0,2 s</button><button class="chip" data-adj="0.2">+0,2 s</button><button class="chip" data-adj="1">+1 s</button></div>
+        <label class="switch"><input type="checkbox" id="optCut" checked><span>Cortar as partes paradas (silêncio)</span></label>
+        <p class="muted small" id="cutInfo"></p>
+      </div>
+
+      <div class="card"><h3>Formato</h3>
+        <div class="chips" id="aspChips2"></div>
+        <label class="lbl">Enquadramento</label>
+        <div class="chips" id="frmChips"></div>
+      </div>
+
+      <div class="card"><h3>Legendas</h3>
+        <label class="switch"><input type="checkbox" id="capOn" checked><span>Mostrar legendas</span></label>
+        <div class="row2">
+          <div class="field"><label for="capLang">Idioma da fala</label><select id="capLang"><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="fr">Francês</option><option value="it">Italiano</option><option value="de">Alemão</option></select></div>
+          <div class="field"><label for="capModel">Precisão</label><select id="capModel"><option value="tiny">Rápida (baixa uns 40 MB)</option><option value="base" selected>Boa (baixa uns 80–200 MB)</option><option value="small">Máxima (baixa uns 250–500 MB)</option></select></div>
+        </div>
+        <button class="btn full" id="btnCap">Gerar legendas automáticas</button>
+        <div class="progress" id="capProg" hidden><div class="bar"><i></i></div><small id="capText"></small></div>
+        <p class="msg err" id="capErr" hidden></p>
+        <div id="capEdit" hidden>
+          <label class="lbl">Corrija as palavras se precisar (apague para remover)</label>
+          <div class="words" id="words"></div>
+        </div>
+        <label class="lbl">Estilo</label><div class="chips" id="styChips"></div>
+        <label class="lbl">Posição</label><div class="chips" id="posChips"></div>
+      </div>
+
+      <div class="card"><h3>Título (gancho)</h3>
+        <div class="field"><label for="title">Texto que aparece no topo</label><input id="title" maxlength="90" placeholder="ex.: Ele não esperava por essa"></div>
+        <div class="chips" id="ttlChips"></div>
+      </div>
+
+      <div class="card"><h3>Efeitos</h3>
+        <label class="switch"><input type="checkbox" id="optZoom" checked><span>Zoom dinâmico nos momentos fortes</span></label>
+        <label class="switch"><input type="checkbox" id="optBar" checked><span>Barra de progresso</span></label>
+        <label class="lbl">Efeitos sonoros</label><div class="chips" id="sfxChips"></div>
+        <p class="muted small" id="sfxInfo"></p>
+      </div>
+
+      <div class="card"><h3>Música de fundo</h3>
+        <div class="row"><label class="btn ghost" for="music">Escolher música</label><input type="file" id="music" accept="audio/*,.mp3,.wav,.m4a,.ogg" hidden><button class="btn ghost" id="musicDel" hidden>Remover</button></div>
+        <p class="muted small" id="musicInfo">Use uma música que você tem direito de usar. Músicas com direitos autorais podem derrubar o vídeo nas redes.</p>
+        <div class="field" id="musicVolBox" hidden><label for="musicVol">Volume da música</label><input type="range" id="musicVol" min="0" max="100" value="25"></div>
+      </div>
+
+      <div class="card"><h3>Qualidade</h3><div class="chips" id="qChips"></div><p class="muted small" id="qInfo"></p></div>
+
+      <div class="sticky"><button class="btn big full" id="btnExport">Exportar clipe</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- 4. pronto -->
+<section id="done" class="w screen narrow" hidden>
+  <h2>Seu clipe está pronto</h2>
+  <p class="muted" id="doneMeta"></p>
+  <video id="result" controls playsinline></video>
+  <p class="msg warn" id="doneNote" hidden></p>
+  <div class="row"><button class="btn big" id="btnSave">Salvar na galeria</button><a class="btn big ghost" id="btnDown">Baixar arquivo</a></div>
+  <div class="row"><button class="btn ghost" id="btnBack">Voltar e ajustar</button><button class="btn ghost" id="btnNew2">Novo vídeo</button></div>
+</section>
+</main>
+
+<div class="overlay" id="exporting" hidden><div class="card modal">
+  <h3>Exportando o clipe</h3>
+  <div class="bar"><i></i></div>
+  <p id="expText" class="muted">Preparando...</p>
+  <p class="muted small">Deixe esta aba aberta até terminar.</p>
+  <button class="btn ghost" id="btnCancel">Cancelar</button>
+</div></div>
+
+<video id="src" playsinline preload="auto" hidden></video>
+<audio id="musicEl" hidden></audio>
+<script type="module" src="/assets/app.js"></script>
+</body>
+</html>

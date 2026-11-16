@@ -1,0 +1,61 @@
+CORTEI · COMO COLOCAR NO AR
+============================
+
+O Cortei é um site estático: não tem servidor, banco de dados nem chave de API.
+Todo o processamento do vídeo acontece no navegador de quem usa. Por isso
+hospedar é de graça e não existe custo por vídeo editado.
+
+O QUE SOBE
+----------
+Só a pasta "site" (ou o arquivo cortei-site.zip, que é essa mesma pasta compactada).
+
+PASSO A PASSO (Cloudflare Pages, plano gratuito)
+------------------------------------------------
+1. Entre em dash.cloudflare.com (a senha é você quem digita).
+2. Menu "Workers & Pages" > "Create" > aba "Pages" > "Upload assets".
+3. Nome do projeto: cortei (o endereço fica cortei.pages.dev; se já existir,
+   use outro nome, por exemplo cortei-app).
+4. Envie o arquivo cortei-site.zip (ou arraste a pasta "site" inteira).
+5. Clique em "Deploy site" e abra o endereço que aparecer.
+
+Não precisa configurar variável, banco nem domínio. O arquivo "_headers" que
+está dentro da pasta já ajusta o que o site precisa.
+
+PARA ATUALIZAR DEPOIS
+---------------------
+No projeto, clique em "Create new deployment" e envie o zip novo.
+
+COMO TESTAR DEPOIS DE PUBLICAR
+------------------------------
+1. Abra o endereço no Google Chrome (computador ou Android) ou no Safari do iPhone.
+2. Envie um vídeo com fala, escolha 30 s e toque em "Encontrar os melhores momentos".
+3. No editor, toque em "Gerar legendas automáticas". Na primeira vez ele baixa o
+   reconhecimento de fala (de 40 a 200 MB, depende da precisão); depois fica
+   guardado no aparelho.
+4. Toque em "Exportar clipe" e depois em "Salvar na galeria" (celular) ou
+   "Baixar arquivo" (computador).
+
+O QUE VOCÊ PRECISA SABER
+------------------------
+- Formato de saída: MP4 (H.264 + AAC) quando o navegador consegue gerar; se não
+  conseguir, sai em WebM e o app avisa na tela.
+- Legendas: o reconhecimento de fala é baixado de huggingface.co e cdn.jsdelivr.net
+  na primeira vez. Sem internet nessa hora, as legendas não são geradas (o resto
+  funciona).
+- Vídeos de referência: o app aprende o RITMO (cortes por minuto e tamanho das
+  pausas). Ele não copia efeitos, cores nem conteúdo. Os números ficam guardados
+  só no aparelho da pessoa.
+- Modo "Editar o vídeo todo": limitado a 10 minutos nesta versão.
+- 720p é o padrão. 1080p e 2K aparecem com o selo "Pro" e estão liberados nesta
+  versão de base. Quando o sistema de créditos entrar, é só mudar PRO_LOCKED em
+  src/ui/main.js e ligar ao login/pagamento.
+- Efeitos sonoros: são criados pelo próprio app na hora (não usa arquivos de
+  terceiros), então não têm problema de direito autoral.
+- Música: a pessoa envia a música dela. O app avisa que precisa ter direito de uso.
+
+PARA QUEM FOR MEXER NO CÓDIGO
+-----------------------------
+  npm install
+  node build.mjs            (gera site/assets a partir de src/)
+  node test/serve.mjs 8930  (servidor local em http://127.0.0.1:8930)
+  node test/ui.cjs <pasta-do-playwright> <video> <pasta-saida> [clip|full] [mobile]

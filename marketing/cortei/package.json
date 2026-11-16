@@ -1,0 +1,18 @@
+{
+  "name": "cortei",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@fontsource/montserrat": "^5.3.0",
+    "@fontsource/plus-jakarta-sans": "^5.3.0",
+    "@huggingface/transformers": "4.3.2",
+    "@mediabunny/aac-encoder": "^1.66.0",
+    "mediabunny": "1.66.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}
