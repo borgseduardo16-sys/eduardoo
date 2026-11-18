@@ -17,7 +17,7 @@ const [, , , VIDEO, OUT, MODE = 'clip', MOBILE] = process.argv;
   console.log('rolagem horizontal (home):', over);
   if (MODE === 'full') await p.click('[data-mode="full"]');
   await p.setInputFiles('#file', VIDEO);
-  await p.waitForSelector('#setup:not([hidden])'); console.log('setup:', await p.textContent('#fileMeta'));
+  await p.waitForSelector('#setup:not([hidden])'); console.log('setup:', await p.textContent('#totalMeta'));
   if (MODE === 'clip') await p.click('#durChips [data-v="15"]');
   await shot('2-setup');
   await p.click('#btnFind');

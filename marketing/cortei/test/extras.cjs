@@ -12,7 +12,6 @@ const [, , , VIDEO, REF, MUSIC, OUT] = process.argv;
   const tap = (sel) => p.$eval(sel, (e) => { e.scrollIntoView({ block: 'center' }); e.click(); });
   await p.goto('http://127.0.0.1:8930/');
   // 1) referências
-  await p.click('#refBox summary');
   await p.setInputFiles('#refFiles', [REF]);
   await p.waitForFunction(() => /Aprendido|Não consegui/.test(document.getElementById('refInfo').textContent), null, { timeout: 120000 });
   console.log('referência:', await p.textContent('#refInfo'));
@@ -51,7 +50,7 @@ const [, , , VIDEO, REF, MUSIC, OUT] = process.argv;
   const b64 = await p.evaluate(async () => { const r = window.__cortei.result; const buf = new Uint8Array(await r.blob.arrayBuffer()); let s = ''; for (let i = 0; i < buf.length; i += 32768) s += String.fromCharCode.apply(null, buf.subarray(i, i + 32768)); return { ext: r.ext, data: btoa(s) }; });
   fs.writeFileSync(`${OUT}/x-1080-quadrado.${b64.ext}`, Buffer.from(b64.data, 'base64'));
   // 7) voltar ao ritmo padrão
-  await p.click('#btnNew'); await p.click('#refBox summary').catch(() => {}); await p.click('#refClear');
+  await p.click('#btnNew'); await p.$eval('#refClear', (e) => e.click());
   console.log('ritmo padrão de volta:', await p.evaluate(() => window.__cortei.style === null), '·', await p.textContent('#refInfo'));
   console.log(errs.length ? `ERROS: ${errs.length}` : 'sem erros no console');
   await b.close();

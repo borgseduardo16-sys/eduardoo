@@ -24,20 +24,21 @@
   </div>
   <div class="modes" role="radiogroup" aria-label="O que você quer fazer">
     <button class="mode on" data-mode="clip" role="radio" aria-checked="true"><b>Criar clipe</b><small>Acha os melhores momentos de um vídeo longo</small></button>
-    <button class="mode" data-mode="full" role="radio" aria-checked="false"><b>Editar o vídeo todo</b><small>Corta as pausas e edita o vídeo inteiro (até 20 min)</small></button>
+    <button class="mode" data-mode="full" role="radio" aria-checked="false"><b>Editar o vídeo todo</b><small>Junta um ou vários vídeos, corta pausas e erros (até 20 min no total)</small></button>
   </div>
   <label class="drop" id="drop" for="file">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    <b>Toque para escolher o vídeo</b>
-    <small>ou arraste o arquivo para cá · MP4, MOV, WebM ou MKV · sem limite de tamanho</small>
-    <input type="file" id="file" accept="video/*,.mkv,.mov,.mp4,.webm" hidden>
+    <b>Toque para escolher os vídeos</b>
+    <small>um ou vários (eles entram em sequência) · MP4, MOV, WebM ou MKV · sem limite de tamanho</small>
+    <input type="file" id="file" accept="video/*,.mkv,.mov,.mp4,.webm" multiple hidden>
   </label>
   <p class="msg err" id="homeErr" hidden></p>
   <p class="privacy">🔒 Seu vídeo não sai do seu aparelho: tudo é processado aqui mesmo, no navegador.</p>
 
   <details class="card ref" id="refBox" open>
     <summary><b>Treinar com vídeos de referência</b> <span class="pill" id="refPill" hidden></span><small>Opcional: envie vídeos de referência e o Cortei edita no mesmo ritmo</small></summary>
-    <p class="muted">Envie de 1 a 5 vídeos editados do jeito que você gosta. O Cortei mede o <b>ritmo</b> deles (quantos cortes por minuto e o tamanho das pausas) e usa esse ritmo nos seus vídeos. Ele não copia o conteúdo nem os efeitos.</p>
+    <p class="muted">Envie de 1 a 5 vídeos editados do jeito que você gosta. O Cortei estuda como eles foram editados (ritmo dos cortes, pausas, zoom, posição e cor da legenda, música de fundo e som nas transições) e edita os seus vídeos nesse estilo. O conteúdo dos vídeos não é copiado.</p>
+    <ul class="learned" id="refList" hidden></ul>
     <div class="row">
       <label class="btn ghost" for="refFiles">Escolher vídeos de referência</label>
       <input type="file" id="refFiles" accept="video/*,.mkv,.mov,.mp4,.webm" multiple hidden>
@@ -56,7 +57,12 @@
 
 <!-- 2. preparo -->
 <section id="setup" class="w screen narrow" hidden>
-  <div class="card filecard"><div><b id="fileName"></b><small id="fileMeta"></small></div></div>
+  <div class="card filecard">
+    <div class="listhead"><b>Seus vídeos</b><small id="totalMeta"></small></div>
+    <ol class="clips" id="clipList"></ol>
+    <div class="row"><label class="btn ghost sm" for="fileMore">+ Adicionar vídeo</label><input type="file" id="fileMore" accept="video/*,.mkv,.mov,.mp4,.webm" multiple hidden></div>
+    <p class="msg err" id="setupErr" hidden></p>
+  </div>
   <div class="step" id="durStep"><h3>Quanto tempo deve ter o clipe?</h3>
     <div class="chips" id="durChips"></div>
     <div class="row custom"><label for="durCustom">Outro tempo (segundos)</label><input id="durCustom" type="number" inputmode="numeric" min="5" max="180" placeholder="ex.: 45"></div>
@@ -83,6 +89,7 @@
     <div class="panel">
       <div class="card"><h3>Estilo de referência</h3>
         <p class="muted small" id="refInfo2"></p>
+        <ul class="learned" id="refList2" hidden></ul>
         <div class="row"><label class="btn ghost sm" for="refFiles2">Enviar vídeo de referência</label><input type="file" id="refFiles2" accept="video/*,.mkv,.mov,.mp4,.webm" multiple hidden><button class="btn ghost sm" id="refClear2" hidden>Voltar ao ritmo padrão</button></div>
         <div class="bar" id="refBar2" hidden><i></i></div>
       </div>
@@ -103,20 +110,33 @@
         <div class="chips" id="frmChips"></div>
       </div>
 
-      <div class="card"><h3>Legendas</h3>
-        <label class="switch"><input type="checkbox" id="capOn" checked><span>Mostrar legendas</span></label>
+      <div class="card" id="speechCard"><h3>Fala: erros e legendas</h3>
+        <p class="muted small">O Cortei escuta a fala para cortar erros, repetições e gaguejos e para criar as legendas. Tudo no seu aparelho.</p>
         <div class="row2">
           <div class="field"><label for="capLang">Idioma da fala</label><select id="capLang"><option value="pt">Português</option><option value="en">Inglês</option><option value="es">Espanhol</option><option value="fr">Francês</option><option value="it">Italiano</option><option value="de">Alemão</option></select></div>
           <div class="field"><label for="capModel">Precisão</label><select id="capModel"><option value="tiny">Rápida (baixa uns 40 MB)</option><option value="base" selected>Boa (baixa uns 80–200 MB)</option><option value="small">Máxima (baixa uns 250–500 MB)</option></select></div>
         </div>
-        <button class="btn full" id="btnCap">Gerar legendas automáticas</button>
-        <div class="progress" id="capProg" hidden><div class="bar"><i></i></div><small id="capText"></small></div>
-        <p class="msg err" id="capErr" hidden></p>
+        <button class="btn full" id="btnAsr">Ouvir a fala</button>
+        <div class="progress" id="asrProg" hidden><div class="bar"><i></i></div><small id="asrText"></small></div>
+        <p class="msg err" id="asrErr" hidden></p>
+        <label class="switch"><input type="checkbox" id="optFix" checked><span>Cortar erros, repetições e gaguejos</span></label>
+        <p class="muted small" id="fixInfo">Toque em "Ouvir a fala" para o Cortei achar os erros.</p>
+        <ul class="fixes" id="fixList"></ul>
+      </div>
+
+      <div class="card"><h3>Legendas</h3>
+        <label class="switch"><input type="checkbox" id="capOn" checked><span>Mostrar legendas</span></label>
+        <p class="muted small" id="capInfo">As legendas aparecem depois de "Ouvir a fala".</p>
         <div id="capEdit" hidden>
           <label class="lbl">Corrija as palavras se precisar (apague para remover)</label>
           <div class="words" id="words"></div>
         </div>
         <label class="lbl">Estilo</label><div class="chips" id="styChips"></div>
+        <label class="lbl">Fonte</label><div class="chips" id="fontChips"></div>
+        <div class="row"><label class="btn ghost sm" for="fontFile">Usar a minha fonte</label><input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2,font/*" hidden><button class="btn ghost sm" id="fontDel" hidden>Remover fonte</button></div>
+        <p class="muted small" id="fontInfo">Tem uma fonte que você usa nos seus vídeos? Envie o arquivo (.ttf, .otf ou .woff) e ela vira a fonte da legenda.</p>
+        <label class="lbl" for="capColor">Cor do destaque</label>
+        <div class="row"><input type="color" id="capColor" value="#ffe500" aria-label="Cor da palavra em destaque"><button class="btn ghost sm" id="capColorReset">Cor padrão do estilo</button></div>
         <label class="lbl">Posição</label><div class="chips" id="posChips"></div>
       </div>
 
@@ -130,6 +150,9 @@
         <label class="switch"><input type="checkbox" id="optBar" checked><span>Barra de progresso</span></label>
         <label class="lbl">Efeitos sonoros</label><div class="chips" id="sfxChips"></div>
         <p class="muted small" id="sfxInfo"></p>
+        <label class="lbl">Seus efeitos sonoros (opcional)</label>
+        <p class="muted small">Envie os sons que você usa nos seus vídeos e o Cortei coloca eles nos momentos certos, no lugar dos sons do app.</p>
+        <ul class="ownsfx" id="ownSfx"></ul>
       </div>
 
       <div class="card"><h3>Música de fundo</h3>
@@ -164,7 +187,7 @@
   <button class="btn ghost" id="btnCancel">Cancelar</button>
 </div></div>
 
-<video id="src" playsinline preload="auto" hidden></video>
+<div id="srcBox" hidden></div>
 <audio id="musicEl" hidden></audio>
 <script type="module" src="/assets/app.js"></script>
 </body>

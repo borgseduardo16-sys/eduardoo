@@ -37,22 +37,38 @@ COMO TESTAR DEPOIS DE PUBLICAR
 
 O QUE VOCÊ PRECISA SABER
 ------------------------
-- Formato de saída: MP4 (H.264 + AAC) quando o navegador consegue gerar; se não
-  conseguir, sai em WebM e o app avisa na tela.
-- Legendas: o reconhecimento de fala é baixado de huggingface.co e cdn.jsdelivr.net
-  na primeira vez. Sem internet nessa hora, as legendas não são geradas (o resto
+- Vários vídeos: dá para escolher até 20 vídeos de uma vez. Eles entram em
+  sequência (dá para mudar a ordem com as setas) e viram um vídeo só.
+- Modo "Editar o vídeo todo": até 20 minutos no total. Vídeos longos levam mais
+  tempo para exportar (mais ou menos o tempo do próprio vídeo) e pedem um
+  aparelho com boa memória.
+- Erros de fala ("Ouvir a fala"): o app transcreve a fala e corta frase
+  recomeçada, palavra errada falada de novo, palavra cortada no meio, gaguejo e
+  "hã/é...". Ele também compara o som do fim de uma fala com o começo da próxima,
+  porque a transcrição costuma "limpar" a primeira tentativa. Cada corte aparece
+  numa lista com o botão "Ver" e pode ser desmarcado. Os cortes pelo som com
+  sinal médio aparecem desmarcados para a pessoa conferir.
+  Trava de segurança: se a transcrição sair estranha (cortaria mais de 30% da
+  fala), nada é cortado sozinho.
+- Legendas: usam a mesma transcrição. O reconhecimento de fala é baixado de
+  huggingface.co e cdn.jsdelivr.net na primeira vez (40 a 500 MB, conforme a
+  precisão). Sem internet nessa hora, não há legendas nem corte de erros (o resto
   funciona).
-- Vídeos de referência: o app aprende o RITMO (cortes por minuto e tamanho das
-  pausas). Ele não copia efeitos, cores nem conteúdo. Os números ficam guardados
-  só no aparelho da pessoa.
-- Modo "Editar o vídeo todo": até 20 minutos. Vídeos longos levam mais tempo para exportar
-  (mais ou menos o tempo do próprio vídeo) e pedem um aparelho com boa memória.
+- Vídeos de referência: o app mede ritmo dos cortes, pausas, zoom nos cortes,
+  posição e cor de destaque da legenda, se tem música de fundo (e o volume) e se
+  as transições têm efeito sonoro, e aplica isso na edição. A FONTE e os SONS
+  exatos não dá para descobrir pelo vídeo: por isso a pessoa pode escolher uma
+  fonte (Montserrat, Poppins, Anton, Bebas Neue, Jakarta), enviar a própria fonte
+  (.ttf/.otf/.woff) e enviar os próprios efeitos sonoros (transição, impacto,
+  subida, título). Fonte e sons ficam guardados no aparelho da pessoa.
 - 720p é o padrão. 1080p e 2K aparecem com o selo "Pro" e estão liberados nesta
   versão de base. Quando o sistema de créditos entrar, é só mudar PRO_LOCKED em
   src/ui/main.js e ligar ao login/pagamento.
-- Efeitos sonoros: são criados pelo próprio app na hora (não usa arquivos de
+- Efeitos sonoros do app: criados pelo próprio app na hora (sem arquivos de
   terceiros), então não têm problema de direito autoral.
 - Música: a pessoa envia a música dela. O app avisa que precisa ter direito de uso.
+- Formato de saída: MP4 (H.264 + AAC) quando o navegador consegue gerar; se não
+  conseguir, sai em WebM e o app avisa na tela.
 
 PARA QUEM FOR MEXER NO CÓDIGO
 -----------------------------
@@ -60,3 +76,6 @@ PARA QUEM FOR MEXER NO CÓDIGO
   node build.mjs            (gera site/assets a partir de src/)
   node test/serve.mjs 8930  (servidor local em http://127.0.0.1:8930)
   node test/ui.cjs <pasta-do-playwright> <video> <pasta-saida> [clip|full] [mobile]
+  node test/retakes.test.mjs   (detector de erros de fala)
+  node test/fala.cjs <pasta-do-playwright> <video1> <video2> <pasta-saida>
+    (precisa do servidor com MODELS_DIR apontando para um modelo Whisper local)

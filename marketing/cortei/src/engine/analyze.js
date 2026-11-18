@@ -86,11 +86,12 @@ export function buildAnalysis(media, db, motion) {
     const den = Math.max(3, A.p95 - A.p50);
     let lastOn = -99;
     for (let i = 0; i < n; i++) {
+      if (db[i] !== db[i]) continue; // NaN: trecho de vídeo sem áudio
       A.loud[i] = Math.min(1.5, Math.max(0, (db[i] - A.p50) / den));
       if (db[i] < A.silenceThr) A.sil[i] = 1;
       if (i >= 6) {
         let m = 0; for (let j = i - 6; j < i; j++) m += db[j]; m /= 6;
-        if (db[i] - m > 7 && db[i] > A.p50 && i - lastOn > 5) { A.onset[i] = 1; lastOn = i; }
+        if (m === m && db[i] - m > 7 && db[i] > A.p50 && i - lastOn > 5) { A.onset[i] = 1; lastOn = i; }
       }
     }
   }
@@ -127,34 +128,46 @@ function snapStart(A, start) {
   if (!A.hasAudio) return start;
   const i0 = Math.max(0, Math.round((start - 1.5 - A.t0) / HOP)), i1 = Math.min(A.n - 1, Math.round((start + 0.5 - A.t0) / HOP));
   let best = -1, bestV = Infinity;
-  for (let i = i0; i <= i1; i++) { const v = (A.db[Math.max(0, i - 1)] + A.db[i] + A.db[Math.min(A.n - 1, i + 1)]) / 3; if (v < bestV) { bestV = v; best = i; } }
+  for (let i = i0; i <= i1; i++) { const v = (A.db[Math.max(0, i - 1)] + A.db[i] + A.db[Math.min(A.n - 1, i + 1)]) / 3; if (v === v && v < bestV) { bestV = v; best = i; } }
   return best >= 0 && bestV < A.p50 - 6 ? A.t0 + best * HOP : start;
 }
 
-// monta os pedaços do vídeo original que entram no clipe; com cutSilence, pula as partes paradas
-export function buildSegments(A, start, clipLen, { cutSilence = true, adjust = 0, style = DEFAULT_STYLE } = {}) {
-  const MIN_SIL = style.minSilence, PAD = 0.15, MAX_SPAN = clipLen * 3;
-  start = Math.min(Math.max(A.t0, snapStart(A, start) + adjust), Math.max(A.t0, A.duration - 1));
-  const end = A.duration;
-  if (!cutSilence || !A.hasAudio || !isFinite(A.silenceThr)) return finish([{ s: start, e: Math.min(end, start + clipLen) }]);
-  const segs = []; let need = clipLen, cur = start;
-  while (need > 0.02 && cur < end && cur - start < MAX_SPAN) {
-    // acha o próximo silêncio longo que começa dentro do que ainda falta
-    const iCur = Math.max(0, Math.round((cur - A.t0) / HOP)), iMax = Math.min(A.n, iCur + Math.ceil((need + PAD) / HOP));
-    let cutA = -1, cutB = -1;
-    for (let j = iCur; j < iMax; j++) {
+// monta os pedaços que entram no clipe. Pula: silêncios longos (cutSilence), trechos marcados para sair (excl:
+// erros, repetições, gaguejos) e a divisa entre dois vídeos (windows). Tudo no tempo do projeto.
+export function buildSegments(A, start, clipLen, { cutSilence = true, adjust = 0, style = DEFAULT_STYLE, excl = [], windows = null } = {}) {
+  const MIN_SIL = style.minSilence, PAD = 0.15, MAX_SPAN = clipLen * 3 + 5, end = A.duration;
+  start = Math.min(Math.max(A.t0, snapStart(A, start) + adjust), Math.max(A.t0, end - 1));
+  const skips = [];
+  if (cutSilence && A.hasAudio && isFinite(A.silenceThr)) {
+    const i0 = Math.max(0, Math.floor((start - A.t0) / HOP)), i1 = Math.min(A.n, Math.ceil((start + MAX_SPAN - A.t0) / HOP));
+    for (let j = i0; j < i1; j++) {
       if (!A.sil[j]) continue;
       let e = j; while (e < A.n && A.sil[e]) e++;
-      if ((e - j) * HOP >= MIN_SIL) { cutA = j; cutB = e; break; }
+      if ((e - j) * HOP >= MIN_SIL) skips.push({ a: A.t0 + j * HOP + PAD, b: e >= A.n ? end : A.t0 + e * HOP - PAD, sil: true });
       j = e;
     }
-    if (cutA < 0) { segs.push({ s: cur, e: Math.min(end, cur + need) }); need = 0; break; }
-    const keepEnd = A.t0 + cutA * HOP + PAD, resume = A.t0 + cutB * HOP - PAD;
-    if (keepEnd - cur >= need) { segs.push({ s: cur, e: cur + need }); need = 0; break; }
-    if (keepEnd > cur + 0.5) { segs.push({ s: cur, e: keepEnd }); need -= keepEnd - cur; } // pedacinhos menores que 0,5 s são descartados
-    if (cutB >= A.n) break; // silêncio até o fim do vídeo
-    cur = resume;
   }
+  for (const x of excl) if (x.b > x.a) skips.push({ a: x.a, b: x.b, sil: false });
+  if (windows) for (let k = 0; k < windows.length - 1; k++) skips.push({ a: windows[k].b, b: windows[k + 1].a, sil: false, edge: true });
+  skips.sort((p, q) => p.a - q.a);
+  const merged = [];
+  for (const x of skips) {
+    const l = merged[merged.length - 1];
+    if (l && x.a <= l.b + 0.02) { l.b = Math.max(l.b, x.b); l.sil = l.sil && x.sil; } else merged.push({ ...x });
+  }
+  const segs = []; let need = clipLen, cur = start, prevSil = true;
+  for (const x of merged) {
+    if (need <= 0.02 || cur - start > MAX_SPAN) break;
+    if (x.b <= cur) continue;
+    if (x.a <= cur) { cur = x.b; prevSil = x.sil; continue; }
+    const len = x.a - cur;
+    if (len >= need) { segs.push({ s: cur, e: cur + need }); need = 0; break; }
+    // entre dois silêncios, pedacinhos menores que 0,5 s são ruído; perto de um corte de erro, vale até 0,1 s
+    const minLen = prevSil && x.sil ? 0.5 : 0.1;
+    if (len >= minLen) { segs.push({ s: cur, e: x.a }); need -= len; }
+    cur = x.b; prevSil = x.sil;
+  }
+  if (need > 0.02 && cur < end && cur - start <= MAX_SPAN) segs.push({ s: cur, e: Math.min(end, cur + need) });
   // um restinho muito curto no final fica estranho: sai
   if (segs.length > 1 && segs[segs.length - 1].e - segs[segs.length - 1].s < 0.7) segs.pop();
   return finish(segs.length ? segs : [{ s: start, e: Math.min(end, start + clipLen) }]);
@@ -171,6 +184,28 @@ export function mapTime(tl, t) {
   const segs = tl.segments;
   for (let k = 0; k < segs.length; k++) { const g = segs[k]; if (t < g.out + g.dur || k === segs.length - 1) return { k, src: g.s + Math.min(g.dur, Math.max(0, t - g.out)) }; }
   return { k: 0, src: segs[0].s };
+}
+
+// instante do clipe final que corresponde a um instante do projeto (se ele foi cortado, o ponto do corte)
+export function toOut(tl, vt) {
+  let t = 0;
+  for (const g of tl.segments) { if (vt < g.s) return t; if (vt <= g.e) return g.out + (vt - g.s); t = g.out + g.dur; }
+  return t;
+}
+
+// palavras (tempo do projeto) → palavras no tempo do clipe final; as que caíram num corte somem
+export function wordsToTimeline(words, tl) {
+  const out = [], segs = tl.segments; let k = 0;
+  for (const w of words) {
+    if (!w.text) continue;
+    while (k < segs.length && segs[k].e <= w.start) k++;
+    if (k >= segs.length) break;
+    const g = segs[k];
+    if (w.start < g.s - 0.05) continue;
+    const start = g.out + Math.max(0, w.start - g.s), end = g.out + Math.min(g.dur, Math.max(w.end, w.start + 0.08) - g.s);
+    out.push({ text: w.text, start, end: Math.max(end, start + 0.08), ref: w });
+  }
+  return out;
 }
 
 // momentos de impacto dentro do clipe (para zoom e efeitos sonoros), já no tempo do clipe

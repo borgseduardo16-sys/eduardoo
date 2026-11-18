@@ -11,10 +11,19 @@ const easeInOut = (x) => { x = clamp01(x); return x < 0.5 ? 4 * x * x * x : 1 - 
 const easeOutBack = (x) => { x = clamp01(x); const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
 const UI_FONT = '"Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", sans-serif';
 
+// fontes da legenda; "propria" é a fonte que a pessoa enviou (carregada com o nome CorteiUser)
+export const FONTS = {
+  montserrat: { nome: 'Montserrat', css: (fs) => `900 ${fs}px Montserrat`, k: 1 },
+  poppins: { nome: 'Poppins', css: (fs) => `800 ${fs}px Poppins`, k: 1 },
+  anton: { nome: 'Anton', css: (fs) => `400 ${fs}px Anton`, k: 1.12 },
+  bebas: { nome: 'Bebas Neue', css: (fs) => `400 ${fs}px "Bebas Neue"`, k: 1.3 },
+  jakarta: { nome: 'Jakarta', css: (fs) => `800 ${fs}px "Plus Jakarta Sans"`, k: 1 },
+  propria: { nome: 'Sua fonte', css: (fs) => `${fs}px CorteiUser`, k: 1 },
+};
 export const CAPTION_STYLES = {
-  impacto: { nome: 'Impacto', font: (fs) => `900 ${fs}px Montserrat, ${UI_FONT}`, size: 78, upper: true },
-  caixa: { nome: 'Caixa', font: (fs) => `800 ${fs}px ${UI_FONT}`, size: 60, upper: false },
-  limpa: { nome: 'Limpa', font: (fs) => `700 ${fs}px ${UI_FONT}`, size: 58, upper: false },
+  impacto: { nome: 'Contorno', font: 'montserrat', size: 78, upper: true, color: '#FFE500' },
+  caixa: { nome: 'Caixa', font: 'jakarta', size: 60, upper: false, color: '#2563eb' },
+  limpa: { nome: 'Limpa', font: 'jakarta', size: 58, upper: false, color: '#ffffff' },
 };
 
 // agrupa as palavras em blocos curtos (no máximo 3 palavras), do jeito que aparece em vídeo curto
@@ -98,9 +107,10 @@ export class Compositor {
     const segs = st.tl.segments; let k = 0;
     while (k < segs.length - 1 && t >= segs[k].out + segs[k].dur) k++;
     const g = segs[k]; let z = 1;
-    if (segs.length > 1 && k % 2 === 1) z += 0.06; // alterna o enquadramento a cada corte (disfarça o corte seco)
+    const amt = st.fx.zoomAmt ?? 0.1;
+    if (segs.length > 1 && k % 2 === 1) z += amt * 0.6; // alterna o enquadramento a cada corte (disfarça o corte seco)
     z += 0.035 * clamp01((t - g.out) / Math.max(4, g.dur)); // aproximação lenta
-    for (const p of st.ev.punches) { const d = t - p; if (d >= 0 && d < 0.9) z += 0.1 * (d < 0.07 ? d / 0.07 : 1 - easeInOut((d - 0.07) / 0.83)); }
+    for (const p of st.ev.punches) { const d = t - p; if (d >= 0 && d < 0.9) z += amt * (d < 0.07 ? d / 0.07 : 1 - easeInOut((d - 0.07) / 0.83)); }
     return z;
   }
 
@@ -127,9 +137,10 @@ export class Compositor {
     let c = null;
     for (let i = 0; i < chunks.length; i++) { if (t >= chunks[i].start && t < chunks[i].end) { c = chunks[i]; break; } if (chunks[i].start > t) break; }
     if (!c) return;
-    const sty = CAPTION_STYLES[st.cap.style] || CAPTION_STYLES.impacto, fs = sty.size * u;
-    ctx.font = sty.font(fs);
-    const items = c.words.map((w) => { const text = sty.upper ? w.text.toUpperCase() : w.text; return { text, w: ctx.measureText(text).width, start: w.start }; });
+    const sty = CAPTION_STYLES[st.cap.style] || CAPTION_STYLES.impacto, font = FONTS[st.cap.font] || FONTS[sty.font];
+    const fs = sty.size * u * font.k * (st.cap.scale || 1), hl = st.cap.color || sty.color, upper = st.cap.upper ?? sty.upper;
+    ctx.font = `${font.css(fs)}, ${UI_FONT}`;
+    const items = c.words.map((w) => { const text = upper ? w.text.toUpperCase() : w.text; return { text, w: ctx.measureText(text).width, start: w.start }; });
     const space = fs * 0.36, maxW = W * 0.86, lines = []; let line = [], lw = 0;
     for (const it of items) {
       if (line.length && lw + space + it.w > maxW) { lines.push({ items: line, w: lw }); line = []; lw = 0; }
@@ -139,7 +150,8 @@ export class Compositor {
     let active = 0; items.forEach((it, i) => { if (t >= it.start) active = i; });
     const lh = fs * 1.24, below = H - (box.y + box.h);
     let cy;
-    if (st.cap.pos === 'centro') cy = H * 0.5;
+    if (st.cap.pos === 'topo') cy = Math.max(H * 0.26, box.y + 120 * u);
+    else if (st.cap.pos === 'centro') cy = H * 0.5;
     else if (st.cap.pos === 'baixo') cy = H * (W > H ? 0.84 : 0.76);
     else cy = below > 380 * u ? Math.min(box.y + box.h + 150 * u, H * 0.78) : H * (W > H ? 0.84 : 0.72);
     const s = 0.88 + 0.12 * easeOutBack((t - c.start) / 0.12);
@@ -158,14 +170,14 @@ export class Compositor {
           ctx.strokeStyle = '#000'; ctx.lineWidth = fs * 0.2;
           ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 0; ctx.shadowOffsetY = fs * 0.07;
           ctx.strokeText(it.text, -it.w / 2, 0);
-          ctx.shadowColor = 'transparent'; ctx.fillStyle = on ? '#FFE500' : '#fff'; ctx.fillText(it.text, -it.w / 2, 0);
+          ctx.shadowColor = 'transparent'; ctx.fillStyle = on ? hl : '#fff'; ctx.fillText(it.text, -it.w / 2, 0);
           ctx.restore();
         } else if (st.cap.style === 'caixa') {
-          if (on) { ctx.fillStyle = '#2563eb'; roundRect(ctx, x - 12 * u, y - fs * 0.56, it.w + 24 * u, fs * 1.12, 12 * u); ctx.fill(); }
+          if (on) { ctx.fillStyle = hl; roundRect(ctx, x - 12 * u, y - fs * 0.56, it.w + 24 * u, fs * 1.12, 12 * u); ctx.fill(); }
           ctx.fillStyle = '#fff'; ctx.fillText(it.text, x, y + fs * 0.03);
         } else {
           ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 16 * u; ctx.shadowOffsetY = 3 * u;
-          ctx.globalAlpha = on ? 1 : 0.68; ctx.fillStyle = '#fff'; ctx.fillText(it.text, x, y);
+          ctx.globalAlpha = on ? 1 : 0.68; ctx.fillStyle = on ? hl : '#fff'; ctx.fillText(it.text, x, y);
           ctx.globalAlpha = 1; ctx.shadowColor = 'transparent';
         }
         x += it.w + space; idx++;

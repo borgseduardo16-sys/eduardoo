@@ -3,6 +3,7 @@ import { Output, Mp4OutputFormat, WebMOutputFormat, BufferTarget, CanvasSink, Ca
 import { registerAacEncoder } from '@mediabunny/aac-encoder';
 import { Compositor, outputSize } from './compose.js';
 import { mapTime } from './analyze.js';
+import { segSource } from './project.js';
 import { SR } from './audio.js';
 
 export const QUALITIES = {
@@ -39,10 +40,10 @@ export function sinkSize(media, W, H, framing) {
  * opts: { media, tl, state (para o compositor), aspect, quality, mixed (AudioBuffer|null), fps, onProgress, signal }
  * devolve { blob, ext, mime, social, W, H, seconds }
  */
-export async function exportClip({ media, tl, state, aspect, quality, mixed, onProgress, signal }) {
+export async function exportClip({ proj, tl, state, aspect, quality, mixed, onProgress, signal }) {
   const started = performance.now();
   const q = QUALITIES[quality] || QUALITIES[720], { W, H } = outputSize(aspect, Number(quality) || 720);
-  const fps = media.fps >= 23.5 && media.fps <= 30.5 ? Math.round(media.fps) : 30;
+  const f0 = proj.clips[0].fps, fps = f0 >= 23.5 && f0 <= 30.5 ? Math.round(f0) : 30;
   const fmt = await pickFormat(W, H, q.bitrate);
   const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d', { alpha: false });
@@ -54,10 +55,13 @@ export async function exportClip({ media, tl, state, aspect, quality, mixed, onP
   if (mixed) { asrc = new AudioBufferSource({ codec: fmt.audio, bitrate: 160e3 }); output.addAudioTrack(asrc); }
   await output.start();
 
-  const sz = sinkSize(media, W, H, state.framing);
-  const sink = new CanvasSink(media.video, { width: sz.width, height: sz.height, fit: 'fill', poolSize: 3 });
+  const sinks = new Map(); // um leitor de quadros por vídeo
+  const sinkFor = (i) => {
+    if (!sinks.has(i)) { const c = proj.clips[i], sz = sinkSize(c, W, H, state.framing); sinks.set(i, new CanvasSink(c.video, { width: sz.width, height: sz.height, fit: 'fill', poolSize: 3 })); }
+    return sinks.get(i);
+  };
   const total = Math.max(1, Math.round(tl.outDur * fps));
-  let segK = -1, it = null, cur = null, next = null, audioPos = 0;
+  let segK = -1, it = null, cur = null, next = null, audioPos = 0, src0 = null;
   const pushAudio = async (untilSec) => {
     // manda o áudio em fatias de 1 s, junto com o vídeo, para o arquivo ficar bem intercalado
     while (asrc && audioPos < mixed.length && audioPos / SR < untilSec) {
@@ -69,15 +73,16 @@ export async function exportClip({ media, tl, state, aspect, quality, mixed, onP
   try {
     for (let n = 0; n < total; n++) {
       if (signal?.aborted) throw new DOMException('cancelado', 'AbortError');
-      const t = n / fps, { k, src } = mapTime(tl, t);
+      const t = n / fps, { k, src: vt } = mapTime(tl, t);
       if (k !== segK) {
         if (it) await it.return();
-        const g = tl.segments[k];
-        it = sink.canvases(g.s, g.e + 0.5); segK = k; cur = null; next = await it.next();
+        src0 = segSource(proj, tl.segments[k]);
+        it = sinkFor(src0.i).canvases(src0.s, src0.e + 0.5); segK = k; cur = null; next = await it.next();
       }
+      const src = src0.s + (vt - tl.segments[k].s);
       while (next && !next.done && next.value.timestamp <= src + 1e-3) { cur = next.value; next = await it.next(); }
       if (!cur && next && !next.done) cur = next.value;
-      if (cur) comp.draw(ctx, cur.canvas, media.width, media.height, t, state);
+      if (cur) comp.draw(ctx, cur.canvas, src0.clip.width, src0.clip.height, t, state);
       await vsrc.add(t, 1 / fps);
       if (n % fps === 0) await pushAudio(t + 1.5);
       if (n % 3 === 0) onProgress?.(n / total, (performance.now() - started) / 1000);

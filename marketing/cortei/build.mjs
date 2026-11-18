@@ -17,6 +17,9 @@ const fonts = [
   ['@fontsource/plus-jakarta-sans/files/plus-jakarta-sans-latin-600-normal.woff2', 'jakarta-600.woff2'],
   ['@fontsource/plus-jakarta-sans/files/plus-jakarta-sans-latin-700-normal.woff2', 'jakarta-700.woff2'],
   ['@fontsource/plus-jakarta-sans/files/plus-jakarta-sans-latin-800-normal.woff2', 'jakarta-800.woff2'],
+  ['@fontsource/poppins/files/poppins-latin-800-normal.woff2', 'poppins-800.woff2'],
+  ['@fontsource/anton/files/anton-latin-400-normal.woff2', 'anton-400.woff2'],
+  ['@fontsource/bebas-neue/files/bebas-neue-latin-400-normal.woff2', 'bebas-400.woff2'],
 ];
 for (const [from, to] of fonts) cpSync('node_modules/' + from, 'site/fonts/' + to);
 console.log('ok');
