@@ -55,21 +55,21 @@ const cenas = [];
 let cursor = 0;
 const add = (dur, tipo, o = {}) => { cenas.push({ ini: cursor, dur, tipo, ...o }); cursor += dur; };
 // abertura: cortes rápidos
-[['meridian', 442], ['hm-jardim', 142], ['hs-intro', 240], ['kelle-hero', 176], ['andrade-proj', 100], ['hm-rolo', 60], ['truz-hero', 100]]
-  .forEach(([c, f]) => add(0.7, 'abertura', { clip: c, f0: f }));
+[['meridian', 100], ['hm-jardim', 118], ['hs-intro', 185], ['kelle-hero', 118], ['andrade-proj', 95], ['hm-rolo', 28], ['truz-hero', 98]]
+  .forEach(([c, f]) => add(0.95, 'abertura', { clip: c, f0: f }));
 add(3.4, 'titulo');
 add(2.6, 'card', { linhas: T.c1, extra: T.c1b });
 // pranchas: alterna ecrã inteiro (A) e prancha com moldura (B)
-const pl = [['hm-jardim', 25, 'A'], ['hs-intro', 150, 'B'], ['meridian', 380, 'A'], ['kelle-cap', 0, 'B'], ['andrade-proj', 15, 'A'], ['truz-hero', 40, 'B']];
+const pl = [['hm-jardim', 12, 'A'], ['hs-intro', 96, 'B'], ['meridian', 8, 'A'], ['kelle-cap', 8, 'B'], ['andrade-proj', 12, 'A'], ['truz-hero', 18, 'B']];
 pl.forEach(([c, f, estilo], i) => add(i === 0 ? 4.2 : 3.6, 'prancha', { clip: c, f0: f, estilo, n: i + 1, legenda: T.pl[i] }));
 add(2.3, 'card', { linhas: T.c2 });
-add(3.4, 'prancha', { clip: 'hm-proposta', f0: 8, estilo: 'B', n: 0, legenda: '' , rapido: 1.25});
+add(3.6, 'prancha', { clip: 'hm-proposta', f0: 10, estilo: 'B', n: 0, legenda: '' , rapido: 1.3});
 T.b.forEach((b, i) => add(1.9, 'beneficio', { linhas: b, n: i + 1 }));
 add(4.2, 'fim');
 window.DURACAO = cursor;
 
-const NFR = { 'andrade-hero':95,'andrade-proj':170,'hm-hero':77,'hm-jardim':170,'hm-proposta':179,'hm-rolo':170,'hs-intro':288,'hs-projetos':178,'jessica-hero':156,'kelle-cap':170,'kelle-hero':216,'meridian':509,'truz-hero':172 };
-const quadro = (c, f) => `quadros/${c}/${String(Math.min(NFR[c], Math.max(1, Math.round(f)))).padStart(4, '0')}.jpg`;
+const NFR = () => window.NFR || {};
+const quadro = (c, f) => `q2/${c}/${String(Math.min(NFR()[c] || 1, Math.max(1, Math.round(f)))).padStart(4, '0')}.jpg`;
 
 const palco = document.getElementById('palco');
 const ease = (x) => 1 - Math.pow(1 - Math.min(1, Math.max(0, x)), 3);
@@ -137,9 +137,17 @@ function html(c, k) {
   return '';
 }
 
+const X = 0.3; // duração da dissolução entre cenas (s)
 window.render = async (t) => {
-  const c = cenas.find((x) => t >= x.ini && t < x.ini + x.dur) || cenas.at(-1);
-  palco.innerHTML = html(c, t - c.ini) + '<div class="grao"></div>';
+  const i = Math.max(0, cenas.findIndex((x) => t >= x.ini && t < x.ini + x.dur));
+  const c = cenas[i], prox = cenas[i + 1];
+  let h = `<div style="position:absolute;inset:0;background:var(--papel)">${html(c, t - c.ini)}</div>`;
+  if (prox && t > prox.ini - X) {
+    const k = (t - (prox.ini - X)) / X;
+    const o = k * k * (3 - 2 * k);
+    h += `<div style="position:absolute;inset:0;background:var(--papel);opacity:${o.toFixed(3)}">${html(prox, t - prox.ini)}</div>`;
+  }
+  palco.innerHTML = h + '<div class="grao"></div>';
   await document.fonts.ready;
   await Promise.all([...palco.querySelectorAll('img')].map((i) => i.decode().catch(() => {})));
 };

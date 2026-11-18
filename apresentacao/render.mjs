@@ -5,6 +5,8 @@ fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(out, { recursive:
 const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium', args: ['--allow-file-access-from-files'] });
 const p = await b.newPage({ viewport: { width: 1080, height: 1920 } });
 await p.goto(`file://${process.cwd()}/editor.html?l=${l}`);
+const NFR = Object.fromEntries(fs.readdirSync('q2').map((d) => [d, fs.readdirSync(`q2/${d}`).length]));
+await p.evaluate((n) => { window.NFR = n; }, NFR);
 const dur = await p.evaluate(() => window.DURACAO);
 const tempos = so ? so.split(',').map(Number) : Array.from({ length: Math.round(dur * 30) }, (_, i) => i / 30);
 let i = 0;
