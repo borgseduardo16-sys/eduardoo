@@ -48,6 +48,15 @@ const T = {
     b: [['Get found', 'on Google.'], ['Build trust', 'before the first call.'], ['Turn visitors', 'into clients.']],
     fim: ['Shall we build', 'yours?'], fimSub: 'Just reply to this message.',
   },
+  fr: {
+    marca: 'Eduardo Borges', oficio: 'Web design',
+    titulo: ['Eduardo', 'Borges'], sub: 'Web designer.', subMono: 'Brésil — sites pour entreprises en Europe',
+    c1: ['Chaque site part', 'de zéro.'], c1b: 'Aucun modèle tout fait.',
+    pl: ['Mariages — Funchal, Madère', 'Home staging — Porto', 'Horlogerie — concept 3D', 'Wedding planner — Brésil', 'Mobilier sur mesure — Brésil', 'Décoration de fêtes — Barcelos'],
+    c2: ['Demandes de devis', 'directement sur WhatsApp.'],
+    b: [['Être trouvé', 'sur Google.'], ['Inspirer confiance', 'dès le premier contact.'], ['Transformer les visites', 'en clients.']],
+    fim: ['Et si on créait', 'le vôtre ?'], fimSub: 'Répondez simplement à ce message.',
+  },
 }[L];
 
 // ---------- linha do tempo (segundos) ----------
@@ -102,7 +111,7 @@ function html(c, k) {
   }
   if (c.tipo === 'prancha') {
     const f = c.f0 + k * FPS * (c.rapido || 1);
-    const n = c.n ? `PL. ${String(c.n).padStart(2, '0')} / 06` : (L === 'pt' ? 'ORÇAMENTO ONLINE' : 'ONLINE QUOTE');
+    const n = c.n ? `PL. ${String(c.n).padStart(2, '0')} / 06` : ({ pt: 'ORÇAMENTO ONLINE', en: 'ONLINE QUOTE', fr: 'DEVIS EN LIGNE' }[L]);
     if (c.estilo === 'A') {
       return `<img class="full" src="${quadro(c.clip, f)}">
         <div class="selo" style="left:48px;bottom:64px;max-width:900px"><div class="mono">${n}</div>${c.legenda ? `<div class="serif">${c.legenda}</div>` : ''}</div>`;
